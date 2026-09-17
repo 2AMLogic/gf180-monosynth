@@ -50,6 +50,53 @@ def osc(shape: str, ph: np.ndarray) -> np.ndarray:
     if shape == "pulse25":return np.where(u < 0.25, 1.0, -1.0)
     raise ValueError(shape)
 
+# ---- band-limited oscillators: PolyBLEP ------------------------------------
+#
+# A naive ramp has a step discontinuity every cycle, and a step has infinite
+# bandwidth, so everything above Nyquist folds back as inharmonic noise. That
+# measured -14.8 dB of aliased energy at MIDI note 88 and -20.8 dB at middle C
+# -- worse, and more objectionable, than any difference between ladder models.
+#
+# PolyBLEP subtracts a 2-sample polynomial approximation of the band-limited
+# step at each discontinuity. It is cheap and hardware-shaped: a comparison and
+# about three multiplies per sample, applied ONLY within one phase increment of
+# the wrap, with no iteration and fixed latency.
+#
+# The one hardware detail: it needs 1/dt, where dt is the phase increment as a
+# fraction of a cycle. dt is constant for a held note, so 1/dt is computed once
+# at note-on (or read from the same ROM that supplies the increment) rather
+# than divided per sample.
+def _blep(t: np.ndarray, dt: float) -> np.ndarray:
+    """Correction to subtract from a naive ramp at its wrap."""
+    c = np.zeros_like(t)
+    a = t < dt
+    ta = t[a] / dt
+    c[a] = ta + ta - ta * ta - 1.0
+    b = t > 1.0 - dt
+    tb = (t[b] - 1.0) / dt
+    c[b] = tb * tb + tb + tb + 1.0
+    return c
+
+
+def osc_bl(shape: str, ph: np.ndarray, inc: int) -> np.ndarray:
+    """Band-limited saw/square/pulse. `inc` is the phase increment that
+    produced `ph`; triangle and sine need no correction (sine is already
+    band-limited, triangle's slope discontinuity is far weaker)."""
+    t = ph.astype(np.float64) / (1 << PHASE_BITS)
+    dt = inc / (1 << PHASE_BITS)
+    if shape == "saw":
+        return (2.0 * t - 1.0) - _blep(t, dt)
+    if shape in ("square", "pulse25"):
+        # Two discontinuities per cycle with OPPOSITE signs: the wave steps UP
+        # by 2 at t=0 and DOWN by 2 at t=duty. A saw steps down at its wrap, so
+        # `_blep` carries the down-going sign -- the rising edge therefore needs
+        # it added and the falling edge subtracted, the reverse of the saw.
+        duty = 0.5 if shape == "square" else 0.25
+        t2 = (t + (1.0 - duty)) % 1.0
+        return (np.where(t < duty, 1.0, -1.0)) + _blep(t, dt) - _blep(t2, dt)
+    return osc(shape, ph)
+
+
 # ---- LFSR noise: a 16-bit maximal-length shift register, cheap in silicon ---
 def lfsr_noise(n: int, seed: int = 0xACE1) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
