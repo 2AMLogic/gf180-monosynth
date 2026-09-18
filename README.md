@@ -14,7 +14,7 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank and the whole voice (`rtl-sketch/voice_dp.v`, 43,200 frames of three scenarios) are each identical to their model with no tolerance, and the ladder and modal benches are shown to fail on injected defects |
+| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank and the whole voice (`rtl-sketch/voice_dp.v`: 255,060 frames over 24 scenario segments — every waveform, every note and the clamped increments, glide up/down/at its limits, gate/trig/retrigger, a release to exactly zero, paraphonic keys, the register extremes, three audition sequences — every sample, every tap of contract 16.4 and the final state) are each identical to their model with no tolerance, and all three benches are shown to fail on injected defects (three for the ladder and the modal bank, eight for the voice) and, for the voice, on an all-X stub |
 | 4 | The chip: `rtl-sketch/synth_top.v` — SPI link (DR 0007), voice, drum section, I2S | **elaborates, synthesises, runs through its pins** ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); the drum *sources* are a labelled placeholder for the `drums` branch |
 | 5 | FPGA bitstream on real hardware | not started |
 | 6 | gf180mcu ASIC | synthesised to `gf180mcu_fd_sc_mcu7t5v0`: **0.663 mm² of cells, 0.603 with Booth** ([docs/area-budget.md](docs/area-budget.md), ARCHITECTURE.md section 10); not placed, not routed, no timing, no power |
@@ -139,7 +139,9 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python rtl-sketch/verify_ladder.py --inject FB --expect-fail   # negative control
 .venv/bin/python rtl-sketch/verify_modal.py                      # the modal bank, same contract
 .venv/bin/python rtl-sketch/verify_ladder.py --nch 2             # two filter contexts on one datapath
-.venv/bin/python rtl-sketch/verify_voice.py                      # the whole voice, 43,200 frames (--short: 17,280)
+.venv/bin/python rtl-sketch/verify_voice.py                      # the whole voice, every scenario, every tap (--set quick in the suite)
+.venv/bin/python rtl-sketch/verify_voice.py --set quick --only silence --inject ENV_FLOOR --expect-fail   # a voice negative control
+.venv/bin/python rtl-sketch/verify_voice.py --set quick --only default --rtl rtl-sketch/stubs/voice_dp_stub.v   # the red run: must exit 1
 .venv/bin/python rtl-sketch/verify_top.py                        # the chip through its SPI and I2S pins
 .venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
 rtl-sketch/synth_count.sh                                        # the cell counts
@@ -151,6 +153,30 @@ behind `INJECT_BUG_LADDER_FB` (unit delay instead of the half-sample average),
 `INJECT_BUG_LADDER_TANH_CLAMP` (the old sketch's index wrap past 4.0). Each
 is caught — 23,377, 3,155 and 18,389 mismatching samples respectively — and
 `test_negative_control_is_caught` requires it.
+
+The voice bench is held to the same rule. `verify_voice.py` compares not only
+the sample but every tap of contract 16.4 — the three oscillators with their
+increments and reciprocals, `mixed`, `ae`, `fe`, `cut`, `g`, `kc`, `k_eff`,
+the ladder's `y`, the VCA's `v`, the pre-rail `out_v` — and the final state,
+because a sample-only comparison is blind exactly where the tail is quiet:
+with the release floor removed, the first tap that differs (`fe`, frame 7072
+of the quick set) precedes the first sample that differs by 36 frames. Eight
+defects are compiled in behind `INJECT_BUG_VOICE_*`, each run on the
+scenario that reaches it, each caught (quick set, sample / tap mismatches):
+
+| define | what it breaks | scenario | caught |
+|---|---|---|---|
+| `SQUARE_SIGN` | the square takes the saw's sign at the wrap (6.6.4; measures 5 dB *worse* than no correction) | `default` | 372 / 1,428 of 1,200 frames |
+| `ENV_FLOOR` | release without `max(1, ·)` (8.3): the note never ends | `silence` | 4,791 / 20,832 of 15,700 |
+| `KEFF` | no resonance compensation, `k_eff = k` (10.2, rev 1's filter) | `default` | 1,162 / 4,704 of 1,200 |
+| `MIX_SAT` | the mixer wraps instead of saturating (7) | `extremes` | 1,006 / 6,535 of 3,500 |
+| `GLIDE_FLOOR` | slew without `max(1, ·)` (6.7): a small increment never moves | `notes` | 502 / 10,470 of 3,036 |
+| `RECIP_CLAMP` | no clamp at `m = 2^15` (6.6.1): a power-of-two increment gets `r = 0` | `notes` | 375 / 3,833 of 3,036 |
+| `TRIG_RESET` | GATE_ON / TRIG reset the level to zero, the envelope DR 0003 rejects | `gate` | 2,418 / 21,775 of 2,540 |
+| `OUT_SAT` | no rail at the master mix (12) | `extremes` | 1,849 / 0 of 3,500 |
+
+`test_voice_negative_control_is_caught` requires status exactly 1 from each
+(never 2, which would mean the bench did not run).
 
 One thing the bench cannot reach: the model's ±8.0 state clamp fired **zero**
 times, and cannot. Once |y| ≥ 4.0 the stage's own `tanh` is pinned at 32767,

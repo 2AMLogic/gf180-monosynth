@@ -72,7 +72,40 @@ def test_top_level_schedule_link_and_i2s(tmp_path):
 
 @needs_sim
 def test_voice_rtl_is_bit_exact(tmp_path):
-    """voice_dp against model/voice_fx.py at the register port: three
-    scenarios (a note from reset; every waveform with glide, high resonance
-    and drive; a paraphonic multi-trigger phrase), every sample identical."""
-    assert verify_voice.main(["--outdir", str(tmp_path)]) == 0
+    """voice_dp against model/voice_fx.py at the register port: every
+    scenario of verify_voice.py (every waveform; every note and the
+    increments where 5.5's clamps fire; glide up, down and at its limits;
+    gate / trig / retrigger; a release to exactly zero; paraphonic keys; the
+    register extremes) in the quick set, every sample, every tap of 16.4 and
+    the final state identical. The full set (--set full, ~175k frames, with
+    the audition reference sequences) is the documented command."""
+    assert verify_voice.main(["--set", "quick", "--outdir", str(tmp_path)]) == 0
+
+
+# each injected defect and the scenarios that reach the thing it breaks
+VOICE_BUGS = [("SQUARE_SIGN", "default"),          # the square takes the saw's sign at the wrap
+              ("ENV_FLOOR",   "silence"),          # release without max(1, .): the note never ends
+              ("KEFF",        "default"),          # no resonance compensation: k_eff = k
+              ("MIX_SAT",     "extremes"),         # the mixer wraps
+              ("GLIDE_FLOOR", "notes"),            # slew without max(1, .): a small inc never moves
+              ("RECIP_CLAMP", "notes"),            # a power-of-two inc gets r = 0
+              ("TRIG_RESET",  "gate"),             # GATE_ON / TRIG reset the level to zero
+              ("OUT_SAT",     "extremes")]         # no rail at the master mix
+
+
+@needs_sim
+def test_voice_bench_fails_on_a_stub(tmp_path):
+    """The red run of docs/verification-rules.md: voice_dp's ports with no
+    behaviour and every output X must give status exactly 1 -- a mismatch,
+    with the frames reported as undefined -- never a pass and never 2."""
+    assert verify_voice.main(["--set", "quick", "--only", "default", "--outdir", str(tmp_path),
+                              "--rtl", os.path.join(HERE, "stubs", "voice_dp_stub.v")]) == 1
+
+
+@needs_sim
+@pytest.mark.parametrize("bug,only", VOICE_BUGS)
+def test_voice_negative_control_is_caught(bug, only, tmp_path):
+    """A bench that cannot fail proves nothing. Each injected defect must
+    produce a mismatch on the scenario that reaches it: status exactly 1,
+    never 2 (which means it did not run)."""
+    assert verify_voice.main(["--set", "quick", "--only", only, "--inject", bug, "--outdir", str(tmp_path)]) == 1
