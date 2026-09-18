@@ -32,6 +32,18 @@ puts ×1.14 *further* from the shipped ×1.7 than ×1.06 is, which is backwards.
 That is Turian & Henry's published result reproduced on our signals, on the
 exact defect we most need to see.
 
+**The guard role, by contrast, is confirmed and by a wide margin.** Three
+defects a fixed-point drum machine can actually have — a −40 dBFS 12 kHz tone,
+a 6-bit requantisation, a non-decaying tail noise floor — **pass every one of
+the board's per-property BD metrics** with an order of magnitude to spare, and
+the DAC multi-scale mel distance flags them at **71×, 239× and 354×** its own
+floor ([§7](#7-the-guard-hypothesis-tested)). Our per-property coverage is three
+properties per voice, and that is a real hole of exactly this shape.
+
+**One precondition gates the whole adopt row, and it is not met today:**
+2 ms of onset disagreement reads *larger* than the entire tom defect, and
+non-monotonically ([§6](#6-the-alignment-problem-which-gates-everything-else)).
+
 The recommendation table is [§9](#9-recommendation).
 
 ---
@@ -76,7 +88,8 @@ touched: identical inputs must read exactly 0, and a pure ×2 gain must read
 exactly 1.0 (relative L1, spectral convergence) and exactly ln 2 = 0.693147
 (every log-magnitude form). **[measured]**
 
-It refused twice, and both were real:
+**It refused once, and a second defect walked straight past it** — which is
+the more useful half of the story:
 
 1. **A mel filterbank with empty bands.** At 48 kHz a 2048-point FFT with DAC's
    320 mel bands puts several low bands entirely between two FFT bins, so their
@@ -320,16 +333,26 @@ changed, against the shipped ×1.7. **[measured]**
 
 **Every one of the four distances gets the ranking wrong.** The true ordering of
 error magnitude is ×1.236 < ×1.140 < ×1.063 < ×1.000. All four report ×1.140 as
-*further* from the shipped ×1.7 than ×1.063 is, and `mss_l1`, `mrstft` and
-`mel_dac` additionally report ×1.000 — the largest possible error, no drop at
-all — as *closer* than ×1.140. **[measured]**
-
-**Three of the four cannot separate the defect from the floor.** Against the
-constructed reference floor: `mss_l1` reads 0.322–0.385 against a floor of
-0.311; `mss_log` reads 0.040–0.063 against 0.050, with two of the four rungs
-*below* it; `mel_dac` reads 0.224–0.362 against 0.268, with two rungs below it.
-Only `mrstft` clears its floor on all four rungs, and only by 1.15–1.42×.
+*further* from the shipped ×1.7 than ×1.063 is, and all four additionally report
+×1.000 — the largest possible error, no drop at all — as *closer* than ×1.140:
+0.3827 < 0.3852, 0.0599 < 0.0629, 0.5498 < 0.5522, 0.3556 < 0.3621.
 **[measured]**
+
+**Not one of the four separates the defect from the floor by a usable margin,
+and two of them do not separate it at all.** Against the constructed reference
+floor: **[measured]**
+
+| | floor | defect range | verdict |
+|---|--:|--:|---|
+| `mss_l1` | 0.311 | 0.322 – 0.385 | clears, by **1.04× to 1.24×** |
+| `mss_log` | 0.050 | 0.040 – 0.063 | **two of four rungs below the floor** |
+| `mrstft` | 0.388 | 0.447 – 0.552 | clears, by **1.15× to 1.42×** |
+| `mel_dac` | 0.268 | 0.224 – 0.362 | **two of four rungs below the floor** |
+
+The best of the four clears its own floor by 4 % on the smallest rung. For
+comparison, `docs/bd-repeatability-measurement.md` records that the *tightest*
+ratio anywhere on the board is the f0 tolerance at **3.7×** the machine's
+spread, and calls that the one with no headroom.
 
 **What the board's own estimator does on the same five renders**, using
 `run_case._pitch_drop("LT")` unmodified:
@@ -741,8 +764,9 @@ measurements is **0.138 of tolerance**: **[measured]**
 *(each figure is the error divided by that metric's own tolerance; ≤ 1 passes)*
 
 **The guard hypothesis is confirmed, and by a wide margin.** All three defects
-pass every per-property metric with an order of magnitude to spare, and the
-log-domain distances flag all three at **20× to 354×** their floor. Two of them
+pass every per-property metric with an order of magnitude to spare, and every
+distance flags all three: **22× to 105×** its floor for linear `mss_l1`, and
+**49× to 776×** for the log-domain forms. Two of them
 (requantisation, tail noise) read *above the BD-versus-snare-drum ceiling* —
 the metric's way of saying "this is not the same instrument". **[measured]**
 
@@ -845,7 +869,7 @@ recommendation I would make for the next issue.
 
 | metric | what it would catch that we miss today | what it costs | verdict |
 |---|---|---|---|
-| **`mel_dac` (DAC multi-scale mel, log) as a blind-spot guard** | additive/broadband defects invisible to our three-per-voice property list: spurious tones, requantisation noise, a non-decaying noise floor — measured at **20–354× its own floor**, all passing every board metric ([§7](#7-the-guard-hypothesis-tested)) | ~90 lines of numpy, no new dependency; a measured our-versus-reference baseline per voice; a gate or window to keep it out of the sub-−60 dB region ([§6](#6-the-alignment-problem-which-gates-everything-else)) | **adopt as guard only** — diagnostics block, never a tolerance, never in the case's worst, and firing means *write a new estimator*, not *tune until quiet* |
+| **`mel_dac` (DAC multi-scale mel, log) as a blind-spot guard** | additive/broadband defects invisible to our three-per-voice property list: spurious tones, requantisation noise, a non-decaying noise floor — measured at **71×, 239× and 354× its own floor**, all passing every board metric ([§7](#7-the-guard-hypothesis-tested)) | ~90 lines of numpy, no new dependency; a measured our-versus-reference baseline per voice; a gate or window to keep it out of the sub-−60 dB region ([§6](#6-the-alignment-problem-which-gates-everything-else)) | **adopt as guard only** — diagnostics block, never a tolerance, never in the case's worst, and firing means *write a new estimator*, not *tune until quiet* |
 | **`mss_l1` (linear multi-scale spectral)** | little. Blind to an 8 dB partial imbalance (0.0185, less than a 0.16 dB level change), and the only distance that survives the reference's noise floor | same as above | **reject** — the one form robust to [§6](#6-the-alignment-problem-which-gates-everything-else)'s second precondition is the one blind to the errors we care about |
 | **any multi-scale spectral distance as a scorecard target** | nothing it catches survives its floor: ranks the tom defect wrongly on all four variants; floor 0.311 against a defect of 0.322–0.385; 2 ms of misalignment outweighs the whole defect | would repeal the board's own rule against averaging across units | **reject** — four independent disqualifications, [§8](#8-the-role-question-answered) |
 | **A learned paired distance (CDPAM, OpenL3/VGGish/CLAP cosine)** | genuinely: timbral properties nobody has written an estimator for. This is a real gap | torch; a frozen, hashed checkpoint (a silent upstream weight change moves every historical result); a full floor characterisation, i.e. all of [§2](#2-what-a-multi-scale-spectral-distance-actually-reads-on-our-signals) repeated. **Unmeasurable on this host** | **reject for now** — not refuted, *unmeasured*. OpenL3 is at chance (0.507) on coarse pitch ordering ([§3.1](#31-the-result-that-decides-the-pitch-case)) and CDPAM's own abstract concedes the family generalises poorly outside its training perturbations, which do not include synth parameter errors |
