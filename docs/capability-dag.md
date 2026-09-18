@@ -44,13 +44,13 @@ graph TD
   M1[M1 one Moog voice bit-exact] --> M2[M2 Minimoog acceptance]
   M2 --> M3[M3 vs real hardware]
   M2 --> P1[P1 channel independence]
-  M3 --> P2
+  M3 -.optional.-> P2
   P1 --> P2[P2 paraphonic musical behaviour<br/>NEEDS LISTENING]
   D0[D0 excitation shaping<br/>the ~90% term] --> DCOEF[per-voice coefficients]
   DCOEF --> DAUD --> DHW[per-voice vs hardware]
-  DHW --> DL[DL full 16-voice library]
-  DL --> I1
-  P2 --> I1[I1 mix bus + master clamp]
+  DHW -.does not gate.-> DL[DL full 16-voice library]
+  DAUD --> I1
+  DCOEF --> I1[I1 mix bus + master clamp]
   I1 --> I2[I2 SPI] --> I3[I3 I2S vs the MODEL] --> I4[I4 full chip bit-exact]
   I4 --> S1[S1 synthesis] --> S2[S2 P&R + DRC] --> S3[S3 STA closed]
 ```
@@ -160,7 +160,13 @@ exactly those pairs thirty-five years later, and consistent with the original's
 panel. This matters enormously for a shared modal bank, which needs a mode per
 *concurrent* voice rather than per named sound.
 
-**So we have 8 of 11 circuits, and a complete 808 is +3, not +8.** Missing:
+**We have 8 of 11 circuits, so a complete 808 is +3 circuits, not +8 voices.
+But +3 circuits is NOT +3 modes** — the eight-stop kit we already ship uses
+**eleven active modes** (six filters, five bodies), because a single named
+instrument can consume a band-pass, a high-pass and a body. Instrument names do
+not map one-to-one onto resonators, and every mode-count claim in this
+document must be measured on the integrated design, configuration storage
+included, rather than counted off the voice list. Missing:
 the mid conga/tom, the claves/rim shot, and the cymbal. Adding the second half
 of each pair we already own (LC, MC, HC, CL or RS, MA) is a coefficient preset,
 not a mode.
@@ -190,6 +196,17 @@ square oscillators (205.3/369.6/304.4/522.7/800/540 Hz). The full library is
 **+3 circuits**, which is a far smaller ask than the "+5 to 7 modes" an earlier
 draft of this document guessed at from the sixteen-sound count.
 
+## What integration does NOT depend on
+
+**A real-Minimoog recording (M3) and the complete drum library (DL) are not
+prerequisites for integration.** An earlier draft of this graph routed both
+into I1, which would have blocked the most valuable work in the repository on
+an audio clip we do not have and on eight voices we have not built. Neither is
+needed to establish that the instrument we already have works end to end.
+
+They are genuine goals; they are not gates. The gates for integration are the
+voice (M1, M2) and the drum coefficients and audio we already have.
+
 ## Integration and silicon
 
 | node | capability | status |
@@ -216,10 +233,11 @@ exploratory task — an agent chasing a measurement does not need a milestone.
 | release | what must work | gated on |
 |---|---|---|
 | **v0.1 known baseline** | The existing voice, its controls and its audio output reproduce from a clean checkout. **The actual note count is stated, not implied.** | F1, M1, M2 — all green |
-| **v0.2 lead** | Four distinct pitches, a defined note-allocation and retrigger behaviour, one shared filter, and a verified per-sample cycle deadline | P0, P1 |
-| **v0.3 lead + the eight drums we have** | Real drums integrated; solo hits and a combined groove; accent, choking and mixing all correct | D-coef/audio for 8 voices, I1 |
-| **v0.4 complete 808** | The missing voices added **in small groups**, every earlier check still green | the per-voice table |
-| **v0.5 extensions** | Extra routing and experimental voices, each with an audible reason to exist | — |
+| **v0.2 the voice through the whole path** | The existing voice reaching real audio out through the real control path: SPI in, mix bus, master clamp, I2S out, verified against the model | I1, I2, I3 |
+| **v0.3 voice + the eight drums we have** | Real drums **connected to the top level**; solo hits and a combined groove; accent, choking and mixing correct | D-coef/audio, I4 |
+| **v0.4 four-note behaviour** | A fourth oscillator, defined note allocation and retrigger, one shared filter, a verified per-sample cycle deadline | P0, P1, **after v0.3** |
+| **v0.5 complete 808** | The missing circuits added **one family at a time**, every earlier check still green | the per-voice table |
+| **v0.6 extensions** | Extra routing and experimental voices, each with an audible reason to exist | — |
 
 Every release preserves **the exact source revision, the configuration, the
 test results and a short audio demo**. FPGA, board and ASIC evidence are
@@ -242,7 +260,23 @@ turn it red.
 **Stamped:** F1 (28,800 samples, 0 mismatches), M1 (255,060 frames, every tap
 and the final state), M2 (42 tests, 6 injected defects).
 
-**Unblocked right now:** P0 — build the fourth oscillator, because v0.2 cannot
-be described honestly without it. Then P1 (mechanical, issue #20), then D0 on
-one voice (issue #21). M3 needs one audio clip from outside. P2 needs a
-listening protocol that does not exist yet.
+**Unblocked right now, and being worked:** the SPI blocker (below), the snare
+(#26), and an FPGA build.
+
+**The fourth oscillator waits.** It is not first any more: there is little
+point adding a voice while integration is changing the interfaces that voice
+speaks through, and a trusted instrument is worth more than a wider one. It
+lands at v0.4, on an instrument that already plays.
+
+## The blocker
+
+**The control path cannot express the drum register writes.** `spi_ctl.v:44`
+declares `wr_addr [6:0]` — seven bits, maximum `0x7F` — and a 24-bit data
+field. `drums_fx.py:85` uses `A_MODE = 0xC0` and `A_RESET = 0xFF`, so **every
+modal-bank coefficient write and the reset are unaddressable**, and
+`env_ctl` is 27 bits against 24.
+
+Both sides are individually bit-exact against their models, which is precisely
+why no existing test catches it. It is the same class as the two integration
+bugs that shipped and were found by listening. Nothing downstream of I1 is real
+until this is fixed.
