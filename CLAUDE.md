@@ -147,6 +147,20 @@ including failures, not just the success marker.
   tells the coordinator nothing it did not already know
 - **start a second job after the first finishes**, if you knew you needed both
 
+### Two more things that cost an hour each
+
+**Use the quick set while iterating.** `verify_voice --set full` is 383,460
+frames and about twenty minutes. Running it two or three times during
+development is an hour of wall clock proving nothing the quick set does not.
+`make verify` uses the quick set; `make verify-full` is for once, before the PR.
+
+**One deliverable per agent.** Runs hit two hours because briefs contain "and",
+several times over — one agent delivered a reference document, three decision
+records and four experiments it measured and correctly did not ship. The test
+is whether the pieces are *independently verifiable*, not whether they are
+separately describable: `fcr` changes the cutoff mapping so everything measured
+after it must be re-baselined, and sequencing that inside one agent was right.
+
 ### If you are stopping because you are blocked
 
 Say what you are blocked on and end the turn. Do not spin. The coordinator can
