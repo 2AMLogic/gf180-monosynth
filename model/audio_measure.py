@@ -937,34 +937,92 @@ def harmonic_powers(x, f0: float, ks, sr: int = SR_DEFAULT, *, guard: int = 4) -
     return np.array(out, dtype=np.float64)
 
 
+def _harmonic_mask(n: int, f0: float, sr: int, guard: int) -> np.ndarray:
+    """True on every bin within +-`guard` of a harmonic of `f0`, and on DC."""
+    m = np.zeros(n // 2 + 1, dtype=bool)
+    k = 1
+    while k * f0 < sr / 2:
+        c = int(round(k * f0 * n / sr))
+        m[max(0, c - guard):c + guard + 1] = True
+        k += 1
+    m[:guard + 1] = True
+    return m
+
+
 def inharmonic_fraction_db(x, f0: float, sr: int = SR_DEFAULT, *, guard: int = 5) -> Estimate:
     """Energy OUTSIDE +-`guard` bins of every harmonic of `f0`, as a fraction
     of total, in dB. DR 0001's aliasing measure, so its numbers compare
     directly with that record's table.
 
-    Its floor is the window's: +-5 Hann bins leave about -54 dB of leakage
-    from the harmonics themselves, so a reading near -54 dB means "nothing
-    inharmonic is resolvable", not a measured level. Refuses when the guards
-    would cover more than half the spectrum, which is where this measure stops
-    meaning anything and `foldback_alias_db` (or a higher-rate reference) is
-    the estimator to use."""
+    THE WINDOW IS BLACKMAN-HARRIS, AND THE FLOOR IS MEASURED (#119, #92)
+    -------------------------------------------------------------------
+    This windowed with Hann and quoted its floor in the docstring as "about
+    -54 dB". **A floor is not a constant and quoting one is this repository's
+    #92 failure.** Measured on an alias-free additive saw -- where the reading
+    IS the floor, because nothing inharmonic is present -- the Hann floor is
+    -53 dB when f0 falls between bins and **-113 dB when it lands on one**:
+    a 60 dB swing from a 1 Hz change in f0, which is not a better measurement,
+    it is the same measurement with the leakage removed by coincidence.
+
+    `_bh4` was already in this file. Swapping it in moves the off-bin floor
+    from -53.38 to **-88.44 dB** and the answer on a naive saw by **0.00 dB**
+    (0.46 dB at an on-bin f0, in the direction of less leakage). There is no
+    tradeoff to weigh.
+
+    `detail['floor_db']` is then MEASURED per call, not quoted: the harmonic
+    amplitudes are read off this record, an exactly-harmonic signal is
+    synthesised from them at the same f0, length and rate, and the same guard
+    is applied to it. Whatever that reads is leakage, because the synthetic
+    signal has nothing else in it. `detail['headroom_db']` is the value above
+    that floor -- a reading with little headroom is reporting the estimator
+    and not the signal. It is reported rather than refused on, because the
+    caller knows whether a floor reading is the answer it wanted.
+
+    Refuses when the guards would cover more than half the spectrum, which is
+    where this measure stops meaning anything and `foldback_alias_db` (or a
+    higher-rate reference) is the estimator to use.
+
+    Ground truth: test_inharmonic_fraction_db_floor_is_measured_not_quoted,
+    test_inharmonic_fraction_db_reading_of_an_alias_free_signal_is_its_floor,
+    test_inharmonic_fraction_db_is_unchanged_by_scaling."""
     x = _as_float(x)
     if is_silent(x):
         return _fail("silent")
     n = len(x)
-    f, X = spectrum(x, sr)
-    p = X ** 2
-    harm = np.zeros_like(p, dtype=bool)
+    w = _bh4(n)
+    p = np.abs(np.fft.rfft(x * w)) ** 2
+    harm = _harmonic_mask(n, f0, sr, guard)
+    if harm.mean() > 0.5:
+        return _fail("harmonic guards cover the spectrum", covered=float(harm.mean()))
+    total = p.sum()
+    value = 10.0 * math.log10(max(p[~harm].sum(), 1e-300) / total)
+
+    # The floor, measured on THIS record's own harmonic content. Each harmonic
+    # is resynthesised at the amplitude Parseval gives for the power inside its
+    # guard -- E_k = 2*P_k/n for a real record, and E_k = (A^2/2)*sum(w^2) for
+    # a windowed sinusoid -- with zero phase, which the BH4 sidelobes at -92 dB
+    # make irrelevant: the floor is the main lobe's tails just outside the
+    # guard, and those do not interfere across harmonics this far apart.
+    t = np.arange(n) / sr
+    ref = np.zeros(n)
+    ww = float((w ** 2).sum())
     k = 1
     while k * f0 < sr / 2:
         c = int(round(k * f0 * n / sr))
-        harm[max(0, c - guard):c + guard + 1] = True
+        pk = float(p[max(0, c - guard):c + guard + 1].sum())
+        a = math.sqrt(max(4.0 * pk / (n * ww), 0.0))
+        if a > 0:
+            ref += a * np.sin(2 * math.pi * k * f0 * t)
         k += 1
-    harm[:guard + 1] = True
-    if harm.mean() > 0.5:
-        return _fail("harmonic guards cover the spectrum", covered=float(harm.mean()))
-    return Estimate(10.0 * math.log10(max(p[~harm].sum(), 1e-300) / p.sum()), True, "",
-                    dict(covered=float(harm.mean())))
+    if is_silent(ref):
+        floor_db = float("-inf")
+    else:
+        pr = np.abs(np.fft.rfft(ref * w)) ** 2
+        floor_db = 10.0 * math.log10(max(pr[~harm].sum(), 1e-300) / pr.sum())
+    return Estimate(value, True, "",
+                    dict(covered=float(harm.mean()), floor_db=floor_db,
+                         headroom_db=value - floor_db, window="blackman-harris-4",
+                         guard_bins=guard))
 
 
 def fold_frequency(hz: float, sr: int = SR_DEFAULT) -> float:
@@ -1090,14 +1148,56 @@ def event_slices(gate) -> list:
 # the last sample is -- so a caller can see it. This is not hypothetical: three
 # of the reference recordings this project measures against are editor-trimmed
 # at 20-40 ms and their own decay cannot be read off them at all.
+#: How much of the decay must follow the fitting range, in units of the fitted
+#: T20 itself, before the backward integral is reporting the signal rather than
+#: its own truncation. `docs/analysis-conventions.md` section 8 row 4 states 2x
+#: and that is what is used; the calibration it was chosen against, measured on
+#: a single exponential (tau 40 ms, exact T20 92.10 ms) by
+#: `tools/probes/estimator_defects.py`, is:
+#:
+#:     record after -25 dB, in T20s   2.01  1.47  0.93  0.42  0.23  0.10  0.02
+#:     error in T20                   0.0%  0.0% -0.2% -2.7% -7.8% -18%  -56%
+#:
+#: 2x is conservative by that table -- 1x already bounds the truncation error
+#: at 0.2 % -- and it is deliberately not re-tuned here, because the cases this
+#: guard fires on are cases whose verdict it changes.
+MIN_TAIL_T20 = 2.0
+
+
 def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
-                  hi_db: float = -25.0, margin_db: float = 10.0) -> Estimate:
+                  hi_db: float = -25.0,
+                  min_tail_t20: float = MIN_TAIL_T20) -> Estimate:
     """Time to fall 20 dB, from the backward-integrated energy curve.
 
     Fitted between `lo_db` and `hi_db` on that curve and scaled to 20 dB, the
-    standard construction. `detail` carries `tail_db` (the curve's last value,
-    i.e. how much of the decay the array actually contains), `slope_db_s` and
-    `residual_db`."""
+    standard construction -- `python-acoustics`' `t60_impulse` and
+    `pyroomacoustics`' `rt60` agree with it on every detail: the backward
+    cumulative sum, the -5 dB start, the -5 to -25 dB range and the x3.
+    **The estimator is not the thing that was wrong here. Its precondition
+    was.** `detail` carries `tail_db` (the curve's last value), `slope_db_s`,
+    `residual_db`, and the length figures the guard below is decided on.
+
+    THE TRUNCATION GUARD IS A LENGTH, NOT A LEVEL (#118)
+    ----------------------------------------------------
+    This refused on `tail_db > hi_db - 10` -- the curve's last value -- on the
+    reasoning that "a decay cut while it is still sounding cannot keep going
+    afterwards". **On a clean record that test is nearly vacuous**, because the
+    backward integral of ANY finite record falls towards -inf at its last
+    sample whatever was cut off it: a 100 ms cut of a 92 ms T20 reads -18.4 %
+    while `tail_db` reports -79 dB against a -35 dB requirement. The level
+    criterion only bites when a noise floor stops the integral falling, which
+    is a different failure.
+
+    So the record must now contain at least `min_tail_t20` times the fitted
+    T20 AFTER the -25 dB point, and REFUSES when it does not. That is a
+    property of the array's length, which is what truncation actually is.
+    `tail_db` is still reported, because it is the right diagnostic for the
+    noise-floor failure -- it is just not a truncation test.
+
+    Ground truth: test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
+    test_schroeder_t20_refuses_a_recording_that_was_cut_before_it_decayed,
+    test_schroeder_t20_refuses_a_mild_truncation_a_level_guard_cannot_see,
+    test_schroeder_t20_is_unchanged_by_leading_silence."""
     x = _as_float(x)
     if is_silent(x):
         return _fail("silent", peak=peak(x))
@@ -1106,14 +1206,9 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
         return _fail("no energy")
     L = 10.0 * np.log10(np.maximum(e / e[0], 1e-30))
     tail_db = float(L[-1])
-    if tail_db > hi_db - margin_db:
-        # The standard margin rule: the curve must run at least `margin_db`
-        # BELOW the evaluation range. A decay cut while it is still sounding
-        # does reach -25 dB -- the cut itself takes it there -- so checking
-        # that it reaches the range is not enough; what a truncated file cannot
-        # do is keep going afterwards.
-        return _fail("the array ends before the decay does -- its own decay cannot be read off it",
-                     tail_db=tail_db, needed_db=hi_db - margin_db)
+    if tail_db > hi_db:
+        return _fail("the record ends before the decay reaches the fitting range",
+                     tail_db=tail_db, needed_db=hi_db)
     i_lo = int(np.argmax(L <= lo_db))
     i_hi = int(np.argmax(L <= hi_db))
     if i_hi <= i_lo + 8:
@@ -1122,22 +1217,59 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     slope, icept = np.polyfit(t, L[i_lo:i_hi], 1)
     if slope >= 0:
         return _fail("the energy curve does not fall", slope_db_s=float(slope))
+    t20 = -20.0 / float(slope)
     resid = L[i_lo:i_hi] - (slope * t + icept)
-    return Estimate(-20.0 / float(slope), True, "",
-                    dict(tail_db=tail_db, slope_db_s=float(slope),
-                         residual_db=float(np.abs(resid).max()), n=int(i_hi - i_lo)))
+    after_s = (len(x) - i_hi) / float(sr)
+    detail = dict(tail_db=tail_db, slope_db_s=float(slope),
+                  residual_db=float(np.abs(resid).max()), n=int(i_hi - i_lo),
+                  t20_ms=t20 * 1e3, after_hi_ms=after_s * 1e3,
+                  needed_after_hi_ms=min_tail_t20 * t20 * 1e3,
+                  tail_in_t20s=(after_s / t20 if t20 > 0 else 0.0),
+                  min_tail_t20=min_tail_t20)
+    if after_s < min_tail_t20 * t20:
+        return _fail(
+            f"the record ends before the decay does: only {after_s*1e3:.1f} ms follow "
+            f"the {hi_db:.0f} dB point and a T20 of {t20*1e3:.1f} ms needs "
+            f"{min_tail_t20*t20*1e3:.1f} ms after it, so the backward integral is "
+            f"reporting the cut and not the decay", **detail)
+    return Estimate(t20, True, "", detail)
 
 
 def band_energy(x, edges, sr: int = SR_DEFAULT, *, order: int = 4) -> np.ndarray:
     """Fraction of TOTAL energy in each (lo, hi) band, by zero-phase filtering.
 
-    Not by summing FFT bins: `spectrum` applies a Hann window, so on a decaying
-    voice it weights the middle of the file and reports the TAIL's spectrum
-    rather than the whole event's energy. On a real TR-808 cymbal the two
-    disagree by a factor of four in the 5-9 kHz band, and the windowed answer
-    is the one that misleads. Both agree exactly on a stationary two-tone
-    signal, which is the ground truth for each
-    (`test_band_energy_splits_a_two_tone_signal`)."""
+    WHY NOT FFT BINS, CORRECTED (#119, docs/analysis-conventions.md section 3)
+    -------------------------------------------------------------------------
+    This docstring used to argue: `spectrum` applies a Hann window, so on a
+    decaying voice it weights the middle of the file and reports the TAIL's
+    spectrum rather than the event's energy -- on a real TR-808 cymbal the two
+    disagree by a factor of four in the 5-9 kHz band -- **therefore filter.**
+
+    The observation is real and is worth **55 dB** on a synthetic decay. **The
+    conclusion does not follow from it.** It is an argument against the
+    WINDOW, not against the FFT: Parseval holds exactly for a RECTANGULAR
+    window (verified to 7 significant figures), and a rectangular-FFT band
+    split is invariant to prepended silence to 0.44 dB where this filter is
+    not invariant at all.
+
+    The filter is kept for a different and better reason: **resolution.** A
+    15 ms window gives 67 Hz bins, which cannot place a band edge at 400 Hz to
+    better than +-33 Hz and cannot represent a 20 Hz lower edge at all. Our
+    windows are 60-400 ms, where this is comfortable; for a window under about
+    50 ms, rectangular Parseval is the better instrument and this is not.
+
+    **THE PRECONDITION, WHICH IS THE CALLER'S (#101).** `sosfiltfilt` pads by
+    `3*(2*len(sos)+1)` samples -- 27 for the 4th-order BAND-pass this builds,
+    0.562 ms at 48 kHz -- with an odd extension through the first sample. Hand
+    it a segment that begins at full amplitude and it manufactures an edge
+    worth up to 10 dB in a sparsely-occupied band. This function cannot check
+    that for you, because it is also used on steady signals that legitimately
+    begin at full amplitude. **A transient segment must arrive with a true
+    pre-onset lead**; `tools/run_case.py` guarantees one and refuses when a
+    recording cannot supply it.
+
+    Both methods agree exactly on a stationary two-tone signal, which is the
+    ground truth for each (`test_band_energy_splits_a_two_tone_signal`)."""
     from scipy.signal import butter, sosfiltfilt
     x = _as_float(x)
     total = float((x ** 2).sum())
