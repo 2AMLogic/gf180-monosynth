@@ -1926,7 +1926,24 @@ def test_the_shipped_ladder_loses_nothing_to_its_last_sub_step_decimation():
     The difference is not the decimator. It is what is sitting above 24 kHz
     when the decimator runs. After a 4-pole lowpass there is essentially
     nothing there; after an oscillator there is the waveform's own harmonic
-    series. Measured below 24 kHz apart in the two cases."""
+    series. Measured below 24 kHz apart in the two cases.
+
+    **THE FIRST ASSERTION USED TO BE `abs(i4 - i3) < 1.0` AND IT WAS GREEN FOR
+    THE WRONG REASON.** With the Hann window `inharmonic_fraction_db` used
+    before #119, the two readings were -52.98 and -52.97 dB -- both sitting
+    exactly on that window's -53 dB leakage floor. The 0.02 dB agreement was
+    the estimator's blindness, not the ladder's cleanliness. Blackman-Harris
+    puts the floor at -87.85 dB, and the two readings separate: **-78.41 dB at
+    2x and -75.07 dB at the output, so the decimation does cost 3.34 dB.** The
+    title's "loses nothing" is withdrawn.
+
+    What is asserted instead is the thing that was ever load-bearing: both
+    readings must be MEASUREMENTS (headroom over their own measured floor, so
+    this can never again pass on a floor), and the output must be far below the
+    level this suite already accepts from an oscillator -- PolyBLEP is required
+    only to reach -28 dB by `test_polyblep_suppresses_aliasing_at_every_register`,
+    and the ladder's output is 47 dB below that. The contrast with #80 is the
+    second assertion and is unaffected."""
     n = int(0.25 * SR)
     inc = ap.base_inc(64)
     f0 = inc * SR / (1 << 24)
@@ -1934,9 +1951,18 @@ def test_the_shipped_ladder_loses_nothing_to_its_last_sub_step_decimation():
     x = np.round(0.8 * np.sin(2 * math.pi * t) * 32767).astype(np.int16)
     sub, out, _ = ap.ladder_substeps(x, 2)          # REFUSES if this is not the shipping ladder
     b3, b4 = sub / FS, out / FS
-    i3 = am.inharmonic_fraction_db(b3, f0, 2 * SR).require("ladder sub-steps")
-    i4 = am.inharmonic_fraction_db(b4, f0, SR).require("ladder output")
-    assert abs(i4 - i3) < 1.0, f"the rate reduction cost {i4 - i3:.2f} dB inside the ladder"
+    e3 = am.inharmonic_fraction_db(b3, f0, 2 * SR)
+    e4 = am.inharmonic_fraction_db(b4, f0, SR)
+    i3, i4 = e3.require("ladder sub-steps"), e4.require("ladder output")
+    for lbl, e in (("sub-steps", e3), ("output", e4)):
+        assert e.detail["headroom_db"] > 6.0, \
+            (f"the {lbl} reading {e.value:.2f} dB is only "
+             f"{e.detail['headroom_db']:.2f} dB above its own measured floor "
+             f"{e.detail['floor_db']:.2f} dB -- that is the estimator, not the ladder")
+    assert i4 < -60.0, \
+        (f"after the rate reduction the ladder leaves {i4:.2f} dB, against the "
+         f"-28 dB this suite accepts from a PolyBLEP oscillator "
+         f"(it cost {i4 - i3:+.2f} dB going from {i3:.2f})")
 
     lad_above = ap.band_split(b3, f0, 2 * SR, SR / 2.0)["above_db"]
     osc_above = ap.band_split(ap.render_osc("saw", inc // 2, n * 2, blep=True),

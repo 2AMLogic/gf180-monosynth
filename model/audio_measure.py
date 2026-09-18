@@ -1194,6 +1194,16 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     `tail_db` is still reported, because it is the right diagnostic for the
     noise-floor failure -- it is just not a truncation test.
 
+    **`min_tail_t20=0.0` disables the guard, and is for one situation only:** a
+    caller that has bounded this record's truncation bias BY ITS OWN
+    MEASUREMENT -- re-reading the T20 off a shorter cut of the same record and
+    finding it does not move. `tools/measure_repeatability.truncation_
+    sensitivity` is that measurement and is the intended user;
+    `test_808_acceptance.test_cymbal_decay_matches_a_real_machine` is the other,
+    because its window is pinned to a 2.0 s hardware reference it cannot
+    lengthen. Passing it without that measurement is exactly the defect #118 is
+    about, restated as a keyword argument.
+
     Ground truth: test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
     test_schroeder_t20_refuses_a_recording_that_was_cut_before_it_decayed,
     test_schroeder_t20_refuses_a_mild_truncation_a_level_guard_cannot_see,
