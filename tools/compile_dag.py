@@ -133,6 +133,21 @@ def classify(nid: str, n: dict) -> tuple[str, str]:
         return "TODO", "missing: " + ", ".join(missing)
 
     rec = load_results().get(nid)
+
+    # A tag IS evidence: it was cut after a verified run, at a known commit.
+    # So a slow node -- one whose verifier takes hours and which the per-push
+    # job skips -- carries its tag's result forward, and `covers` staleness is
+    # measured against the TAG's commit. That is what makes a stamp decay
+    # honestly: the moment a file the node covers changes, the stamp goes
+    # STALE rather than sitting there looking verified.
+    tag = n.get("tag", "")
+    if not rec and tag_is_ancestor(tag):
+        tag_sha = git("rev-list", "-n1", tag)
+        changed = stale_against(n, tag_sha)
+        if changed:
+            return "STALE", f"{changed} changed since {tag} was cut"
+        return "STAMPED", f"{tag} (not re-run; verifier is slow)"
+
     if not rec:
         return "TODO", "never run -- `tools/compile_dag.py --run`"
     if not rec.get("passed"):
