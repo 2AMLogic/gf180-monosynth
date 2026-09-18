@@ -94,16 +94,16 @@ graph LR
 
 | | node | status | evidence |
 |---|---|---|---|
-| `F1` | Ladder bit-exact | **STALE** | rtl-sketch/ladder_dp_n.v changed since node/F1-ladder was cut |
+| `F1` | Ladder bit-exact | **STALE** | rtl-sketch/ladder_dp.v changed since node/F1-ladder was cut |
 | `F2` | Modal bank bit-exact | **STAMPED** | node/F2-modal (not re-run; verifier is slow) |
-| `F3` | Measurement ground truth | **GREEN** | 90 passed in 2.72s |
+| `F3` | Measurement ground truth | **GREEN** | 90 passed in 1.46s |
 | `M1` | One Moog voice bit-exact | **STALE** | rtl-sketch/voice_dp.v changed since node/M1-voice was cut |
 | `M2` | Matches our own spec | **STAMPED** | node/M2-minimoog |
-| `M3` | Matches software references **fidelity** | **GREEN** | 17 passed in 20.28s |
+| `M3` | Matches software references **fidelity** | **GREEN** | docs/reference-compare-results.json |
 | `M4` | Matches real hardware **fidelity** | **BLOCKED** | 0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip |
 | `M5` | Noise, osc-3 modulation, full waveform set | **TODO** | issue #48 |
 | `D1` | Drum kit bit-exact | **STALE** | model/drums_fx.py changed since node/D-drums-bitexact was cut |
-| `D2` | Is an 808, per the reference **fidelity** | **GREEN** | 63 passed in 108.50s (0:01:48) |
+| `D2` | Is an 808, per the reference **fidelity** | **GREEN** | 63 passed in 101.69s (0:01:41) |
 | `D3` | Per-voice measured against targets **fidelity** | **RED** | model/sound_report.py exit 1 |
 | `D4` | Complete 808 -- all 16 sounds | **TODO** | issue #22 |
 | `I1` | Control link carries every write | **TODO** | never run -- `tools/compile_dag.py --run` |
