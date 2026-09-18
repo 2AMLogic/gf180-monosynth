@@ -562,13 +562,21 @@ def kit_808() -> list:
     w += mode_writes(M_HATBP, 7117.0, 6.0, 0.0, BP)          # hats' band-pass, reference 10/11; tapped only
     w += mode_writes(M_OHHP, 7800.0, 2.5, 0.45, HP)          # OH high-pass, reference 11
     w += mode_writes(M_CHHP, 11700.0, 2.5, 0.69, HP)         # CH high-pass, reference 11
-    w += mode_writes(M_SDN, 2750.0, 0.7, 0.2059, BP)            # SD snappy filter: the reference's own
-                                                             # 2.75 kHz / Q 0.7 (reference 3) read as a
-                                                             # BAND-pass, which is what the machine measures
+    w += mode_writes(M_SDN, 2750.0, 0.7, 0.2059, BP)         # SD snappy filter: the pole is VERIFIED
+                                                             # IN A SOURCE (reference 3's 2.75 kHz /
+                                                             # Q 0.7); the NUMERATOR is MEASURED -- a
+                                                             # band-pass, not the high-pass 3 calls it
+                                                             # (17.22). The amp is the SNAPPY knob's
+                                                             # measured curve at 5.0.
     w += mode_writes(M_CPBP, 1071.0, 1.6, 0.0, BP)           # CP band-pass, reference 7; tapped only
-    w += mode_writes(M_CBBP, 1100.0, 2.8, 0.02176, BP)         # CB band-pass: FITTED to the reference unit's
-                                                             # 16 partials (reference 9's open item, closed)
-    w += mode_writes(M_BD, BD_HZ, bd_decay_q(5.0), 0.003309, RAW)   # BD at DECAY 5.0, both MEASURED (DR 0009)
+    w += mode_writes(M_CBBP, 1100.0, 2.8, 0.02176, BP)         # CB band-pass: MEASURED -- fitted to the
+                                                             # reference unit's 16 partials, closing
+                                                             # reference 9's open item (DR 0010)
+    w += mode_writes(M_BD, BD_HZ, bd_decay_q(5.0), 0.003309, RAW)   # BD at DECAY 5.0. f0 and Q are both
+                                                             # VERIFIED IN A SOURCE (reference 2's
+                                                             # component-value f0 and its own Q table),
+                                                             # not the chart's 56 Hz -- DR 0009; two
+                                                             # sample sets corroborate at 48.8-51.6 Hz
     w += mode_writes(M_SDLO, 173.0, 16.3, 0.0036, RAW)        # SD low, later units, reference 3
     w += mode_writes(M_SDHI, 336.0, 9.9, 0.00369, RAW)         # SD high; TONE = this pair's ratio
     w += mode_writes(M_LT, 90.0, 25.0, 0.0078319, RAW)          # LT, reference 4
