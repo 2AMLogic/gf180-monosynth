@@ -600,8 +600,11 @@ It is a full-reference, pairwise metric trained on human triplet comparisons,
 which is exactly our shape. But its own abstract states the problem it was built
 to fix in its predecessor: DPAM "does not generalize well outside the range of
 perturbations on which it was trained", and CDPAM improves generalisation
-without claiming to remove the dependence. **[sourced]** Its training
-perturbations are speech-processing perturbations. **A 5 % T20 error on an
+without claiming to remove the dependence. **[sourced]** Its evaluation is over speech
+and speech-processing perturbations — the paper's own applications are speech
+synthesis and enhancement — so a synthesiser parameter error is outside the
+range it was built and checked on. **[inference; I did not read its dataset
+list, only the abstract]** **A 5 % T20 error on an
 analogue bass drum is not in that range, and we would have no way to find out
 that it was not, because the metric returns a number either way.** **[inference]**
 That is the failure mode `model/audio_measure.py`'s docstring is built around:
@@ -620,7 +623,7 @@ that is a large bill for a scalar that cannot name a property.
 ## 5. Where practice is contested or absent
 
 **There is no accepted paired distance for percussive one-shots, and the two
-camps do not overlap.** **[inference, from the sources in §10]**
+camps do not overlap.** **[inference, from the sources in §11]**
 
 - The **reconstruction camp** (DDSP, Parallel WaveGAN, EnCodec, DAC) uses
   paired multi-scale spectral losses constantly — on signals that are
@@ -630,9 +633,11 @@ camps do not overlap.** **[inference, from the sources in §10]**
 
 Nobody in either camp is solving "is this one rendered kick drum the same as
 that one recorded kick drum", which is our problem. The closest thing is
-full-reference perceptual metrics (DPAM/CDPAM, and the speech-quality lineage
-PESQ / ViSQOL), which are paired and validated, but on speech-and-codec
-degradations rather than on synthesis parameter errors.
+full-reference perceptual metrics: DPAM/CDPAM **[sourced]**, and the
+speech-quality lineage PESQ / ViSQOL **[not sourced this session — named from
+background knowledge, and not relied on by any claim here]**. These are paired
+and validated, but on speech-and-codec degradations rather than on synthesis
+parameter errors.
 
 **Do not read this as "the field has not got round to it yet."** **[inference]**
 The absence is structural: a paired distance needs the two signals to be
