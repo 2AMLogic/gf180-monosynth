@@ -1,0 +1,522 @@
+Info: constraining clock net 'clk' to 12.29 MHz
+
+Info: Logic utilisation before packing:
+Info:     Total LUT4s:      6331/24288    26%
+Info:         logic LUTs:   4675/24288    19%
+Info:         carry LUTs:   1656/24288     6%
+Info:           RAM LUTs:      0/ 3036     0%
+Info:          RAMW LUTs:      0/ 6072     0%
+
+Info:      Total DFFs:      2932/24288    12%
+
+Info: Packing IOs..
+Info: pin 'sdata$tr_io' constrained to Bel 'X0/Y8/PIOC'.
+Info: pin 'sck$tr_io' constrained to Bel 'X29/Y0/PIOA'.
+Info: pin 'mosi$tr_io' constrained to Bel 'X29/Y0/PIOB'.
+Info: pin 'miso$tr_io' constrained to Bel 'X27/Y0/PIOB'.
+Info: pin 'lrclk$tr_io' constrained to Bel 'X0/Y5/PIOD'.
+Info: pin 'cs_n$tr_io' constrained to Bel 'X27/Y0/PIOA'.
+Info: pin 'clk$tr_io' constrained to Bel 'X0/Y26/PIOA'.
+Info: pin 'btn_rst_n$tr_io' constrained to Bel 'X6/Y0/PIOB'.
+Info: pin 'bclk$tr_io' constrained to Bel 'X0/Y5/PIOA'.
+Info: Packing constants..
+Info: Packing carries...
+Info: Packing LUTs...
+Info: Packing LUT5-7s...
+Info: Packing FFs...
+Info:     1015 FFs paired with LUTs.
+Info: Generating derived timing constraints...
+Info: Promoting globals...
+Info:     promoting clock net clk$TRELLIS_IO_IN to global network
+Info: Checksum: 0x94d81d40
+
+Info: Device utilisation:
+Info: 	          TRELLIS_IO:       9/    197     4%
+Info: 	                DCCA:       1/     56     1%
+Info: 	              DP16KD:       0/     56     0%
+Info: 	          MULT18X18D:      12/     28    42%
+Info: 	              ALU54B:       0/     14     0%
+Info: 	             EHXPLLL:       0/      2     0%
+Info: 	             EXTREFB:       0/      1     0%
+Info: 	                DCUA:       0/      1     0%
+Info: 	           PCSCLKDIV:       0/      2     0%
+Info: 	             IOLOGIC:       0/    128     0%
+Info: 	            SIOLOGIC:       0/     69     0%
+Info: 	                 GSR:       0/      1     0%
+Info: 	               JTAGG:       0/      1     0%
+Info: 	                OSCG:       0/      1     0%
+Info: 	               SEDGA:       0/      1     0%
+Info: 	                 DTR:       0/      1     0%
+Info: 	             USRMCLK:       0/      1     0%
+Info: 	             CLKDIVF:       0/      4     0%
+Info: 	           ECLKSYNCB:       0/     10     0%
+Info: 	             DLLDELD:       0/      8     0%
+Info: 	              DDRDLL:       0/      4     0%
+Info: 	             DQSBUFM:       0/      8     0%
+Info: 	     TRELLIS_ECLKBUF:       0/      8     0%
+Info: 	        ECLKBRIDGECS:       0/      2     0%
+Info: 	                DCSC:       0/      2     0%
+Info: 	          TRELLIS_FF:    2932/  24288    12%
+Info: 	        TRELLIS_COMB:    6677/  24288    27%
+Info: 	        TRELLIS_RAMW:       0/   3036     0%
+
+Info: Placed 9 cells based on constraints.
+Info: Creating initial analytic placement for 5693 cells, random placement wirelen = 369888.
+Info:     at initial placer iter 0, wirelen = 2442
+Info:     at initial placer iter 1, wirelen = 2060
+Info:     at initial placer iter 2, wirelen = 2063
+Info:     at initial placer iter 3, wirelen = 2065
+Info: Running main analytical placer, max placement attempts per cell = 11594520.
+Info:     at iteration #1, type ALL: wirelen solved = 1973, spread = 82631, legal = 81183; time = 0.32s
+Info:     at iteration #2, type ALL: wirelen solved = 6699, spread = 52568, legal = 56835; time = 0.26s
+Info:     at iteration #3, type ALL: wirelen solved = 12288, spread = 39746, legal = 43822; time = 0.37s
+Info:     at iteration #4, type ALL: wirelen solved = 13359, spread = 36942, legal = 40770; time = 0.64s
+Info:     at iteration #5, type ALL: wirelen solved = 15934, spread = 33748, legal = 39287; time = 0.27s
+Info:     at iteration #6, type ALL: wirelen solved = 16906, spread = 34368, legal = 38366; time = 0.21s
+Info:     at iteration #7, type ALL: wirelen solved = 18467, spread = 34450, legal = 39119; time = 0.20s
+Info:     at iteration #8, type ALL: wirelen solved = 19311, spread = 32820, legal = 38165; time = 0.24s
+Info:     at iteration #9, type ALL: wirelen solved = 19496, spread = 32893, legal = 37859; time = 0.28s
+Info:     at iteration #10, type ALL: wirelen solved = 20271, spread = 32247, legal = 37648; time = 0.22s
+Info:     at iteration #11, type ALL: wirelen solved = 20989, spread = 32336, legal = 38189; time = 0.25s
+Info:     at iteration #12, type ALL: wirelen solved = 21043, spread = 32848, legal = 37252; time = 0.21s
+Info:     at iteration #13, type ALL: wirelen solved = 22369, spread = 31850, legal = 36614; time = 0.22s
+Info:     at iteration #14, type ALL: wirelen solved = 22530, spread = 32061, legal = 37512; time = 0.22s
+Info:     at iteration #15, type ALL: wirelen solved = 22571, spread = 31957, legal = 36718; time = 0.30s
+Info:     at iteration #16, type ALL: wirelen solved = 23106, spread = 31635, legal = 36459; time = 0.29s
+Info:     at iteration #17, type ALL: wirelen solved = 23280, spread = 31630, legal = 36845; time = 0.23s
+Info:     at iteration #18, type ALL: wirelen solved = 23326, spread = 30896, legal = 36250; time = 0.26s
+Info:     at iteration #19, type ALL: wirelen solved = 23675, spread = 30909, legal = 36006; time = 0.29s
+Info:     at iteration #20, type ALL: wirelen solved = 23922, spread = 32493, legal = 37081; time = 0.22s
+Info:     at iteration #21, type ALL: wirelen solved = 24292, spread = 31178, legal = 36886; time = 0.20s
+Info:     at iteration #22, type ALL: wirelen solved = 23930, spread = 31309, legal = 35670; time = 0.22s
+Info:     at iteration #23, type ALL: wirelen solved = 24070, spread = 31275, legal = 36632; time = 0.23s
+Info:     at iteration #24, type ALL: wirelen solved = 24531, spread = 31688, legal = 36280; time = 0.23s
+Info:     at iteration #25, type ALL: wirelen solved = 24682, spread = 31169, legal = 36039; time = 0.24s
+Info:     at iteration #26, type ALL: wirelen solved = 24568, spread = 31689, legal = 36984; time = 0.23s
+Info:     at iteration #27, type ALL: wirelen solved = 25164, spread = 31145, legal = 35860; time = 0.28s
+Info: HeAP Placer Time: 10.22s
+Info:   of which solving equations: 7.12s
+Info:   of which spreading cells: 0.88s
+Info:   of which strict legalisation: 0.57s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 1389, wirelen = 35670
+Info:   at iteration #5: temp = 0.000000, timing cost = 1358, wirelen = 30911
+Info:   at iteration #10: temp = 0.000000, timing cost = 1392, wirelen = 29615
+Info:   at iteration #15: temp = 0.000000, timing cost = 1357, wirelen = 28849
+Info:   at iteration #20: temp = 0.000000, timing cost = 1361, wirelen = 28546
+Info:   at iteration #25: temp = 0.000000, timing cost = 1348, wirelen = 28434
+Info:   at iteration #25: temp = 0.000000, timing cost = 1345, wirelen = 28435 
+Info: SA placement time 17.77s
+
+Info: Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 34.33 MHz (PASS at 12.29 MHz)
+
+Info: Max delay <async>                           -> posedge $glbnet$clk$TRELLIS_IO_IN: 1.12 ns
+Info: Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 3.33 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 35 endpoint(s)
+Info:          + represents [1,35) endpoint(s)
+Info: [ 52249,  53668) |+
+Info: [ 53668,  55087) |**+
+Info: [ 55087,  56506) |*+
+Info: [ 56506,  57925) |+
+Info: [ 57925,  59344) |+
+Info: [ 59344,  60763) |*+
+Info: [ 60763,  62182) |****+
+Info: [ 62182,  63601) |******+
+Info: [ 63601,  65020) |***+
+Info: [ 65020,  66439) |*******+
+Info: [ 66439,  67858) |***********+
+Info: [ 67858,  69277) |****+
+Info: [ 69277,  70696) |******+
+Info: [ 70696,  72115) |************+
+Info: [ 72115,  73534) |*****************************************+
+Info: [ 73534,  74953) |************************************************************ 
+Info: [ 74953,  76372) |****************************+
+Info: [ 76372,  77791) |*****************+
+Info: [ 77791,  79210) |***************+
+Info: [ 79210,  80629) |**********+
+Info: Checksum: 0x0c969743
+Info: Routing globals...
+Info:     routing clock net $glbnet$clk$TRELLIS_IO_IN using global 0
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 29243 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |      205        794 |  205   794 |     28531|       0.59       0.59|
+Info:       2000 |      426       1573 |  221   779 |     27863|       0.33       0.92|
+Info:       3000 |      634       2365 |  208   792 |     27215|       0.34       1.26|
+Info:       4000 |      933       3066 |  299   701 |     26680|       0.37       1.64|
+Info:       5000 |     1210       3789 |  277   723 |     26067|       0.36       2.00|
+Info:       6000 |     1378       4621 |  168   832 |     25655|       0.43       2.43|
+Info:       7000 |     1680       5319 |  302   698 |     25013|       0.34       2.77|
+Info:       8000 |     1922       6077 |  242   758 |     24332|       0.42       3.19|
+Info:       9000 |     2108       6891 |  186   814 |     23636|       0.29       3.48|
+Info:      10000 |     2513       7486 |  405   595 |     23118|       0.52       4.00|
+Info:      11000 |     2959       8040 |  446   554 |     22764|       0.51       4.51|
+Info:      12000 |     3395       8604 |  436   564 |     22307|       0.59       5.10|
+Info:      13000 |     3788       9211 |  393   607 |     21862|       0.58       5.69|
+Info:      14000 |     4056       9943 |  268   732 |     21181|       0.47       6.16|
+Info:      15000 |     4274      10725 |  218   782 |     20467|       0.34       6.50|
+Info:      16000 |     4655      11344 |  381   619 |     20047|       0.72       7.22|
+Info:      17000 |     5083      11916 |  428   572 |     19573|       0.64       7.86|
+Info:      18000 |     5567      12432 |  484   516 |     19198|       0.80       8.66|
+Info:      19000 |     5906      13093 |  339   661 |     18672|       0.76       9.42|
+Info:      20000 |     6223      13776 |  317   683 |     18086|       0.36       9.78|
+Info:      21000 |     6560      14439 |  337   663 |     17595|       0.62      10.40|
+Info:      22000 |     6887      15112 |  327   673 |     17037|       0.49      10.89|
+Info:      23000 |     7205      15743 |  318   631 |     16531|       0.63      11.52|
+Info:      24000 |     7528      16354 |  323   611 |     15978|       0.61      12.13|
+Info:      25000 |     7899      16946 |  371   592 |     15390|       0.34      12.47|
+Info:      26000 |     8114      17621 |  215   675 |     14644|       0.29      12.76|
+Info:      27000 |     8416      18221 |  302   600 |     13997|       0.41      13.17|
+Info:      28000 |     8651      18911 |  235   690 |     13341|       0.39      13.56|
+Info:      29000 |     8955      19470 |  304   559 |     12693|       0.45      14.01|
+Info:      30000 |     9256      20100 |  301   630 |     12045|       0.46      14.47|
+Info:      31000 |     9468      20832 |  212   732 |     11292|       0.50      14.97|
+Info:      32000 |     9681      21513 |  213   681 |     10586|       0.35      15.31|
+Info:      33000 |     9908      22211 |  227   698 |      9851|       0.37      15.69|
+Info:      34000 |    10133      22904 |  225   693 |      9113|       0.37      16.05|
+Info:      35000 |    10319      23609 |  186   705 |      8332|       0.51      16.57|
+Info:      36000 |    10535      24350 |  216   741 |      7629|       0.49      17.06|
+Info:      37000 |    10784      25077 |  249   727 |      7259|       1.03      18.08|
+Info:      38000 |    10974      25769 |  190   692 |      6507|       0.33      18.41|
+Info:      39000 |    11131      26527 |  157   758 |      5726|       0.32      18.73|
+Info:      40000 |    11363      27279 |  232   752 |      5074|       0.45      19.18|
+Info:      41000 |    11579      28019 |  216   740 |      4311|       0.36      19.54|
+Info:      42000 |    11835      28739 |  256   720 |      3629|       0.48      20.03|
+Info:      43000 |    12037      29521 |  202   782 |      2886|       0.48      20.50|
+Info:      44000 |    12235      30262 |  198   741 |      2133|       0.44      20.94|
+Info:      45000 |    12411      31049 |  176   787 |      1368|       0.58      21.52|
+Info:      46000 |    12467      31795 |   56   746 |       433|       0.22      21.73|
+Info:      46452 |    12482      32127 |   15   332 |         0|       0.10      21.83|
+Info: Routing complete.
+Info: Router1 time 21.83s
+Info: Checksum: 0x3e27d6ed
+
+Info: Critical path report for clock '$glbnet$clk$TRELLIS_IO_IN' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source u_synth.u_voice.u_ladder.mul_a_TRELLIS_FF_Q_9.Q
+Info:    routing  1.42  1.95 Net u_synth.u_voice.u_ladder.mul_a[14] (14,14) -> (14,13)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_r_MULT18X18D_P9.A14
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:93.26-93.31
+Info:      logic  3.93  5.87 Source u_synth.u_voice.u_ladder.mul_r_MULT18X18D_P9.P22
+Info:    routing  1.68  7.56 Net u_synth.u_voice.u_ladder.mul_r_MULT18X18D_P9_P35[4] (14,13) -> (12,15)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1_CCU2C_S1$CCU2_COMB0.B
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:95.34-95.64
+Info:                               /opt/homebrew/bin/../share/yosys/mul2dsp.v:150.7-154.6
+Info:                               /opt/homebrew/bin/../share/yosys/mul2dsp.v:232.32-232.125
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:32.22-32.23
+Info:      logic  0.45  8.01 Source u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  8.01 Net u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1_CCU2C_S1$CCU2_FCI_INT (12,15) -> (12,15)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.40  8.41 Source u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1_CCU2C_S1$CCU2_COMB1.F
+Info:    routing  1.45  9.86 Net u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_B1 (12,15) -> (9,16)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2$CCU2_COMB1.B
+Info:      logic  0.45  10.31 Source u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2$CCU2_COMB1.FCO
+Info:    routing  0.00  10.31 Net u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_2_COUT (9,16) -> (10,16)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_3$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:95.34-95.64
+Info:                               /opt/homebrew/bin/../share/yosys/mul2dsp.v:175.32-175.125
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  10.75 Source u_synth.u_voice.u_ladder.mul_r_CCU2C_S1_3$CCU2_COMB0.F
+Info:    routing  1.16  11.91 Net u_synth.u_voice.u_ladder.inc_full[13] (10,16) -> (9,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.B
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:129.26-129.33
+Info:      logic  0.45  12.36 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.36 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (9,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.43 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.43 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.43 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.43 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.50 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.50 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.50 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.50 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.57 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.57 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT$CCU2_FCI_INT (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.57 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.57 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.64 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  12.64 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1$CCU2_FCI_INT (10,17) -> (10,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  12.64 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  12.64 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_COUT (10,17) -> (11,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.72 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  12.72 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0$CCU2_FCI_INT (11,17) -> (11,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  12.72 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  12.72 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_COUT (11,17) -> (11,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:135.35-135.51
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.79 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  12.79 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0_CCU2C_S1$CCU2_FCI_INT (11,17) -> (11,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.40  13.19 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.F
+Info:    routing  1.49  14.67 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_CCU2C_S1_S0[1] (11,17) -> (10,21)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_S1_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  15.12 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_S1_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  15.12 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_S1_CCU2C_A0_COUT_CCU2C_CIN$CCU2_FCI_INT (10,21) -> (10,21)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_S1_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  15.12 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_2_B_CCU2C_S0_S1_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  15.12 Net $nextpnr_CCU2C_35$CIN (10,21) -> (10,21)
+Info:                          Sink $nextpnr_CCU2C_35$CCU2_COMB0.FCI
+Info:      logic  0.44  15.56 Source $nextpnr_CCU2C_35$CCU2_COMB0.F
+Info:    routing  0.90  16.47 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[1] (10,21) -> (10,21)
+Info:                          Sink $nextpnr_CCU2C_35$CCU2_COMB1.A
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:101.46-101.54
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.45  16.91 Source $nextpnr_CCU2C_35$CCU2_COMB1.FCO
+Info:    routing  0.00  16.91 Net $nextpnr_CCU2C_35$COUT (10,21) -> (11,21)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_S0_CCU2C_S0$CCU2_COMB0.FCI
+Info:      logic  0.44  17.36 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_S0_CCU2C_S0$CCU2_COMB0.F
+Info:    routing  1.01  18.36 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B[1] (11,21) -> (8,22)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B.D
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  18.60 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B.F
+Info:    routing  0.43  19.03 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z[2] (8,22) -> (8,22)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_PFUMX_Z_BLUT_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  19.43 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  1.75  21.18 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1[0] (8,22) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.B
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  21.63 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.63 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (13,17) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.63 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.63 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (13,17) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  21.70 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.70 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (13,17) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.70 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.70 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (13,17) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  21.77 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.77 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (13,17) -> (13,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.77 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.77 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (13,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  21.84 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.84 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.84 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.84 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  21.91 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.91 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.91 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.91 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  21.98 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  21.98 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  21.98 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  21.98 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  22.05 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  22.05 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (14,17) -> (14,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  22.05 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  22.05 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (14,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  22.12 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  22.12 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  22.12 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  22.12 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  22.20 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  22.20 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  22.20 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  22.20 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  22.27 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  22.27 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  22.27 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  22.27 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_CIN (15,17) -> (15,17)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:150.43-150.47
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  22.71 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.F
+Info:    routing  0.48  23.19 Net u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_S0[2] (15,17) -> (15,19)
+Info:                          Sink u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2.D
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  23.42 Source u_synth.u_voice.u_ladder.sat_s$func$/private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:141$725.$result_LUT4_Z_20_B_CCU2C_S1_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_B_Z_CCU2C_S0_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2.F
+Info:    routing  0.89  24.32 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1[0] (15,19) -> (15,20)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.B
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  24.76 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  24.76 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_FCI_INT (15,20) -> (15,20)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.40  25.17 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A1_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.F
+Info:    routing  0.87  26.03 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D[2] (15,20) -> (16,20)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D.C
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  26.27 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D.F
+Info:    routing  1.13  27.40 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z (16,20) -> (17,18)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1$CCU2_COMB1.A
+Info:      logic  0.45  27.84 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1$CCU2_COMB1.FCO
+Info:    routing  0.00  27.84 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT (17,18) -> (17,18)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v:161.36-161.43
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  28.28 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN$CCU2_COMB0.F
+Info:    routing  0.72  29.01 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_COUT_CCU2C_CIN_S0[4] (17,18) -> (18,17)
+Info:                          Sink u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_S0_LUT4_D_Z_PFUMX_Z_5_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /opt/homebrew/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  29.26 Source u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_S0_LUT4_D_Z_PFUMX_Z_5_BLUT_LUT4_Z.OFX
+Info:    routing  1.03  30.29 Net u_synth.u_voice.u_ladder.t0_LUT4_Z_12_D_LUT4_D_Z_CCU2C_A1_S0_LUT4_D_Z[8] (18,17) -> (17,14)
+Info:                          Sink u_synth.u_voice.u_ladder.mul_b_TRELLIS_FF_Q_11.M
+Info:      setup  0.00  30.29 Source u_synth.u_voice.u_ladder.mul_b_TRELLIS_FF_Q_11.M
+Info: 13.88 ns logic, 16.41 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$clk$TRELLIS_IO_IN':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source btn_rst_n$tr_io.O
+Info:    routing  1.00  1.00 Net btn_rst_n$TRELLIS_IO_IN (6,0) -> (6,2)
+Info:                          Sink u_synth.rst_n_pad_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/fpga/rtl/fpga_top.v:29.17-29.26
+Info:      logic  0.24  1.24 Source u_synth.rst_n_pad_LUT4_Z.F
+Info:    routing  0.13  1.37 Net u_synth.rst_n_pad (6,2) -> (6,2)
+Info:                          Sink u_synth.rst_q_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/synth_top.v:32.17-32.26
+Info:      setup  0.00  1.37 Source u_synth.rst_q_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 1.13 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$clk$TRELLIS_IO_IN' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source bclk_TRELLIS_FF_Q.Q
+Info:    routing  2.37  2.89 Net bclk$TRELLIS_IO_OUT (2,23) -> (0,5)
+Info:                          Sink bclk$tr_io.I
+Info:                          Defined in:
+Info:                               /private/tmp/wt-fpga/rtl-sketch/i2s_tx.v:22.24-22.27
+Info: 0.52 ns logic, 2.37 ns routing
+
+Info: Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 33.01 MHz (PASS at 12.29 MHz)
+
+Info: Max delay <async>                           -> posedge $glbnet$clk$TRELLIS_IO_IN: 1.37 ns
+Info: Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 2.89 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 41 endpoint(s)
+Info:          + represents [1,41) endpoint(s)
+Info: [ 51088,  52556) |+
+Info: [ 52556,  54024) |**+
+Info: [ 54024,  55492) |+
+Info: [ 55492,  56960) |+
+Info: [ 56960,  58428) |+
+Info: [ 58428,  59896) |***+
+Info: [ 59896,  61364) |***+
+Info: [ 61364,  62832) |****+
+Info: [ 62832,  64300) |**+
+Info: [ 64300,  65768) |*+
+Info: [ 65768,  67236) |***+
+Info: [ 67236,  68704) |****+
+Info: [ 68704,  70172) |********+
+Info: [ 70172,  71640) |*******+
+Info: [ 71640,  73108) |*****+
+Info: [ 73108,  74576) |*********************+
+Info: [ 74576,  76044) |************************************************************ 
+Info: [ 76044,  77512) |**************************************+
+Info: [ 77512,  78980) |******************+
+Info: [ 78980,  80448) |**************+
+
+Info: Program finished normally.

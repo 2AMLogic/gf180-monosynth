@@ -1,0 +1,200 @@
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai22_1 cells:      138
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai31_1 cells:      133
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai32_1 cells:       30
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai33_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or2_1 cells:      219
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or3_1 cells:       43
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or4_1 cells:        7
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xnor2_1 cells:      312
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xnor3_1 cells:       92
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor2_1 cells:      720
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor3_1 cells:      217
+ABC RESULTS:        internal signals:    12827
+ABC RESULTS:           input signals:     1582
+ABC RESULTS:          output signals:     1577
+Removing temp directory.
+
+12.7. Extracting gate netlist of module `\spi_ctl' to `<abc-temp-dir>/input.blif'..
+ABC: using cached merged SCL: /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl (1 files)
+
+12.7.1. Executed ABC.
+Extracted 827 gates and 1100 wires to a netlist network with 271 inputs and 253 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_scl /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl 
+ABC: Warning: Detected 6 multi-output cells (for example, "gf180mcu_fd_sc_mcu7t5v0__addf_1").
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+12.7.2. Re-integrating ABC results.
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and2_1 cells:        7
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and3_1 cells:        4
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi211_1 cells:       34
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi21_1 cells:       90
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi221_1 cells:       33
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi222_1 cells:       17
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi22_1 cells:        4
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__clkinv_1 cells:      178
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__mux2_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand2_1 cells:       95
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand3_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand4_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor2_1 cells:       70
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor3_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor4_1 cells:        4
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai21_1 cells:      139
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai22_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai32_1 cells:       64
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai33_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or2_1 cells:        6
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xnor2_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor2_1 cells:        8
+ABC RESULTS:        internal signals:      576
+ABC RESULTS:           input signals:      271
+ABC RESULTS:          output signals:      253
+Removing temp directory.
+
+12.8. Extracting gate netlist of module `\drum_section_placeholder' to `<abc-temp-dir>/input.blif'..
+ABC: using cached merged SCL: /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl (1 files)
+
+12.8.1. Executed ABC.
+Extracted 342 gates and 465 wires to a netlist network with 121 inputs and 88 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_scl /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl 
+ABC: Warning: Detected 6 multi-output cells (for example, "gf180mcu_fd_sc_mcu7t5v0__addf_1").
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+12.8.2. Re-integrating ABC results.
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and2_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and3_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and4_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi211_1 cells:       13
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi21_1 cells:       43
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi222_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi22_1 cells:       15
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__clkinv_1 cells:       73
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand2_1 cells:       55
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand3_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor2_1 cells:       26
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor3_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai211_1 cells:        6
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai21_1 cells:       47
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai221_1 cells:       12
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai22_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai31_1 cells:        4
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or2_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or3_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or4_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xnor2_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor2_1 cells:       26
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor3_1 cells:        4
+ABC RESULTS:        internal signals:      256
+ABC RESULTS:           input signals:      121
+ABC RESULTS:          output signals:       88
+Removing temp directory.
+
+12.9. Extracting gate netlist of module `\synth_top' to `<abc-temp-dir>/input.blif'..
+ABC: using cached merged SCL: /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl (1 files)
+
+12.9.1. Executed ABC.
+Extracted 104 gates and 142 wires to a netlist network with 36 inputs and 28 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_scl /var/folders/fb/l4j31ymn3bn0mc6v1qbvvl8c0000gn/T/yosys-liberty-scl-cache-501/yosys_merged_d72b0919.scl 
+ABC: Warning: Detected 6 multi-output cells (for example, "gf180mcu_fd_sc_mcu7t5v0__addf_1").
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+12.9.2. Re-integrating ABC results.
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and2_1 cells:        9
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and3_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__and4_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__aoi21_1 cells:       11
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__clkinv_1 cells:        5
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand2_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nand4_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor2_1 cells:       17
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor3_1 cells:        3
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__nor4_1 cells:        2
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai21_1 cells:       19
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__oai31_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or3_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__or4_1 cells:        1
+ABC RESULTS:   gf180mcu_fd_sc_mcu7t5v0__xor2_1 cells:        1
+ABC RESULTS:        internal signals:       78
+ABC RESULTS:           input signals:       36
+ABC RESULTS:          output signals:       28
+Removing temp directory.
+Removing global temp directory.
+
+13. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module $paramod$32990d77a669d3d2328fb791be8cbb1cdc276f22\modal_coef_rom..
+Finding unused cells or wires in module $paramod$48f9cf6fa071f8ec133f664d53ce178a997da653\ladder_dp_n..
+Finding unused cells or wires in module \i2s_tx..
+Finding unused cells or wires in module $paramod\modal_dp_rom\PRESETS=s32'00000000000000000000000000001000..
+Finding unused cells or wires in module \recip_div..
+Finding unused cells or wires in module \voice_dp..
+Finding unused cells or wires in module \spi_ctl..
+Finding unused cells or wires in module \drum_section_placeholder..
+Finding unused cells or wires in module \synth_top..
+Removed 0 unused cells and 33248 unused wires.
+<suppressed ~66 debug messages>
+14. Executing Verilog backend.
+
+14.1. Executing BMUXMAP pass.
+
+14.2. Executing DEMUXMAP pass.
+Dumping module `$paramod$32990d77a669d3d2328fb791be8cbb1cdc276f22\modal_coef_rom'.
+Dumping module `$paramod$48f9cf6fa071f8ec133f664d53ce178a997da653\ladder_dp_n'.
+Dumping module `$paramod\modal_dp_rom\PRESETS=s32'00000000000000000000000000001000'.
+Dumping module `\drum_section_placeholder'.
+Dumping module `\i2s_tx'.
+Dumping module `\recip_div'.
+Dumping module `\spi_ctl'.
+Dumping module `\synth_top'.
+Dumping module `\voice_dp'.
+
+End of script. Logfile hash: ba07f6f3a2, time: 472.17s, user: 5.61s, system: 0.28s, MEM: 128.62 MB peak
+Yosys 0.69+post (git sha1 143eb14f9cc55d6f8927e68523b0c9d2166ed02c, Release, AppleClang clang++ 21.0.0.21000101)
+Time spent: 94% 2x abc (99 sec), 1% 98x opt_expr (1 sec), ...

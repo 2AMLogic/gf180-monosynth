@@ -164,12 +164,29 @@ panel. This matters enormously for a shared modal bank, which needs a mode per
 But +3 circuits is NOT +3 modes** — the eight-stop kit we already ship uses
 **eleven active modes** (six filters, five bodies), because a single named
 instrument can consume a band-pass, a high-pass and a body. Instrument names do
-not map one-to-one onto resonators, and every mode-count claim in this
-document must be measured on the integrated design, configuration storage
-included, rather than counted off the voice list. Missing:
-the mid conga/tom, the claves/rim shot, and the cymbal. Adding the second half
-of each pair we already own (LC, MC, HC, CL or RS, MA) is a coefficient preset,
-not a mode.
+not map one-to-one onto resonators. Missing: the mid conga/tom, the claves/rim
+shot, and the cymbal. Adding the second half of each pair we already own (LC,
+MC, HC, CL or RS, MA) is a coefficient preset, not a mode.
+
+**This has now been measured** — `docs/integration-area.md` section 3, from the
+register image `kit_808()` actually writes and a parameter sweep of `modal_dp`
+and `drum_kit` on gf180. Three corrections to what this section used to say:
+
+1. **The filter half of the bank is already full.** `modal_dp` gives a
+   numerator only to modes below `NUMS`, the kit runs at `NUMS = 6`, and its six
+   filters are modes 0–5. The spare mode 11 sits above `NUMS`, so it can only
+   ever be a RAW body. The bank is 6 of 6 filters with none to spare, not 11 of
+   12 with one.
+2. **+3 circuits is +4 to +7 modes**, not +3: the mid tom is +1 body, the
+   claves/rim shot +1 body, and the cymbal +2 band-passes plus 2–3 high-passes
+   (`docs/tr808-reference.md` §10). That takes the bank to 15–18 modes and
+   `NUMS` to 8–11.
+3. **The choice is 8, 16 or 32 modes — 12 is not a design point.** The bank's
+   state arrays are padded by yosys to a power of two, so MODES 9 through 16
+   cost *identically* (1,656 flops, ~605 k µm² of `drum_kit`). Twelve to sixteen
+   is free; seventeen doubles the state and costs +189 k µm² (+31 %). The only
+   marginal cost inside the bracket is configuration storage, ≈ 6,400 µm² per
+   mode — **and none of that storage exists in RTL**, on any branch.
 
 **Voice count is not our risk — the snare is.** No source in the survey
 (`docs/reduced-808-precedent.md`) reports a reduced 808 rejected for having too
@@ -192,9 +209,22 @@ cannot adjudicate them at all — the cowbell is documented wrong and
 excludes chance. And there is **no real-vs-real floor** in this dataset.
 
 Three of eleven circuits are missing, and the cymbal can share the hats' six
-square oscillators (205.3/369.6/304.4/522.7/800/540 Hz). The full library is
-**+3 circuits**, which is a far smaller ask than the "+5 to 7 modes" an earlier
-draft of this document guessed at from the sixteen-sound count.
+square oscillators (205.3/369.6/304.4/522.7/800/540 Hz) — but **only the
+oscillators**, not the modes. The full library is **+3 circuits and +4 to +7
+modes**. The "+5 to 7 modes" an earlier draft of this document guessed at from
+the sixteen-sound count was therefore **very nearly right, and was discarded
+for the wrong reason**: circuits and modes are different units, which is this
+section's own point turned back on its own conclusion.
+
+The decision this leaves is narrow and specific, and it is not about voice
+count. Thirteen modes are spoken for before the cymbal is placed (eleven now,
+plus the mid tom's body and the claves/rim shot's), so: **can the cymbal be
+built in three bank modes — its two band-passes plus at most one high-pass?**
+Three keeps a complete 808 inside the sixteen-mode bank the design already pays
+for, for **+54 k µm²** all told, half of it configuration registers. Four or
+more crosses the `MW = 5` cliff and costs **+228 k µm²**, four times as much.
+That is a question about CY's three Sallen-Key high-passes, for whoever
+implements CY — not one to settle from an area budget.
 
 ## What integration does NOT depend on
 
@@ -215,8 +245,11 @@ voice (M1, M2) and the drum coefficients and audio we already have.
 | I2 | SPI control, including a write landing mid-sample | |
 | I3 | I2S **compared against the model**, not the DUT | see below |
 | I4 | Full chip bit-exact | first run came back **red** |
-| S1 | Synthesis | 925,387 µm² cells, 55.3 % util pre-placement |
+| S1 | Synthesis | **PLACEHOLDER DRUMS.** 925,387 µm² *synthesized cell*, 55.3 % utilisation on a **fixed** 1.7319 mm² die (so the utilisation is the measurement, not the die). **717,049 µm² with `DONT_USE_CELLS` empty** — allowing `*_1` drive strengths is −22.5 % area for +4.2 % critical path. `docs/integration-area.md` §1 |
+| — | the drum swap | `synth_top.v:81` holds `drum_section_placeholder` (**158,770 µm²** cells) where `drum_kit` (**603,118 µm²**) belongs: **+444,348 µm², 3.8×**. Contract 17.23. The 89,004 µm² in `synth_top.v`'s header is the withdrawn `drum_src_seq` strawman, not the placeholder — `drum_dp` really measures 272,894, so that strawman was low by 3.1× |
+| — | joined design | **PROJECTION, not a measurement** — nobody has synthesised a joined top. ~1.31 mm² of cells with `*_1` allowed (78 % of the slot's core), ~1.69 mm² without (**101 %** — does not fit). Allowing `*_1` is the difference between fitting and not. `docs/integration-area.md` §4.2 |
 | S2 | P&R, DRC | running |
+| — | FPGA | **routed on ECP5 25F**: 27 % logic, 12 % FF, 43 % DSP, **0 % BRAM**, Fmax 33.0 MHz post-route against a 12.288 MHz constraint. Does **not** fit iCE40 UP5K (163 % logic, 150 % DSP). `docs/fpga-build.md` |
 | S3 | STA closed at every corner | |
 
 I3 is called out because the existing top-level test compares the I2S stream

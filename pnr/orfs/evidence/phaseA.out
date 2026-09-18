@@ -1,0 +1,116 @@
+########## PHASE A rc=0
+########## tail of make log
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_2_floorplan_macro.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+[INFO TAP-0004] Inserted 660 endcaps.
+[INFO TAP-0005] Inserted 1992 tapcells.
+Design area 937030 um^2 56% utilization.
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_3_floorplan_tapcell.odb
+Elapsed time: 0:03.74[h:]min:sec. CPU time: user 2.62 sys 0.24 (76%). Peak memory: 184676KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+2_3_floorplan_tapcell     .odb            3            180 27ee907d5c591ca36599
+/OpenROAD-flow-scripts/flow/scripts/flow.sh 2_4_floorplan_pdn pdn
+Running pdn.tcl, stage 2_4_floorplan_pdn
+read_liberty /OpenROAD-flow-scripts/flow/platforms/gf180/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib.gz
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_3_floorplan_tapcell.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+[INFO PDN-0001] Inserting grid: block
+[INFO PDN-0500] Runtime: 1.94s
+Design area 937030 um^2 56% utilization.
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_4_floorplan_pdn.odb
+Elapsed time: 0:06.84[h:]min:sec. CPU time: user 5.24 sys 0.42 (82%). Peak memory: 228440KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+2_4_floorplan_pdn         .odb            6            223 1de7b2aadb5e1106cb37
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_4_floorplan_pdn.odb /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_floorplan.odb
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_floorplan.sdc
+########## grep: readmemh / no driver / ERROR / Warning summary in yosys log
+--- work/logs/gf180/synth_top/base/1_1_yosys_canonicalize.log
+--- work/logs/gf180/synth_top/base/1_2_yosys.log
+--- work/logs/gf180/synth_top/base/1_synth.log
+########## synth_stat.txt
+     1002 1.76E+04     1002 1.76E+04   gf180mcu_fd_sc_mcu7t5v0__buf_2
+       32  702.464       32  702.464   gf180mcu_fd_sc_mcu7t5v0__buf_3
+       17  522.458       17  522.458   gf180mcu_fd_sc_mcu7t5v0__buf_4
+        5  285.376        5  285.376   gf180mcu_fd_sc_mcu7t5v0__buf_8
+      457 8.03E+03      457 8.03E+03   gf180mcu_fd_sc_mcu7t5v0__clkbuf_2
+     3111  4.1E+04     3111  4.1E+04   gf180mcu_fd_sc_mcu7t5v0__clkinv_2
+     2925 1.99E+05     2925 1.99E+05   gf180mcu_fd_sc_mcu7t5v0__dffq_2
+       39  513.677       39  513.677   gf180mcu_fd_sc_mcu7t5v0__inv_2
+        5   87.808        5   87.808   gf180mcu_fd_sc_mcu7t5v0__inv_3
+        1   21.952        1   21.952   gf180mcu_fd_sc_mcu7t5v0__inv_4
+      710 2.34E+04      710 2.34E+04   gf180mcu_fd_sc_mcu7t5v0__mux2_2
+     4042 7.99E+04     4042 7.99E+04   gf180mcu_fd_sc_mcu7t5v0__nand2_2
+       14  491.725       14  491.725   gf180mcu_fd_sc_mcu7t5v0__nand2_4
+      502 1.43E+04      502 1.43E+04   gf180mcu_fd_sc_mcu7t5v0__nand3_2
+        4  228.301        4  228.301   gf180mcu_fd_sc_mcu7t5v0__nand3_4
+       74  2.6E+03       74  2.6E+03   gf180mcu_fd_sc_mcu7t5v0__nand4_2
+      875    19208      875    19208   gf180mcu_fd_sc_mcu7t5v0__nor2_2
+        4  158.054        4  158.054   gf180mcu_fd_sc_mcu7t5v0__nor2_4
+       50  1536.64       50  1536.64   gf180mcu_fd_sc_mcu7t5v0__nor3_2
+        1   57.075        1   57.075   gf180mcu_fd_sc_mcu7t5v0__nor3_4
+        5  197.568        5  197.568   gf180mcu_fd_sc_mcu7t5v0__nor4_2
+      405  1.6E+04      405  1.6E+04   gf180mcu_fd_sc_mcu7t5v0__oai211_2
+      997 3.28E+04      997 3.28E+04   gf180mcu_fd_sc_mcu7t5v0__oai21_2
+        1    59.27        1    59.27   gf180mcu_fd_sc_mcu7t5v0__oai21_4
+       50  2524.48       50  2524.48   gf180mcu_fd_sc_mcu7t5v0__oai221_2
+      698 2.91E+04      698 2.91E+04   gf180mcu_fd_sc_mcu7t5v0__oai22_2
+       71 2.96E+03       71 2.96E+03   gf180mcu_fd_sc_mcu7t5v0__oai31_2
+        8  403.917        8  403.917   gf180mcu_fd_sc_mcu7t5v0__oai32_2
+      379 8.32E+03      379 8.32E+03   gf180mcu_fd_sc_mcu7t5v0__or2_2
+        1   39.514        1   39.514   gf180mcu_fd_sc_mcu7t5v0__or2_4
+      264 6.95E+03      264 6.95E+03   gf180mcu_fd_sc_mcu7t5v0__or3_2
+       74 2.27E+03       74 2.27E+03   gf180mcu_fd_sc_mcu7t5v0__or4_2
+      600 2.24E+04      600 2.24E+04   gf180mcu_fd_sc_mcu7t5v0__xnor2_2
+       18 1.11E+03       18 1.11E+03   gf180mcu_fd_sc_mcu7t5v0__xnor3_2
+      118 4.66E+03      118 4.66E+03   gf180mcu_fd_sc_mcu7t5v0__xor2_2
+        6  381.965        6  381.965   gf180mcu_fd_sc_mcu7t5v0__xor3_2
+
+   Chip area for module '\synth_top': 925386.560000
+     of which used for sequential elements: 199049.760000 (21.51%)
+
+########## synth_check.txt
+
+20. Executing CHECK pass (checking for obvious problems).
+Checking module synth_top...
+Found and reported 0 problems.
+########## metrics
+--- 1_synth
+    synth__design__core__area = 0
+    synth__design__die__area = 0
+    synth__design__instance__area = 925387
+    synth__design__instance__area__cover = 0
+    synth__design__instance__area__macros = 0
+    synth__design__instance__area__padcells = 0
+    synth__design__instance__area__stdcell = 925387
+    synth__design__instance__count = 28810
+    synth__design__instance__count__cover = 0
+    synth__design__instance__count__macros = 0
+    synth__design__instance__count__padcells = 0
+    synth__design__instance__count__stdcell = 28810
+--- 2_1_floorplan
+    floorplan__design__core__area = 1673400.0
+    floorplan__design__die__area = 1731850.0
+    floorplan__design__instance__area = 925387
+    floorplan__design__instance__area__cover = 0
+    floorplan__design__instance__area__macros = 0
+    floorplan__design__instance__area__padcells = 0
+    floorplan__design__instance__area__stdcell = 925387
+    floorplan__design__instance__count = 28810
+    floorplan__design__instance__count__cover = 0
+    floorplan__design__instance__count__macros = 0
+    floorplan__design__instance__count__padcells = 0
+    floorplan__design__instance__count__setup_buffer = 0
+    floorplan__design__instance__count__stdcell = 28810
+    floorplan__design__instance__utilization = 0.552998
+    floorplan__design__instance__utilization__stdcell = 0.552998
+    floorplan__power__internal__total = 0.0516545
+    floorplan__power__leakage__total = 5.51993e-06
+    floorplan__power__switching__total = 0.0247732
+    floorplan__power__total = 0.0764332
+    floorplan__timing__setup__ws = 53.2623
+    run__flow__platform__power_units = 1uW
+--- 2_2_floorplan_macro
+--- 2_3_floorplan_tapcell
+--- 2_4_floorplan_pdn

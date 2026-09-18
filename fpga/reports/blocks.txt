@@ -1,0 +1,21 @@
+                           --------- iCE40 UP5K ---------     --------- ECP5 25F ---------      
+block (parameters as used)   LUT4     FF   DSP  BRAM  CARRY   LUT4     FF   DSP  BRAM   CCU2
+synth_top (whole chip)       5885   2931    12     0   1464   4675   2932    12     0    828
+  voice_dp                   4829   2138     8     0   1235   3853   2139     8     0    685
+    ladder_dp_n NCH=2         984    531     4     0    303    842    531     4     0    165
+    recip_div                 229     77     0     0     23    258     77     0     0     15
+  modal_dp_rom M=4 P=8        752    387     4     0    205    654    387     4     0    129
+  spi_ctl                     207    250     0     0      9    208    250     0     0      3
+  i2s_tx                       40     49     0     0      0    147     49     0     0      0
+drum_kit M=12 N=6 (NOT in top)   6777   3461     6     0    664   6770   3461     6     0    376
+  drum_dp E=12 P=16 M=12     3576   1385     2     0    385   3388   1385     2     0    210
+  modal_dp M=12 N=6          3266   2076     4     0    293   3319   2076     4     0    174
+  modal_dp M=18 N=11         5830   3983     4     0    301   5942   3983     4     0    182
+
+synth_top's drum section is drum_section_placeholder + a FOUR-mode modal_dp_rom.
+drum_kit / drum_dp / modal_dp M=12 are the REAL drum section and are instantiated
+by NO synth_top on any branch; modal_dp M=18 N=11 is the bank a complete 808
+needs (docs/integration-area.md section 3).
+Blocks are synthesised standalone, so they do not sum to the top-level row.
+Device capacity: UP5K 5280 LC / 30 BRAM(4k) / 8 DSP ; ECP5 25F 24288 LUT / 56 BRAM(18k) / 28 DSP
+FPGA numbers only. Nothing here is evidence that anything computes correctly.

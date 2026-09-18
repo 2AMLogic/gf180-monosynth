@@ -1,0 +1,17 @@
+# iCEBreaker (iCE40UP5K-SG48). See fpga/README.md: the on-board oscillator is
+# 12 MHz and the iCE40 PLL cannot reach 12.288 MHz (output range starts at
+# 16 MHz), so CLK must be driven from an external 12.288 MHz source on PMOD1A
+# pin 1 rather than from the on-board oscillator, or the instrument runs
+# 2.3 % flat. This file wires CLK to the on-board oscillator anyway so the
+# flow is runnable; the frequency caveat is recorded, not hidden.
+set_io clk        35
+set_io btn_rst_n  10      # user button
+# SPI control link, PMOD1A
+set_io sck         4
+set_io mosi        2
+set_io cs_n       47
+set_io miso       45
+# I2S out, PMOD1B
+set_io bclk       43
+set_io lrclk      38
+set_io sdata      34

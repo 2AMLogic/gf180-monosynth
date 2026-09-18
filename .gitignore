@@ -8,3 +8,4 @@ audio/
 rtl-sketch/build/
 pnr/orfs/work/
 pnr/klt/*/.klt/
+fpga/build/

@@ -1,0 +1,43 @@
+########## C1 x1 (DONT_USE_CELLS empty) synth+floorplan start Fri Sep 18 02:03:18 PDT 2026
+########## C1 rc=0 Fri Sep 18 02:08:32 PDT 2026
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_3_floorplan_tapcell.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_1_floorplan.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+[INFO PDN-0001] Inserting grid: block
+[INFO PDN-0500] Runtime: 2.12s
+Design area 728692 um^2 44% utilization.
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_4_floorplan_pdn.odb
+Elapsed time: 0:07.19[h:]min:sec. CPU time: user 5.62 sys 0.57 (86%). Peak memory: 231312KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+2_4_floorplan_pdn         .odb            7            225 2d71bbd94f6acf065b9b
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_4_floorplan_pdn.odb /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_floorplan.odb
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_1_floorplan.sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/x1/2_floorplan.sdc
+--- synth_stat tail
+        1   26.342        1   26.342   gf180mcu_fd_sc_mcu7t5v0__xor2_1
+        1    50.49        1    50.49   gf180mcu_fd_sc_mcu7t5v0__xor3_1
+
+   Chip area for module '\synth_top': 717048.908800
+     of which used for sequential elements: 186207.840000 (25.97%)
+
+--- synth_check
+
+20. Executing CHECK pass (checking for obvious problems).
+Checking module synth_top...
+Found and reported 0 problems.
+    synth__design__core__area = 0
+    synth__design__die__area = 0
+    synth__design__instance__area = 717049
+    synth__design__instance__area__stdcell = 717049
+    synth__design__instance__count = 30539
+    synth__design__instance__count__stdcell = 30539
+    floorplan__design__core__area = 1673400.0
+    floorplan__design__die__area = 1731850.0
+    floorplan__design__instance__area = 717049
+    floorplan__design__instance__area__stdcell = 717049
+    floorplan__design__instance__count = 30539
+    floorplan__design__instance__count__setup_buffer = 0
+    floorplan__design__instance__count__stdcell = 30539
+    floorplan__design__instance__utilization = 0.428498
+    floorplan__design__instance__utilization__stdcell = 0.428498
+    floorplan__timing__setup__ws = 52.0857
+########## C1_DONE
