@@ -645,7 +645,7 @@ def test_refine_f0_refuses_a_rig_playing_the_wrong_note():
     assert not e.ok and "fundamental is below the commanded" in e.reason, e
     # and a note that is simply mistuned, not transposed, refuses differently
     e2 = am.refine_f0(ideal("saw", f0 * 2 ** (80 / 1200), SR), f0, SR)
-    assert not e2.ok and "cents from the commanded" in e2.reason, e2
+    assert not e2.ok and "no component within 50 cents" in e2.reason, e2
 
 
 def test_the_mistuning_that_breaks_repetition_is_repaired_by_measuring_it():
