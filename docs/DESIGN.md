@@ -236,10 +236,16 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   anything. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
-- **There is no numeric contract for this instrument.** The sibling repo has
-  one for its four-voice engine; this block has none. The filter and the modal
-  bank are bit-exact against their own models; the rest of the voice has
-  nothing for RTL to be bit-exact *against* yet.
+- **The numeric contract is proposed, not ratified.**
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 1)
+  writes the integer voice down section by section, pins its four tables by
+  SHA-256 (`spec/reference/gen_tables.py --check` keeps them the model's),
+  and lists in its section 17 what it deliberately leaves open: retrigger
+  semantics, the glide curve, the physical control layer, the modal bank's
+  sizing, gain staging. Until it is ratified, the filter and the modal bank
+  are bit-exact against their own models and the rest of the voice is
+  bit-exact against `model/voice_fx.py` by inspection of the contract only —
+  no RTL exists for it yet.
 - **No PDK has been run.** No synthesis, floorplan, route, GDS, DRC, LVS, STA
   or ERC on gf180mcu. **No area in mm², no timing, no power.** Every cell count
   here is PDK-neutral yosys output.

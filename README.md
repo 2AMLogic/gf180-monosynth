@@ -289,6 +289,7 @@ locks it.
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
 | `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
+| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 1, **proposed, not ratified**: every per-sample operation, the four tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
 | `spec/decision-records/` | Why things are the way they are |
 
 ## Playing it
