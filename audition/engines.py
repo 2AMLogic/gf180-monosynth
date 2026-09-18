@@ -15,7 +15,7 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
               detune=(0.0, 0.07, -12.0), mix=(1.0, 0.8, 0.5),
               cutoff=(400, 4000), q=0.62, drive=1.6,
               amp=(0.005, 0.25, 0.75, 0.12), fenv=(0.004, 0.30, 0.25, 0.10),
-              track=0.35, glide_from=None, _tanh="lut10", blep=False):
+              track=0.35, glide_from=None, _tanh="lut10", blep=False, vca_post=False):
     """Minimoog-shaped voice: up to 3 detuned oscillators -> mixer (which can
     overdrive) -> nonlinear 4-pole ladder -> VCA, with a second envelope on
     cutoff and keyboard tracking.
@@ -28,7 +28,9 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
     `blep=True` uses the PolyBLEP oscillators (dsp.osc_bl). Off by default so
     the audition renders that chose this architecture do not change; the
     integer voice in model/voice_fx.py always band-limits, and is compared
-    against this model with blep=True.
+    against this model with blep=True. `vca_post=True` applies the amplitude
+    envelope AFTER the filter, the Minimoog's order and the integer voice's
+    since DR 0005; off by default for the same reason.
     """
     n = int(dur * SR)
     gate = dur * 0.8 if gate is None else gate
@@ -54,6 +56,8 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
     lo, hi = cutoff
     cut = lo + (hi - lo) * fe + track * f0 * 4.0
     cut = np.clip(cut, 30.0, SR * 0.45)
+    if vca_post:
+        return ladder(sig, cut, np.full(n, q), drive=drive, tanh_impl=_tanh) * ae * 0.9
     return ladder(sig * ae, cut, np.full(n, q), drive=drive, tanh_impl=_tanh) * 0.9
 
 

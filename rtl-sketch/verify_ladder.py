@@ -74,7 +74,7 @@ class Coverage:
 
     def _count_sat(self, v, bits):
         r = self._sat(v, bits)
-        if bits == 16:
+        if bits == self.f.OB:
             self.out_sat += (r != v)
         else:                       # process() calls sat(u) then sat(y) x4 per step
             pos = self.sb_calls % 5
@@ -94,9 +94,12 @@ class Coverage:
         self.f.tanh_fx = self._tanh
 
 
-def generate(tanh_n: int, outdir: str, verbose=True):
+OUT_BITS = 19       # the voice's ladder output word, Q4.15 (contract 11.2, DR 0005)
+
+
+def generate(tanh_n: int, outdir: str, verbose=True, out_bits: int = OUT_BITS):
     """Run the model; write vectors + expected. Returns (expected list, coverage)."""
-    f = fixed.LadderFx(state_bits=24, state_q=20, tanh_entries=tanh_n, interp=True)
+    f = fixed.LadderFx(state_bits=24, state_q=20, tanh_entries=tanh_n, interp=True, out_bits=out_bits)
     cov = Coverage(f)
     lines, expected = [], []
     g_hi = k_hi = 0
@@ -107,7 +110,7 @@ def generate(tanh_n: int, outdir: str, verbose=True):
         assert 0 < k < (1 << 17) and 0 < gain < (1 << 20) and 0 < ogain < (1 << 20)
         for i in range(len(xq)):
             xi, gi, yi = int(xq[i]), int(g_tab[i]), int(y[i])
-            lines.append(f"{xi & 0xffff:04x}{gi:04x}{k:06x}{gain:06x}{ogain:06x}{yi & 0xffff:04x}\n")
+            lines.append(f"{xi & 0xffff:04x}{gi:04x}{k:06x}{gain:06x}{ogain:06x}{yi & 0xffffff:06x}\n")
             expected.append(yi)
         if verbose:
             print(f"  segment: {name}: {len(xq)} samples, k={k} gain={gain} ogain={ogain}")
@@ -136,7 +139,7 @@ def tool(name: str) -> str | None:
 
 
 def simulate(rtl: str, tb: str, log2n: int, rom: str, defines: list[str],
-             outdir: str, timeout_s: float = 600.0) -> str | None:
+             outdir: str, timeout_s: float = 600.0, out_bits: int = OUT_BITS) -> str | None:
     iverilog, vvp = tool("iverilog"), tool("vvp")
     if not iverilog or not vvp:
         print("verify_ladder: iverilog/vvp not on PATH (or set OSS_CAD_SUITE)")
@@ -145,7 +148,7 @@ def simulate(rtl: str, tb: str, log2n: int, rom: str, defines: list[str],
     out_file = os.path.join(outdir, "ladder_rtl_out.txt")
     if os.path.exists(out_file): os.remove(out_file)
     cmd = [iverilog, "-g2012", "-o", vvp_file,
-           f"-Ptb_ladder.LOG2N={log2n}", f'-Ptb_ladder.ROM_FILE="{rom}"']
+           f"-Ptb_ladder.LOG2N={log2n}", f'-Ptb_ladder.ROM_FILE="{rom}"', f"-Ptb_ladder.OW={out_bits}"]
     cmd += [f"-D{d}" for d in defines] + [tb, rtl]
     r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True)
     if r.returncode != 0:
@@ -219,18 +222,21 @@ def main(argv=None) -> int:
     ap.add_argument("--rtl", default=os.path.join(HERE, "ladder_dp.v"))
     ap.add_argument("--tb", default=os.path.join(HERE, "tb_ladder.v"))
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
+    ap.add_argument("--out-bits", type=int, default=OUT_BITS, choices=(16, 19),
+                    help="ladder output width: 19 (Q4.15, the voice's) or 16 (Q1.15, rev 1)")
     a = ap.parse_args(argv)
     log2n = {16: 4, 256: 8}[a.tanh_n]
     rom = {16: "tanh16.hex", 256: "tanh256.hex"}[a.tanh_n]
-    print(f"verify_ladder: model LadderFx(24-bit state, 20 fraction, {a.tanh_n}-entry interpolated tanh)")
-    expected, _ = generate(a.tanh_n, a.outdir)
+    print(f"verify_ladder: model LadderFx(24-bit state, 20 fraction, {a.tanh_n}-entry interpolated tanh, "
+          f"{a.out_bits}-bit output)")
+    expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
     if a.compare_only:
         status = compare(expected, a.compare_only)
     else:
         defines = [f"INJECT_BUG_LADDER_{a.inject}"] if a.inject else []
         print(f"verify_ladder: simulating {os.path.relpath(a.rtl, HERE)} "
               f"(TANH_LOG2N={log2n}, {rom}{', ' + defines[0] if defines else ''})")
-        out = simulate(a.rtl, a.tb, log2n, rom, defines, a.outdir)
+        out = simulate(a.rtl, a.tb, log2n, rom, defines, a.outdir, out_bits=a.out_bits)
         status = 2 if out is None else compare(expected, out)
     if a.expect_fail:
         if status == 1:

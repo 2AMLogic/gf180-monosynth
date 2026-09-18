@@ -12,9 +12,10 @@ any of this.**
 
 ## 1. What it is
 
-A monophonic Minimoog-shaped voice — three detuned oscillators into a nonlinear
-four-pole ladder — with a drum section and a modal resonator bank, on
-gf180mcu. Control comes from a host over a serial link; audio leaves as I2S.
+A monophonic (or, with the host assigning held keys to oscillators,
+three-voice paraphonic) Minimoog-shaped voice — three detuned oscillators into
+a nonlinear four-pole ladder — with a drum section and a modal resonator bank,
+on gf180mcu. Control comes from a host over a serial link; audio leaves as I2S.
 The host owns all musical time; there is no sequencer on the chip.
 
 The product it targets is a small sound module that a MIDI keyboard plugs into,
@@ -32,7 +33,7 @@ mapping.
 
 | block | cycles | cells | RAM | status |
 |---|---:|---:|---:|---|
-| ladder filter, time-shared | **24** | 5,725 | 0 | RTL bit-exact against `model/fixed.py`, in simulation |
+| ladder filter, time-shared | **24** | 5,711 | 0 | RTL bit-exact against `model/fixed.py`, in simulation; 19-bit output (DR 0005) |
 | modal resonator, 4 modes | **15** | 7,017 | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
 | capacitive touch, 8 pads | — | 568 | 0 | area sketch |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
@@ -103,8 +104,12 @@ Two things fixed point found that float hid:
 - **A truncation limit cycle at −73 dBFS.** Real, permanent, and below any
   DAC's noise floor. Bounded by a test.
 - **Four of eight audition patches exceed full scale** — `growl-bass` peaks at
-  1.787 with 7.1 % of samples over. Invisible in float because the renderer
-  normalises afterwards. Saturation must be *designed*, not discovered.
+  1.94 × full scale at the ladder's output. Invisible in float because the
+  renderer normalises afterwards. Saturation is now *designed*
+  ([DR 0005](../spec/decision-records/0005-gain-structure-headroom-and-the-vca.md)):
+  the ladder's output word is Q4.15, the VCA is after the filter, and a host
+  `vol` register precedes the one hard rail; at the reference volume nothing
+  clips.
 
 A methodological note worth keeping: table values sit at bin **edges** when
 interpolating and **midpoints** when not. Mixing them costs ~8 dB and presents
@@ -120,10 +125,14 @@ eight; the feedback carries a half-sample delay (average of the last two
 outputs) or the resonant peak drifts off the cutoff; 2× oversampling is
 mandatory.
 
-Self-oscillation tracks cutoff within ±2 % from 200 Hz to 1.6 kHz. **Above
-~3 kHz it stops self-oscillating at fixed resonance** — the paper's own caveat
-that required feedback varies with frequency. A small compensation ROM is the
-intended fix and is not designed.
+At a fixed `k = 4·res` self-oscillation was sustained to about 3 kHz and
+not above — the paper's own caveat that the required feedback varies with
+frequency. Measured, the onset loop gain rises from 4.00 at 30 Hz to 4.85 at
+11 kHz; [DR 0006](../spec/decision-records/0006-resonance-compensation-rom.md)
+adds a 32-entry compensation ROM (528 bits, two multiplies per frame) so that
+`res = 1` is the onset everywhere within 0.4 %. The frequency it oscillates
+at is 0.97 × the cutoff at 30 Hz and 1.07 × at 10 kHz; that tuning error is
+recorded and not corrected.
 
 Why not the alternatives ([DR 0001](../spec/decision-records/0001-ladder-filter-model.md)):
 ZDF/TPT with Newton-Raphson has better tuning but needs iteration, and converges
@@ -226,9 +235,11 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   but float still turns the patch's physical units into note-on register
   values and ROM contents — Hz to phase increment, seconds to envelope rate,
   the tanh / sine / `g` tables. In the product those are the host's job or a
-  ROM's, and neither is specified yet. Note-on retrigger semantics (legato,
-  envelope restart, phase reset) and the glide curve (the float model glides
-  geometrically, the integer one slews linearly) are undecided in both models.
+  ROM's, and neither is specified yet. Note-on semantics and the glide are
+  decided in [DR 0003](../spec/decision-records/0003-note-on-gate-trigger-and-a-continuous-voice.md)
+  and [DR 0004](../spec/decision-records/0004-glide-constant-rate-linear-in-pitch.md)
+  (proposed) and implemented in the integer model, which is now one
+  continuous voice; the float audition still renders note by note.
 - **One of three sketches is still unverified.** `rtl-sketch/ladder_dp.v` and
   `modal_dp.v` are bit-exact against `model/fixed.py` and `model/modal_fixed.py`
   under iverilog, with negative controls that show each bench can fail
@@ -237,12 +248,12 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
 - **The numeric contract is proposed, not ratified.**
-  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 1)
-  writes the integer voice down section by section, pins its four tables by
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 3)
+  writes the integer voice down section by section, pins its five tables by
   SHA-256 (`spec/reference/gen_tables.py --check` keeps them the model's),
-  and lists in its section 17 what it deliberately leaves open: retrigger
-  semantics, the glide curve, the physical control layer, the modal bank's
-  sizing, gain staging. Until it is ratified, the filter and the modal bank
+  and lists in its section 17 what it deliberately leaves open: the physical
+  control layer, the modal bank's sizing, power-on defaults, the widths of
+  the cutoff registers, and the self-oscillation tuning table. Until it is ratified, the filter and the modal bank
   are bit-exact against their own models and the rest of the voice is
   bit-exact against `model/voice_fx.py` by inspection of the contract only —
   no RTL exists for it yet.
@@ -252,7 +263,9 @@ The honest list. Nothing below is in progress unless a linked PR says so.
 - **No hardware.** No FPGA bitstream for this block, no board, no silicon.
 - **The commercial case is withdrawn** (DR 0002 Corrections) and the consumer
   promise still does not explain why someone would want to play it.
-- The filter's resonance-vs-frequency compensation ROM is not designed.
+- The filter's self-oscillation tuning error (−3 % at 30 Hz, +7 % at 10 kHz)
+  is measured and not corrected; DR 0006 designs the resonance compensation
+  only.
 - Signoff voltage is undecided, and **core and IO need separate answers**.
   5 V vs 3.3 V is 2.3× in *switching* power at unchanged capacitance, activity
   and frequency — not total device power — and ~1.5× in speed. The open flow

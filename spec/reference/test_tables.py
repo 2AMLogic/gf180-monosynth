@@ -1,5 +1,6 @@
 """The contract's tables are the model's, and the hashes the contract states
-are the ones revision 1 was written with.
+are the ones revision 3 was written with (revision 1's five, unchanged
+through revision 2, plus K_ROM32 from DR 0006).
 
     .venv/bin/python -m pytest spec/reference -q
 
@@ -12,13 +13,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gen_tables as gt
 
-REV1 = {
+REV3 = {
     "NOTE_INC":      "e771e6b7b39d3941c471b772bfb5cdca398b78ee7fa964c3c90388d2cc888ba4",
     "SINE_Q256":     "66cfc2e50e0ea6c326d698bd2aa14cc8b67f8e518530c9bb9c3f8f62d0fd19a0",
     "SINE_FULL1024": "41a30c959df1413245a6817c2d398c9d571f33460b34634b433c0717fb3c52ea",
     "TANH16":        "65a5fa4b38b807735e09eed0eadd49b2a42850151daa47e3abb97a1641542c04",
     "TANH16_ROM":    "3aa73628ec4f1b6eec99e77524a5460813c531dd9703a8fdea6df799dc91efeb",
     "G_ROM128":      "c5ee86efeffbe3cadd040ca3851b5c90806f05f9fab13d5f3cea1cf7730fbe2a",
+    "K_ROM32":       "514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a",
 }
 
 
@@ -28,9 +30,9 @@ def test_committed_images_and_contract_match_the_model():
     assert gt.main(["--check"]) == 0
 
 
-def test_rev1_hashes_are_the_models():
+def test_rev3_hashes_are_the_models():
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
-    assert got == REV1
+    assert got == REV3
 
 
 def test_spot_values_the_contract_quotes():
@@ -45,6 +47,8 @@ def test_spot_values_the_contract_quotes():
     gr = gt.g_rom128()
     assert len(gr) == 129 and gr[0] == 0 and gr[1] == 1089 and gr[128] == 57861
     assert all(b > a for a, b in zip(gr, gr[1:]))          # strictly increasing
+    kr = gt.k_rom32()
+    assert len(kr) == 33 and kr[0] == 32799 and max(kr) == 39879 and kr[22] == 33964
 
 
 def test_note_inc_is_the_siblings():
