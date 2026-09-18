@@ -328,19 +328,28 @@ def _feature_set_pass(a, refs, laws, cache, names, arms, curve_voices, extra, re
             print(f"  {v:3s} {V_NONE}: no held-out clip")
             continue
         fl = min((s["acc"] for k, s in curve.items() if k[0] == v and k[-1] == 2.5), default=None)
+        # AS PUBLISHED: yardstick and measurement each z-scored on their own
+        # population, so they are two readings in two units.
         dc = td.distance_curve(a.refs, cache, v, mfn)
         od = td.ours_distance(refs, cache, v, "ours", mfn)
         ke = td.knob_equivalent_distance(od, dc)
+        # FROZEN: both on this voice's real recordings, so they share a ruler.
+        sc = td.voice_scale(refs, v, mfn)
+        dcf = td.distance_curve(a.refs, cache, v, mfn, scale=sc)
+        odf = td.ours_distance(refs, cache, v, "ours", mfn, scale=sc)
+        kef = td.knob_equivalent_distance(odf, dcf)
         ver[v] = dict(summary=sv, verdict=verdict(sv, controls_ok, fl), knob_equivalent=ke,
-                      ours_distance=od, n_settings=sv["n_settings"],
+                      knob_equivalent_frozen=kef, ours_distance=od, ours_distance_frozen=odf,
+                      n_settings=sv["n_settings"],
                       distance_curve={f"{k[0]}|{k[1]}": val for k, val in dc.items()},
+                      distance_curve_frozen={f"{k[0]}|{k[1]}": val for k, val in dcf.items()},
                       floor_upper_bound=fl,
                       top_features=list(main_s.get("eff", {}).get(v, {}).items())[:3])
         top = max(dc.values()) if dc else float("nan")
+        kk = lambda x: ">=10" if np.isnan(x) else f"{x:.1f}"
         print(f"  {v:3s} {fmt(sv)} settings={sv['n_settings']}  dist {od:5.1f} vs "
-              f"knob-10 {top:5.1f}  knob-equiv "
-              f"{'>=10 (at or past the end of the dial)' if np.isnan(ke) else f'{ke:.1f}'}"
-              f"  -> {ver[v]['verdict'][:52]}")
+              f"knob-10 {top:5.1f}  knob-equiv {kk(ke):>5s}  frozen-ruler {kk(kef):>5s}"
+              f"  -> {ver[v]['verdict'][:46]}")
     out["verdicts"] = ver
 
     print("\n== what carries the discrimination (arm 'ours', held out) ==")
@@ -417,11 +426,13 @@ def main(argv=None) -> int:
     if len(sets) == 2:
         print(f"\n{'=' * 72}\n== WHAT THE EXTRA COLUMNS CHANGED\n{'=' * 72}")
         b, pl = results["base"], results["plus"]
+        print("  knob-equivalent on the FROZEN ruler (both distances scaled on the same")
+        print("  population), so the two columns are two readings of one instrument.")
         print(f"  {'voice':6s} {'ke base':>9s} {'ke plus':>9s} {'delta':>8s}   "
               f"{'acc base':>9s} {'acc plus':>9s}")
         for v in sorted(set(b["verdicts"]) | set(pl["verdicts"])):
-            kb = b["verdicts"].get(v, {}).get("knob_equivalent")
-            kp = pl["verdicts"].get(v, {}).get("knob_equivalent")
+            kb = b["verdicts"].get(v, {}).get("knob_equivalent_frozen")
+            kp = pl["verdicts"].get(v, {}).get("knob_equivalent_frozen")
             sb = (b["verdicts"].get(v) or {}).get("summary") or {}
             sp = (pl["verdicts"].get(v) or {}).get("summary") or {}
             f = lambda x: "  refused" if x is None else (">=10" if np.isnan(x) else f"{x:.1f}")

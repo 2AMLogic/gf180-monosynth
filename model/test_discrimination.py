@@ -1416,15 +1416,44 @@ def separation_curve(refdir, cache, voices=("BD", "SD"), level_match=True,
     return out
 
 
-def _zspace(clips, cache_matrix):
-    """Z-score a feature matrix on the clips themselves. Distances below are
-    measured in this space so they are commensurate across voices."""
-    mu, sd = cache_matrix.mean(0), cache_matrix.std(0)
+def _zspace(clips, cache_matrix, scale=None):
+    """Z-score a feature matrix. With `scale` = (mu, sd) the scaling is FROZEN
+    and supplied by the caller; without it, it is computed from the matrix
+    itself -- which is what the published study did and is the behaviour kept
+    so that published numbers reproduce.
+
+    THE PUBLISHED KNOB-EQUIVALENT MEASURES TWO DISTANCES IN DIFFERENT UNITS.
+    `distance_curve` scales on the pair of real populations it is comparing;
+    `ours_distance` scales on the real-plus-ours population. Two different
+    mu/sd, and then one is read off the other as though they shared a ruler.
+    `voice_scale` gives both the same one."""
+    if scale is not None:
+        mu, sd = scale
+    else:
+        mu, sd = cache_matrix.mean(0), cache_matrix.std(0)
     sd = np.where(sd < 1e-9, 1.0, sd)
     return (cache_matrix - mu) / sd
 
 
-def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clamp=True):
+def voice_scale(refs, voice, matrix_fn):
+    """The frozen ruler for one voice: mean and sd over every REAL recording
+    of that voice, and nothing else.
+
+    It is independent of which arm is being measured and identical for the
+    yardstick and for the thing read off it, which is the whole point. It is
+    still a PER-VOICE ruler -- a knob-equivalent is by construction a distance
+    on that voice's own knob -- so SD 3.4 and LT 6.7 are two readings on two
+    dials and are NOT interchangeable numbers. That was true before this
+    function and stays true after it."""
+    use = [c for c in refs if c.voice == voice]
+    if not use:
+        return None
+    M = matrix_fn(use)
+    return M.mean(0), M.std(0)
+
+
+def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clamp=True,
+                   scale=None):
     """The non-saturating version of the separation curve, and the one the
     knob-equivalent is read off.
 
@@ -1461,14 +1490,14 @@ def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clam
                 continue
             A = matrix_fn([Clip(voice, a, "real") for a, _ in pairs])
             B = matrix_fn([Clip(voice, b, "real") for _, b in pairs])
-            Z = _zspace(None, np.vstack([A, B]))
+            Z = _zspace(None, np.vstack([A, B]), scale)
             n = len(A)
             dist = np.linalg.norm(Z[:n] - Z[n:], axis=1)
             out[(kname, delta)] = float(np.median(dist))
     return out
 
 
-def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True) -> float:
+def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True, scale=None) -> float:
     """Median feature-space distance between the real machine and our render
     at the SAME knob setting, over the held-out settings."""
     use = [c for c in refs if c.voice == voice and (c.is_test or not test_only)]
@@ -1478,7 +1507,7 @@ def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True) -> float:
         return float("nan")
     A = matrix_fn(use)
     B = matrix_fn([Clip(c.voice, c.knobs, arm) for c in use])
-    Z = _zspace(None, np.vstack([A, B]))
+    Z = _zspace(None, np.vstack([A, B]), scale)
     n = len(A)
     return float(np.median(np.linalg.norm(Z[:n] - Z[n:], axis=1)))
 
@@ -1926,3 +1955,22 @@ def test_the_cross_validation_grouping_does_not_move_between_processes():
     assert known["real:BD:(0.0, 0.0)"] == 0x01ffdc7c, hex(known["real:BD:(0.0, 0.0)"])
     assert known["ours:SD:(2.5, 7.5)"] == stable_group_id("ours:SD:(2.5, 7.5)")
     assert len({stable_group_id(f"r{i}") for i in range(500)}) == 500
+
+
+def test_the_frozen_ruler_makes_the_two_distances_commensurate():
+    """The knob-equivalent reads one distance off another. Unfrozen, the two
+    are z-scored on different populations, so the reading is a ratio of two
+    different units. This checks that a frozen scale is applied to both and
+    that a pure rescaling of the feature space then leaves the
+    knob-equivalent unchanged -- which is what "a ruler" means."""
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal((12, 6))
+    mu, sd = base.mean(0), base.std(0)
+    a, b = base[:6], base[6:]
+    z1 = _zspace(None, np.vstack([a, b]), (mu, sd))
+    z2 = _zspace(None, np.vstack([a * 7.0, b * 7.0]), (mu * 7.0, sd * 7.0))
+    assert np.allclose(z1, z2)
+    # and without a frozen scale the same rescaling is invisible, which is the
+    # property that hides the mismatch rather than the property we want
+    assert np.allclose(_zspace(None, np.vstack([a, b])),
+                       _zspace(None, np.vstack([a * 7.0, b * 7.0])))

@@ -12,16 +12,26 @@ the same permutation importance the study already uses. That is the whole
 point: a learned judge would score better and mean less.
 
     MPD  -- multi-period fold (HiFi-GAN, BigVGAN). Fold the 1-D signal into
-            2-D at a period and take statistics ACROSS folds. Every feature
-            the study uses today is a within-window aggregate, so none of
-            them can see period-to-period variation at all.
-    JIT  -- the same idea at the signal's OWN dominant period, which is the
-            direct probe for #56 ("three stable oscillators do not sound like
-            three analogue ones"): a digital oscillator driven by a fixed
-            phase increment repeats exactly, an analogue one does not.
-    CQT  -- constant-Q log-frequency sub-bands (BigVGAN v2). The study's
-            interpretable splits are linear and fixed; a log-frequency ladder
-            resolves partials that a linear split smears together.
+            2-D at a fixed stride and take statistics ACROSS rows. It is a
+            NON-STATIONARITY detector and nothing more specific: the stride
+            is not commensurate with any oscillator here (131 Hz at 48 kHz is
+            366.4 samples, 800 Hz is 60.0, and the strides are 78..480), so a
+            perfectly stable tone already walks in phase from row to row.
+            IT IS NOT A DRIFT MEASURE and is not read as one. What it adds
+            over the study's 320 log-mel/MFCC columns is that those are
+            within-window aggregates and these are not.
+    JIT  -- the actual cycle trajectory: find the signal's own period, then
+            track that partial's PHASE cycle by cycle. This is the probe for
+            #56 ("three stable oscillators do not sound like three analogue
+            ones"). It carries its own falsifying control -- see
+            `test_static_detuning_is_not_reported_as_drift`, because a mix of
+            perfectly stable detuned oscillators BEATS, and a feature that
+            cannot tell beating from drift is measuring beating.
+    CQT  -- constant-Q log-frequency sub-bands (BigVGAN v2). Complementary to
+            the mel ladder the study already has, not better than it: 6 bands
+            per octave is finer BELOW 1 kHz, where mel spacing is linear at
+            ~65 Hz, and coarser above it. The MS-SB-CQT paper makes the same
+            point about CQT against STFT.
     MS   -- the same band energy at several time resolutions. #109's shape:
             the rimshot is -18.8 dB at 4 ms and +1.0 dB at 10 ms, and one
             window averages a sign change into a single number.
@@ -225,8 +235,8 @@ def jitter_features(x: np.ndarray, sr: int) -> tuple:
     window does not hold JIT_MIN_CYCLES of the winning period."""
     x = np.asarray(x, float)
     names = ["jit.cyclecorr.seg0", "jit.cycledshape.seg0", "jit.phasejit_ppm.seg0",
-             "jit.phasecurv_ppm.seg0", "jit.enstd_db.seg0", "jit.period_ms.seg0",
-             "jit.ncycles.seg0", "jit.valid.seg0"]
+             "jit.phasecurv_ppm.seg0", "jit.dphase_ar1.seg0", "jit.enstd_db.seg0",
+             "jit.period_ms.seg0", "jit.ncycles.seg0", "jit.valid.seg0"]
     p = dominant_period(x, sr)
     if p < 4:
         return np.zeros(len(names)), names
@@ -276,8 +286,33 @@ def jitter_features(x: np.ndarray, sr: int) -> tuple:
     idx = np.arange(ncyc, dtype=float)
     lin = ph - np.polyval(np.polyfit(idx, ph, 1), idx)
     quad = np.polyfit(idx, ph, 2)[0] if ncyc >= 4 else 0.0
+    # THE COLUMN THAT MAKES THE JITTER CLAIM FALSIFIABLE, AND THE FIRST TRY
+    # AT IT DID NOT WORK. Phase scatter alone cannot tell instability from
+    # beating: two PERFECTLY stable detuned oscillators swing the dominant
+    # partial's phase at the beat rate, and +2 Hz of static detuning reads
+    # 17 473 ppm where 0.1 % per-cycle jitter reads 14 534. So a phasejit
+    # number is not a drift number and is never quoted as one.
+    #
+    # The obvious fix -- the lag-1 autocorrelation of the phase residual --
+    # ALSO fails, and the reason is worth the line: per-cycle length jitter
+    # INTEGRATES into a random-walk phase, which is as smooth as a beat.
+    # Measured: beating 0.997, jitter 0.986. Indistinguishable.
+    #
+    # What separates them is the lag-1 autocorrelation of the DIFFERENCED
+    # residual, i.e. of the per-cycle period error rather than the phase. A
+    # random walk differences to white (0.60-0.68 measured); a beat and a
+    # glide difference to another smooth curve (0.80-1.00). The gap is real
+    # but it is a gap, not an order of magnitude, and
+    # `test_static_detuning_is_not_reported_as_drift` asserts its size so it
+    # cannot quietly close.
+    d = np.diff(lin)
+    if len(d) >= 4 and d.std() > _EPS:
+        a1 = float(np.corrcoef(d[:-1], d[1:])[0, 1])
+        ar1 = a1 if np.isfinite(a1) else 0.0
+    else:
+        ar1 = 0.0
     k = 1e6 / (2.0 * np.pi)
-    vals = [st["rowcorr"], st["dshape"], k * float(lin.std()), k * float(quad),
+    vals = [st["rowcorr"], st["dshape"], k * float(lin.std()), k * float(quad), ar1,
             st["enstd"], 1e3 * pr / sr, float(ncyc), 1.0]
     return np.asarray(vals, float), names
 
@@ -568,3 +603,70 @@ def test_no_column_is_nan_or_infinite_on_a_silent_or_a_full_scale_clip():
         v, names = extra_features(x, 44100)
         bad = [n for n, val in zip(names, v) if not np.isfinite(val)]
         assert not bad, bad
+
+
+def test_static_detuning_is_not_reported_as_drift():
+    """THE CONTROL THAT MAKES #56 FALSIFIABLE.
+
+    Perfectly stable oscillators already produce a changing waveform, because
+    detuned ones BEAT. A feature that fires on static detuning is measuring
+    beating and calling it drift, and #56 -- "three stable oscillators do not
+    sound like three analogue ones" -- would get a number that means nothing.
+
+    So two things are asserted here. First, that the phase-scatter column on
+    its own FAILS this control, which is why it is never quoted alone.
+    Second, that the differenced-residual autocorrelation passes it with a
+    stated margin."""
+    sr = 44100
+    n = int(0.24 * sr)
+    t = np.arange(n) / sr
+
+    def read(x):
+        v, nm = jitter_features(x, sr)
+        return dict(zip(nm, v))
+
+    detuned = [read(np.sin(2 * np.pi * 410.0 * t) + 0.7 * np.sin(2 * np.pi * (410.0 + d) * t))
+               for d in (0.5, 2.0, 8.0)]
+    jittered = [read(_square(410.0, sr, jitter=j, seed=3)) for j in (0.001, 0.005, 0.02)]
+    stable = read(np.sin(2 * np.pi * 410.0 * t))
+
+    # 1. the falsifier: scatter ALONE does not separate the two mechanisms
+    assert max(r["jit.phasejit_ppm.seg0"] for r in detuned) > \
+        min(r["jit.phasejit_ppm.seg0"] for r in jittered), (
+            "phase scatter separated beating from jitter -- if this ever becomes true "
+            "the comment in jitter_features is wrong and the column may be quoted alone")
+
+    # 2. what does separate them, with its margin
+    beat = min(r["jit.dphase_ar1.seg0"] for r in detuned)
+    jit = max(r["jit.dphase_ar1.seg0"] for r in jittered)
+    assert beat > jit + 0.20, f"beating {beat:.3f} vs jitter {jit:.3f}: the gap has closed"
+    assert beat > 0.80 and jit < 0.72, (beat, jit)
+
+    # 3. a steady pitch glide is a smooth mechanism too, and must land with
+    #    the beats rather than with the jitter
+    glide = read(np.sin(2 * np.pi * (410.0 * t + 0.5 * 410.0 * 0.01 / 0.24 * t ** 2)))
+    assert glide["jit.dphase_ar1.seg0"] > 0.80, glide["jit.dphase_ar1.seg0"]
+
+    # 4. and a perfectly stable single tone reports no jitter at all
+    assert stable["jit.phasejit_ppm.seg0"] < RATE_TOL_ABS["ppm"]
+
+
+def test_a_fixed_stride_fold_is_not_a_drift_measure():
+    """The MPD columns are a non-stationarity view, not a drift view, and the
+    docstring says so. This is the arithmetic: the strides are not
+    commensurate with the oscillators, so a PERFECTLY stable tone already
+    walks from row to row. If this ever stopped being true the MPD columns
+    could be read as cycle-aligned, and they cannot be."""
+    sr = 48000
+    n = int(0.24 * sr)
+    t = np.arange(n) / sr
+    x = np.sin(2 * np.pi * 131.0 * t)              # 366.4 samples per cycle
+    walked = 0
+    for T in MPD_PERIODS_S:
+        p = int(round(sr * T))
+        assert abs(366.4 / p - round(366.4 / p)) > 0.02, (T, p)
+        if _fold_stats(_fold(x, p))["dshape"] > 0.05:
+            walked += 1
+    assert walked == len(MPD_PERIODS_S), (
+        "a stable tone did NOT walk between rows at every stride, so the fold "
+        "might be cycle-aligned after all")
