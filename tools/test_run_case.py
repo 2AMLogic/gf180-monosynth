@@ -60,17 +60,6 @@ def sine(hz, seconds, amp=1.0, sr=SR):
 # ===========================================================================
 # Ground truth: band_energy and band_ratio_db
 # ===========================================================================
-def test_band_energy_of_a_sine_is_all_in_its_own_band():
-    """A sine of amplitude A over N samples carries N*A^2/2 of energy, all of
-    it in a band containing its frequency and none in one that does not."""
-    x = sine(1000.0, 0.25, amp=0.5)
-    expect = len(x) * 0.5 ** 2 / 2.0
-    inside = rc.band_energy(x, SR, 800.0, 1200.0)
-    outside = rc.band_energy(x, SR, 2000.0, 8000.0)
-    assert inside == pytest.approx(expect, rel=1e-3)
-    assert outside < expect * 1e-6
-
-
 def test_band_ratio_db_of_two_sines_is_their_amplitude_ratio():
     """Two sines either side of the split: the ratio is 20 log10(a_hi/a_lo),
     exactly, and the estimator must not invent a correction."""
@@ -79,14 +68,107 @@ def test_band_ratio_db_of_two_sines_is_their_amplitude_ratio():
     n = min(len(lo), len(hi))
     e = rc.band_ratio_db(lo[:n] + hi[:n], SR, 700.0)
     assert e.ok
-    assert e.value == pytest.approx(20 * math.log10(0.5), abs=0.1)
+    # 0.3 dB, not 0.0: this splits with a 4th-order Butterworth rather than
+    # partitioning FFT bins, and a filter's skirts are not a brick wall. The
+    # filter is the point -- a windowed FFT reports a decaying voice's TAIL
+    # spectrum and disagrees by a factor of four on a real cymbal.
+    assert e.value == pytest.approx(20 * math.log10(0.5), abs=0.3)
 
 
-def test_band_ratio_db_refuses_a_band_with_nothing_in_it():
-    """An absence is not a balance. A single low sine has no high-band energy,
-    and the honest answer is a refusal, not a very negative number."""
-    e = rc.band_ratio_db(sine(100.0, 0.5), SR, 700.0, hi=600.0)
+def test_band_ratio_db_refuses_a_split_outside_its_band():
+    """An absence is not a balance."""
+    e = rc.band_ratio_db(sine(100.0, 0.5), SR, 700.0, lo=20.0, hi=600.0)
     assert not e.ok and e.value is None
+
+
+def test_band_pair_db_of_two_sines_is_their_amplitude_ratio():
+    a = sine(1800.0, 0.4, amp=0.5)
+    b = sine(450.0, 0.4, amp=1.0)
+    n = min(len(a), len(b))
+    e = rc.band_pair_db(a[:n] + b[:n], SR, (1500, 2100), (380, 560))
+    assert e.ok
+    assert e.value == pytest.approx(20 * math.log10(0.5), abs=0.3)
+
+
+# ===========================================================================
+# Ground truth: pitch_drop_hz
+# ===========================================================================
+def test_pitch_drop_hz_on_a_known_exponential_glide():
+    """A tone whose frequency falls from 150 Hz to 90 Hz with a 30 ms time
+    constant, under a slow decay. The windows are 4-18 ms and 60-150 ms, so
+    the closed-form drop is f(11 ms) - f(105 ms) and the estimator must find
+    it. A windowed FFT cannot: 14 ms holds under two periods of a 90 Hz tone,
+    which is why this is a phase derivative."""
+    f1, f2, tau = 150.0, 90.0, 0.030
+    n = int(0.4 * SR)
+    t = np.arange(n) / SR
+    f = f2 + (f1 - f2) * np.exp(-t / tau)
+    ph = 2 * math.pi * np.cumsum(f) / SR
+    x = np.exp(-t / 0.25) * np.sin(ph)
+    want = (f2 + (f1 - f2) * math.exp(-0.011 / tau)) - (f2 + (f1 - f2) * math.exp(-0.105 / tau))
+    e = rc.pitch_drop_hz(x, SR, (20.0, 400.0))
+    assert e.ok
+    assert e.value == pytest.approx(want, abs=3.0)
+
+
+def test_pitch_drop_hz_is_zero_for_a_steady_tone():
+    n = int(0.4 * SR)
+    t = np.arange(n) / SR
+    x = np.exp(-t / 0.25) * np.sin(2 * math.pi * 120.0 * t)
+    e = rc.pitch_drop_hz(x, SR, (20.0, 400.0))
+    # 2 Hz is this estimator's floor, set by the band-pass transient in the
+    # early window. A reading inside it means "no measurable sweep" -- which
+    # is what the real TR-808 toms read, and why our 50 Hz drop is a finding
+    # and not an estimator artefact.
+    assert e.ok and abs(e.value) < 2.0
+
+
+def test_pitch_drop_hz_refuses_a_window_that_is_already_silent():
+    n = int(0.4 * SR)
+    t = np.arange(n) / SR
+    x = np.exp(-t / 0.004) * np.sin(2 * math.pi * 120.0 * t)   # gone by 60 ms
+    assert not rc.pitch_drop_hz(x, SR, (20.0, 400.0)).ok
+
+
+# ===========================================================================
+# prepare(): the two artefacts it was written wrong twice to avoid
+# ===========================================================================
+def _burst_in_silence(seconds=2.2, burst_ms=15.0, dc=0.0, lead_ms=10.0):
+    n = int(seconds * SR)
+    x = np.full(n, dc)
+    a = int(lead_ms * 1e-3 * SR)
+    k = int(burst_ms * 1e-3 * SR)
+    t = np.arange(k) / SR
+    x[a:a + k] += np.exp(-t / 0.004) * np.sin(2 * math.pi * 1800.0 * t)
+    return x
+
+
+def test_prepare_does_not_leave_a_floor_that_never_decays():
+    """Subtracting the mean of a buffer that is mostly silence leaves a
+    CONSTANT across the silence, and a constant never decays. That put 0.19 %
+    of the rimshot's energy into a floor and `schroeder_t20` read a 4.5-second
+    T20 for a 15 ms sound. The prepared signal must carry no more energy in
+    its last second than the raw one does."""
+    x = _burst_in_silence(dc=2e-4)
+    y = rc.prepare(x, SR)
+    tail = float((y[-SR:] ** 2).sum() / (y ** 2).sum())
+    assert tail < 1e-6, tail
+    e = am.schroeder_t20(y, SR)
+    assert e.ok and e.value * 1e3 < 60.0, e
+
+
+def test_prepare_does_not_put_a_precursor_ahead_of_the_strike():
+    """A zero-phase high-pass is not causal: a 20 Hz first-order one puts a
+    precursor tens of ms AHEAD of a sharp strike, and that read a 2 ms attack
+    as 11 ms. The prepared attack must still be the one that is there."""
+    y = rc.prepare(_burst_in_silence(dc=2e-4), SR)
+    e = rc.attack_ms(y, SR, window_ms=2.0)
+    assert e.ok and e.value < 4.0, e
+
+
+def test_prepare_removes_a_converter_offset():
+    y = rc.prepare(_burst_in_silence(dc=5e-3), SR)
+    assert abs(float(y[-SR:].mean())) < 1e-6
 
 
 # ===========================================================================
@@ -181,6 +263,28 @@ def test_worst_event_offset_ms_sees_a_moved_event():
     assert e.value == pytest.approx(40.0, abs=10.0)
 
 
+def test_worst_event_offset_ms_survives_hits_that_ring_into_each_other():
+    """Our bass drum's T20 is 348 ms and the groove puts its hits 363 ms
+    apart, so every strike lands on the last one's ring and the analytic
+    envelope beats. With the detector's minimum gap left at its 20 ms default
+    that reads 12 onsets where 10 were written; taken from the schedule it
+    reads 10."""
+    times = [0.10, 0.46, 0.82, 1.30, 1.66]
+    x = _clicks(times, seconds=2.4, tau=0.15)          # rings past the next hit
+    e = rc.worst_event_offset_ms(x, SR, times)
+    assert e.ok, e
+    assert e.value <= 10.0
+    assert e.detail["min_gap_s"] == pytest.approx(0.18, abs=0.01)
+
+
+def test_worst_event_offset_ms_never_goes_below_the_estimators_own_gap():
+    """The schedule can only make the detector STRICTER than its 20 ms
+    default, never looser -- otherwise a dense stimulus could talk it into
+    accepting ripple as an event."""
+    e = rc.worst_event_offset_ms(_clicks([0.10, 0.12]), SR, [0.10, 0.12])
+    assert (e.detail or {}).get("min_gap_s", 0.02) >= 0.02
+
+
 def test_worst_event_offset_ms_refuses_when_the_counts_disagree():
     """A missing event makes the pairing a guess, so there is no number."""
     e = rc.worst_event_offset_ms(_clicks([0.10, 0.60]), SR, [0.10, 0.60, 1.10])
@@ -255,7 +359,7 @@ def test_the_outcome_code_convention_is_the_repositorys():
 
 
 def test_every_result_this_runner_writes_carries_provenance():
-    row = _cases_row("D14A")
+    row = _cases_row("D16A")
     res = rc.run_case(row, REFS, keep_audio=False)
     prov = res["provenance"]
     assert prov["engine"] in sb.ENGINES
@@ -294,14 +398,25 @@ def test_every_engine_this_runner_writes_is_one_the_board_knows():
     assert rc.ENGINE in sb.ENGINES
 
 
-def test_an_unimplemented_voice_is_a_stated_no_verdict_not_a_silence():
-    """Eight of the sixteen drum cases name voices the eight-stop kit does not
-    have. The case must come back with a reason attached, not vanish."""
-    row = _cases_row("D14A")               # cymbal: in the corpus, not in the kit
+def test_a_sound_the_kit_does_not_have_is_refused_not_guessed():
+    """Every sound in cases.csv is now in the kit, so this is exercised
+    directly: the renderer must refuse a name it does not know rather than
+    striking some other circuit and calling it that sound."""
+    with pytest.raises(rc.Refused) as e:
+        rc.render_drum_solo("NOPE")
+    assert "sixteen sounds" in str(e.value)
+
+
+def test_a_case_with_no_measurement_plan_is_a_stated_no_verdict(monkeypatch):
+    """A refusal has to name its reason. It counts as accounted for; a silence
+    does not."""
+    row = _cases_row("D14A")
+    monkeypatch.setitem(rc.DRUM_PLAN, "CY", None)
+    monkeypatch.delitem(rc.DRUM_PLAN, "CY")
     res = rc.run_case(row, REFS, keep_audio=False)
     r = sb.evaluate(row, res)
     assert r["state"] == sb.NO_VERDICT
-    assert "CY" in res["note"] and "REFUSED" in res["note"]
+    assert "REFUSED" in res["note"] and "CY" in res["note"]
     for m in res["metrics"].values():
         assert m["valid"] is False and "error" not in m
 
@@ -360,6 +475,86 @@ def test_every_first_32_case_has_a_stated_plan():
     assert not unplanned, f"no stated plan for {unplanned}"
 
 
+def test_a_t20_fitted_across_a_knee_is_refused():
+    """A voice that decays and then sits on a floor gives an energy curve that
+    is monotone but not straight, and a line fitted across the knee is not a
+    decay time. Both sides of every comparison get the same bound."""
+    n = int(1.0 * SR)
+    t = np.arange(n) / SR
+    x = np.exp(-t / 0.004) * np.sin(2 * math.pi * 1800.0 * t) + 3e-3 * np.sin(2 * math.pi * 900.0 * t)
+    straight = np.exp(-t / 0.004) * np.sin(2 * math.pi * 1800.0 * t)
+    assert not rc._t20_ms(0.0)(x, SR).ok
+    assert rc._t20_ms(0.0)(straight, SR).ok
+
+
+def test_every_sound_in_the_kit_has_a_plan_and_a_reference():
+    """Sixteen sounds on eleven circuits. A case whose sound exists but has no
+    plan would come back as a refusal that reads like a capability gap, which
+    is the exact failure base_check exists to stop."""
+    import drums_fx as dx
+    for cid, sound in rc.DRUM_CASE_VOICE.items():
+        assert sound in dx.SOUND_NAMES, (cid, sound)
+        assert sound in rc.DRUM_PLAN, (cid, sound)
+        assert sound in rc.REF_MAIN, (cid, sound)
+
+
+def test_the_base_check_refuses_a_stale_dependency(monkeypatch):
+    """The premise of the batch, asserted before any of it runs. Driven with a
+    fake `git` so it tests the rule and not today's `origin/main`: a drums_fx
+    on origin/main with more circuits than the one here must refuse."""
+    def fake_git(*args):
+        if args[:2] == ("rev-parse", "--verify"):
+            return "deadbeefcafe0000\n"
+        if args[0] == "rev-list":
+            return "2\n"
+        if args[0] == "show" and args[1].endswith("model/drums_fx.py"):
+            return "N_STOPS, N_ENV, N_PATH, N_MODES, N_NUMS, N_OSC = 11, 18, 23, 16, 11, 6\n"
+        if args[0] == "show":
+            return "something else entirely\n"
+        return ""
+    monkeypatch.setattr(rc, "_git", fake_git)
+    monkeypatch.setattr(rc, "DEPENDENCIES", ("model/drums_fx.py",))
+    import drums_fx as dx
+    monkeypatch.setattr(dx, "N_STOPS", 8)
+    with pytest.raises(rc.StaleBase) as e:
+        rc.base_check()
+    assert "8 drum circuits" in str(e.value) and "11" in str(e.value)
+    # --allow-stale runs anyway and says so on the record, rather than
+    # silently producing numbers nobody can tell apart from current ones.
+    st = rc.base_check(allow_stale=True)
+    assert st["allow_stale"] and st["problems"]
+
+
+def test_the_base_check_does_not_refuse_on_an_unrelated_commit(monkeypatch):
+    """main moves several times an hour here. A gate that fires on commits
+    that cannot change a measurement trains everyone to bypass it, and an
+    ignored gate is worse than no gate."""
+    def fake_git(*args):
+        if args[:2] == ("rev-parse", "--verify"):
+            return "deadbeefcafe0000\n"
+        if args[0] == "rev-list" and args[1] == "--count" and "HEAD.." in args[2]:
+            return "3\n"
+        if args[0] == "rev-list":
+            return "0\n"
+        if args[0] == "show" and args[1].endswith("model/drums_fx.py"):
+            import drums_fx as dx
+            return (ROOT / "model" / "drums_fx.py").read_text()
+        return ""
+    monkeypatch.setattr(rc, "_git", fake_git)
+    monkeypatch.setattr(rc, "DEPENDENCIES", ("model/drums_fx.py",))
+    st = rc.base_check()
+    assert st["problems"] == [] and st["behind_commits"] == 3
+    assert "behind" in st["note"]
+
+
+def test_the_real_tree_this_batch_ran_on_was_checked():
+    """Not a rule -- the fact. If this fires, the results in the tree were
+    measured against inputs that are not origin/main's."""
+    st = rc.base_check(allow_stale=True)
+    assert st.get("checked") is not False
+    assert not st["problems"], st["problems"]
+
+
 def test_tolerances_are_frozen_in_one_place_and_named_by_every_metric():
     """A per-case tolerance is a tolerance fitted to an error. Every rule here
     names one of the frozen classes."""
@@ -370,11 +565,14 @@ def test_tolerances_are_frozen_in_one_place_and_named_by_every_metric():
 
 
 def test_written_results_are_the_shape_the_board_reads(tmp_path):
-    """Round trip: what the runner writes is what scorecard.py loads."""
-    row = _cases_row("D14A")
+    """Round trip: what the runner writes is what scorecard.py loads, and the
+    verdict does not change in the post."""
+    row = _cases_row("D16A")
     res = rc.run_case(row, REFS, keep_audio=False)
-    p = tmp_path / "D14A.json"
+    before = sb.evaluate(row, res)["state"]
+    p = tmp_path / "D16A.json"
     p.write_text(json.dumps(res, indent=2) + "\n")
     back = json.loads(p.read_text())
     assert back["engine"] in sb.ENGINES
-    assert sb.evaluate(row, back)["state"] == sb.NO_VERDICT
+    assert sb.evaluate(row, back)["state"] == before
+    assert before in (sb.PASS, sb.FAIL, sb.NO_VERDICT)

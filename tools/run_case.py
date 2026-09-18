@@ -37,8 +37,19 @@ look green.
 
 **The apparatus asserts its preconditions at the point of use and REFUSES
 rather than reports.** The reference corpus must be present, the named file
-must exist, the voice must actually be in the kit, and the reference clip must
-not be silent. Each failure produces a stated no-verdict, never a number.
+must exist, the sound must be in the kit, and the reference clip must not be
+silent. Each failure produces a stated no-verdict, never a number.
+
+**And it asserts the premise of the BATCH before any of it runs.** An earlier
+run of this file returned eight honest per-case refusals -- "the eight-stop kit
+does not implement LC / MT / MC / HC / CL / RS / MA / CY" -- from a worktree
+that was two commits behind `origin/main`, where the complete sixteen-sound kit
+had already landed. Every one of those records was true of the tree it had and
+false about the project, and eight of them together read as a permanent hole in
+the instrument. `base_check` now refuses the whole batch when the tree is
+behind `origin/main` or its drum-circuit count differs from it, because a stale
+premise is a property of the checkout and must never come out looking like a
+property of the instrument.
 
 THE CONTROLS (`--inject`)
 -------------------------
@@ -105,6 +116,7 @@ from scipy.io import wavfile                                         # noqa: E40
 from scipy.signal import butter, sosfiltfilt                         # noqa: E402
 
 import audio_measure as am                                           # noqa: E402
+import drum_verify as dv                                             # noqa: E402
 
 CASES_CSV = ROOT / "docs" / "scorecard" / "cases.csv"
 RESULTS = ROOT / "docs" / "scorecard" / "results"
@@ -178,42 +190,30 @@ def tol_fixed(value: float, basis: str):
 # written, and an estimator that has never met a signal with a known answer is
 # not a measurement.
 # ===========================================================================
-def band_energy(x, sr: int, lo: float, hi: float) -> float:
-    """Energy in [lo, hi] Hz, by Parseval on the one-sided magnitude spectrum.
-
-    Ground truth: test_band_energy_of_a_sine_is_all_in_its_own_band."""
-    x = np.asarray(x, dtype=np.float64)
-    n = len(x)
-    if n < 8:
-        return 0.0
-    X = np.abs(np.fft.rfft(x)) ** 2
-    # One-sided, and normalised so the total equals sum(x**2) exactly: the
-    # DC and Nyquist bins count once, every other bin twice. Every use below
-    # is a ratio, in which the scale cancels -- but an estimator whose
-    # absolute value is wrong is an estimator nobody can check against a
-    # closed form, and that is how the unchecked ones get their bugs.
-    w = np.full(len(X), 2.0)
-    w[0] = 1.0
-    if n % 2 == 0:
-        w[-1] = 1.0
-    f = np.fft.rfftfreq(n, 1.0 / sr)
-    sel = (f >= lo) & (f < hi)
-    return float((w[sel] * X[sel]).sum() / n)
-
-
 def band_ratio_db(x, sr: int, split_hz: float, lo: float = 0.0,
                   hi: float | None = None, *, floor_db: float = -80.0) -> am.Estimate:
-    """10*log10(energy above `split_hz` / energy below it), both taken inside
+    """10*log10(energy above `split_hz` / energy below it), both inside
     [lo, hi]. The dimensionless balance the drum work reports as a body/air or
     body/noise split, in a unit that combines with a dB tolerance.
+
+    The energy comes from `audio_measure.band_energy`, which filters rather
+    than summing FFT bins. That is not a detail: `spectrum` applies a Hann
+    window, so on a decaying voice it weights the middle of the file and
+    reports the TAIL's spectrum instead of the event's energy -- on a real
+    TR-808 cymbal the two disagree by a factor of four in the 5-9 kHz band,
+    and the windowed answer is the misleading one. This function summed FFT
+    bins until that was found.
 
     Refuses when either side is empty, or when the ratio is past `floor_db`:
     a band with nothing in it has no balance, it has an absence.
 
     Ground truth: test_band_ratio_db_of_two_sines_is_their_amplitude_ratio."""
-    hi = sr / 2.0 if hi is None else hi
-    e_lo = band_energy(x, sr, lo, split_hz)
-    e_hi = band_energy(x, sr, split_hz, hi)
+    hi = min(sr / 2.0 - 1.0, 20000.0 if hi is None else hi)
+    lo = max(lo, 1.0)
+    if hi <= split_hz or split_hz <= lo:
+        return am.Estimate(None, False, "the split is outside the band",
+                           dict(lo=lo, split=split_hz, hi=hi))
+    e_lo, e_hi = am.band_energy(x, ((lo, split_hz), (split_hz, hi)), sr)
     if e_lo <= 0.0 or e_hi <= 0.0:
         return am.Estimate(None, False, "one side of the split holds no energy",
                            dict(e_lo=e_lo, e_hi=e_hi))
@@ -222,6 +222,67 @@ def band_ratio_db(x, sr: int, split_hz: float, lo: float = 0.0,
         return am.Estimate(None, False, "band ratio past the stated floor",
                            dict(ratio_db=r, floor_db=floor_db))
     return am.Estimate(r, True, "", dict(e_lo=e_lo, e_hi=e_hi))
+
+
+def band_pair_db(x, sr: int, band_a, band_b, *, floor_db: float = -80.0) -> am.Estimate:
+    """10*log10(energy in `band_a` / energy in `band_b`), for a voice whose
+    balance is between two named partials rather than either side of one
+    split -- the rimshot's two bridged-T modes, the cymbal's bands.
+
+    Ground truth: test_band_pair_db_of_two_sines_is_their_amplitude_ratio."""
+    e_a, e_b = am.band_energy(x, (tuple(band_a), tuple(band_b)), sr)
+    if e_a <= 0.0 or e_b <= 0.0:
+        return am.Estimate(None, False, "one of the two bands holds no energy",
+                           dict(e_a=e_a, e_b=e_b))
+    r = 10.0 * math.log10(e_a / e_b)
+    if r < floor_db or r > -floor_db:
+        return am.Estimate(None, False, "band ratio past the stated floor",
+                           dict(ratio_db=r, floor_db=floor_db))
+    return am.Estimate(r, True, "", dict(e_a=e_a, e_b=e_b))
+
+
+def pitch_drop_hz(x, sr: int, band, *, early=(0.004, 0.018), late=(0.060, 0.150),
+                  smooth_ms: float = 3.0) -> am.Estimate:
+    """How far the voice's pitch falls between an early and a late window, in
+    Hz, from the analytic phase derivative (`audio_measure.instantaneous_
+    frequency`, ground-truthed against a known glide) of the band-limited body.
+
+    NOT two windowed FFTs. A 30 ms window holds under three periods of a 90 Hz
+    tom, so a spectrum of it cannot resolve the pitch at all, and the first
+    version of this measurement was that -- it read the reference's drop as
+    1.2 Hz where a phase derivative reads 7.
+
+    Refuses when either window falls below `-30 dB` of the peak envelope,
+    where the phase derivative is noise.
+
+    **Its floor is about 2 Hz** -- the band-pass transient biases the early
+    window by that much on a tone that does not move at all
+    (`test_pitch_drop_hz_is_zero_for_a_steady_tone`). A reading inside +-2 Hz
+    is "no measurable sweep", not "a small sweep".
+
+    Ground truth: test_pitch_drop_hz_on_a_known_exponential_glide."""
+    lo, hi = band
+    x = np.asarray(x, dtype=np.float64)
+    if am.is_silent(x):
+        return am.Estimate(None, False, "silent", {})
+    from scipy.signal import butter as _butter, sosfiltfilt as _sos
+    sos = _butter(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
+                  btype="band", output="sos")
+    y = _sos(sos, x)
+    env = am.analytic_envelope(y)
+    fi = am.instantaneous_frequency(y, sr, smooth_ms=smooth_ms)
+    pk = float(env.max())
+    out = []
+    for name, (t0, t1) in (("early", early), ("late", late)):
+        a, b = int(t0 * sr), min(len(fi), int(t1 * sr))
+        if b - a < 16:
+            return am.Estimate(None, False, f"{name} window too short", dict(n=b - a))
+        if float(env[a:b].max()) < pk * 10 ** (-30.0 / 20.0):
+            return am.Estimate(None, False,
+                               f"{name} window is below -30 dB, where the phase "
+                               f"derivative is noise", dict(window=name))
+        out.append(float(np.median(fi[a:b])))
+    return am.Estimate(out[0] - out[1], True, "", dict(early_hz=out[0], late_hz=out[1]))
 
 
 def attack_ms(x, sr: int, *, window_ms: float = 4.0,
@@ -286,18 +347,31 @@ def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) ->
     greedily and reporting a plausible number -- when the detected count does
     not equal the scheduled group count, because then the pairing is a guess.
 
-    Ground truth: test_worst_event_offset_ms_on_bursts_at_known_times."""
+    The detector's minimum gap is taken from the SCHEDULE, at half the smallest
+    interval in it. That is a property of the stimulus we wrote, not of the
+    result: without it, a bass drum whose T20 (348 ms) outlasts the gap between
+    its own hits (363 ms) beats against its own ring and reads 12 onsets where
+    10 were written. It is never allowed below `audio_measure.onsets`'s own
+    20 ms default, so it can only ever reject rises closer together than the
+    stimulus can contain.
+
+    Ground truth: test_worst_event_offset_ms_on_bursts_at_known_times,
+    test_worst_event_offset_ms_survives_hits_that_ring_into_each_other."""
     groups: list[float] = []
     for t in sorted(scheduled_s):
         if not groups or t - groups[-1] > group_s:
             groups.append(float(t))
-    found = [i / sr for i in am.onsets(x, sr)]
+    gaps = [b - a for a, b in zip(groups, groups[1:])]
+    min_gap = max(0.020, 0.5 * min(gaps)) if gaps else 0.020
+    found = [i / sr for i in am.onsets(x, sr, min_gap_s=min_gap)]
     if len(found) != len(groups):
         return am.Estimate(None, False,
                            "detected onsets do not match the scheduled events",
-                           dict(detected=len(found), scheduled=len(groups)))
+                           dict(detected=len(found), scheduled=len(groups),
+                                min_gap_s=round(min_gap, 4)))
     worst = max(abs(f - g) for f, g in zip(found, groups)) * 1e3
-    return am.Estimate(worst, True, "", dict(events=len(groups)))
+    return am.Estimate(worst, True, "", dict(events=len(groups),
+                                             min_gap_s=round(min_gap, 4)))
 
 
 # ===========================================================================
@@ -306,22 +380,42 @@ def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) ->
 #    rate-independent.
 # ===========================================================================
 def prepare(x, sr: int) -> np.ndarray:
-    """DC out, trimmed to 1 ms before the onset, peak-normalised.
+    """DC out from the PRE-ONSET region, trimmed to 1 ms before the onset,
+    peak-normalised.
+
+    **Not by subtracting the mean of the whole buffer, and that is not a style
+    choice.** These are single strikes in a buffer seconds long, so the mean of
+    the whole thing is a constant offset left across every silent sample after
+    the voice has gone. A
+    constant has constant energy density and never decays, so it dominates a
+    backward-integrated energy curve: it put 0.19 % of the rimshot's energy in
+    a floor that never ended and `schroeder_t20` duly reported a **4.5-second**
+    T20 for a 15 ms sound. The raw render has no energy at all in its last
+    second; the preparation put it there. A 20 Hz zero-phase high-pass removes
+    the references' converter DC without adding anything.
 
     The level-matched copy is what every metric below is taken on, and that is
     not a convenience: the Fischer set states that LEVEL was pinned at maximum
     for every voice, so its levels between voices are not the machine's. Every
-    metric here is a frequency, a time or a ratio, all of which are invariant
-    under the normalisation; the original-gain peak and RMS are recorded in
-    the result's diagnostics so the discarded information is still on record."""
+    metric here is a frequency, a time or a ratio, all invariant under the
+    normalisation; the original-gain peak and RMS are recorded in the result's
+    diagnostics so the discarded information is still on record."""
     x = np.asarray(x, dtype=np.float64)
-    x = x - x.mean()
-    pk = float(np.abs(x).max())
-    if pk <= 0:
+    if am.is_silent(x):
         return x
+    pk = float(np.abs(x).max())
     i = int(np.argmax(np.abs(x) > 0.02 * pk))
-    i = max(0, i - int(1e-3 * sr))
-    y = x[i:]
+    lead = max(0, i - int(1e-3 * sr))
+    # DC from the PRE-ONSET region, where there is no voice to bias it. Our
+    # renders lead with exact digital silence, so this subtracts nothing from
+    # them; the references lead with a 1994 converter's offset, so it subtracts
+    # that. A zero-phase high-pass would do the job too and was tried, but
+    # filtfilt is not causal: a 20 Hz first-order high-pass puts a precursor
+    # tens of ms AHEAD of a sharp strike, which moved the trim point back and
+    # read the rimshot's 2 ms attack as 11 ms.
+    if lead >= int(5e-3 * sr):
+        x = x - float(x[:lead].mean())
+    y = x[lead:]
     p = float(np.abs(y).max())
     return y / p if p > 0 else y
 
@@ -340,20 +434,12 @@ def highpass(y, sr: int, hz: float, order: int = 4) -> np.ndarray:
 # ===========================================================================
 # 4. The reference side
 # ===========================================================================
-# Our stop -> the Fischer file at Roland's own June-1981 tuning chart, every
-# knob at 12 o'clock. The same mapping `model/drum_verify.py` uses; the case
-# file calls it "the documented reference setting".
-REF_MAIN = {
-    "BD": ("bd8/BD5050.WAV", "TONE 5.0, DECAY 5.0"),
-    "SD": ("sd8/SD5050.WAV", "TONE 5.0, SNAPPY 5.0"),
-    "LT": ("lt8/LT50.WAV", "TUNING 5.0"),
-    "HT": ("ht8/HT50.WAV", "TUNING 5.0"),
-    "CH": ("ch8/CH.WAV", "no knob"),
-    "OH": ("oh8/OH50.WAV", "DECAY 5.0"),
-    "CP": ("cp8/CP.WAV", "no knob"),
-    "CB": ("cb8/CB.WAV", "no knob"),
-}
-
+# The Fischer file each of the sixteen sounds is compared against, at Roland's
+# own June-1981 tuning chart -- every knob at 12 o'clock, the setting the case
+# file calls "the documented reference setting". Taken from `model/drum_verify.py`
+# rather than copied: a second copy of a reference mapping is a second thing to
+# go stale, and this one gained eight entries while this runner was being written.
+REF_MAIN = dv.REF_MAIN
 
 class Refused(Exception):
     """A precondition of the apparatus failed. REFUSED is a first-class
@@ -389,19 +475,31 @@ def load_reference(voice: str, refdir: pathlib.Path, inject: str = "") -> tuple:
 # ===========================================================================
 # 5. Our side
 # ===========================================================================
-def render_drum_solo(voice: str, seconds: float = 2.2, accent: float = 1.0) -> tuple:
-    """One hit of one stop from the kit that ships, rendered here and now
+# The cymbal and the open hat ring for over a second; a render that ends before
+# the decay does cannot have its own decay read off it, and `schroeder_t20`
+# refuses exactly that. These are `drums_fx_render.solo_renders`'s own spans.
+SOLO_SECONDS = {"CY": 3.6, "OH": 3.6}
+
+
+def render_drum_solo(sound: str, accent: float = 1.0) -> tuple:
+    """One hit of one SOUND from the kit that ships, rendered here and now
     through the register interface -- never a committed WAV, so what is
-    measured is the design as it stands. `drums_fx.kit_808()` is the preset,
-    the two drum buses at the reference gain of DR 0005."""
+    measured is the design as it stands.
+
+    Sixteen sounds sit on eleven circuits and five of them are pairs sharing
+    one, so the circuit is switched to the named sound with `kit_with_sounds`
+    before the hit: rendering LC by striking the LT stop would measure the
+    low tom and call it a conga."""
     import drums_fx as dx
-    if voice not in dx.STOP_NAMES:
-        raise Refused(f"{voice} is not one of the eight stops the kit implements "
-                      f"({', '.join(dx.STOP_NAMES)})")
-    stop = dx.STOP_NAMES.index(voice)
+    if sound not in dx.SOUND_NAMES:
+        raise Refused(f"{sound} is not one of the sixteen sounds the kit implements "
+                      f"({', '.join(dx.SOUND_NAMES)})")
+    stop = dx.SOUND_STOP[sound]
+    seconds = SOLO_SECONDS.get(sound, 2.2)
     n = int(seconds * dx.SR)
     d = dx.DrumsFx()
-    dm, bd = d.play(dx.hit_writes([(int(0.01 * dx.SR), stop, accent)], dx.kit_808()), n)
+    dm, bd = d.play(dx.hit_writes([(int(0.01 * dx.SR), stop, accent)],
+                                  dx.kit_with_sounds(sound)), n)
     g = dx.accent_reg(0.45)
     out = dx.output_fx(np.zeros(n), 0, dm, g, bd, g)
     return np.asarray(out, dtype=np.float64) / 32768.0, dx.SR
@@ -418,8 +516,9 @@ def _bass_line(notes, bpm: float, kw: dict, start_s: float, gate_frac: float = 0
 # Two bars at 124 BPM, the tempo the ensemble cases state. Sparse is the
 # reference 808 groove; dense adds the tom and clap rows of
 # model/drums_fx_render.py, which puts several stops in the same frame.
-PATTERN_DENSE_EXTRA = {"LT": "....x.x.....xx..", "HT": "..x.......x...x.",
-                       "CP": "....X.......X...", "CB": "x..x..x...x..x.."}
+PATTERN_DENSE_EXTRA = {"LT": "....x.x.....xx..", "MT": "..x.......x...x.",
+                       "HT": "..x.......x...x.", "CP": "....X.......X...",
+                       "CB": "x..x..x...x..x.."}
 
 
 def render_ensemble(patch_name: str, dense: bool, seconds: float = 6.0,
@@ -469,7 +568,7 @@ def render_ensemble(patch_name: str, dense: bool, seconds: float = 6.0,
     # and the well-posed version of the same question is one stop at a time.
     per_stop = {}
     for stop_name in sorted(pattern):
-        s_i = dx.STOP_NAMES.index(stop_name)
+        s_i = dx.SOUND_STOP[stop_name]
         rows = [h for h in hits if h[1] == s_i]
         if not rows:
             continue
@@ -498,87 +597,108 @@ def render_ensemble(patch_name: str, dense: bool, seconds: float = 6.0,
 # and it should: the cheapest route to a better score is to stop measuring the
 # inconvenient thing.
 # ===========================================================================
-# Per-voice analysis settings, all from docs/drum-verification.md 2 and the
-# per-voice tables of docs/tr808-reference.md 12: the band the voice lives in,
-# the frequency that splits its body from its air or noise, the envelope
-# window that spans several periods of its own fundamental, and which envelope
-# its decay must be read on.
-VOICE_CFG = {
-    "BD": dict(f0=(20, 200), split=300.0, env_ms=12.0, env="analytic", tail_from=0.010),
-    "SD": dict(f0=(120, 400), split=700.0, env_ms=6.0, env="rms", tail_from=0.005),
-    "LT": dict(f0=(40, 400), split=400.0, env_ms=10.0, env="analytic", tail_from=0.020),
-    "HT": dict(f0=(80, 600), split=600.0, env_ms=6.0, env="analytic", tail_from=0.020),
-    "CH": dict(f0=(2000, 16000), split=9000.0, env_ms=3.0, env="rms", tail_from=0.002),
-    "OH": dict(f0=(2000, 16000), split=9000.0, env_ms=4.0, env="rms", tail_from=0.004),
-    "CP": dict(f0=(200, 4000), split=2000.0, env_ms=4.0, env="rms", tail_from=0.040),
-    "CB": dict(f0=(400, 2000), split=1400.0, env_ms=6.0, env="rms", tail_from=0.010),
-}
+# Per-sound analysis settings come from `model/drum_verify.py`'s own tables --
+# BAND (where the voice lives), SPLIT_HZ (what separates its body from its air
+# or noise) and ENV_WIN_MS (a window spanning several periods of its own
+# fundamental). Imported, not copied, for the same reason as REF_MAIN.
+BAND, SPLIT_HZ, ENV_WIN_MS = dv.BAND, dv.SPLIT_HZ, dv.ENV_WIN_MS
+
+#: How far the backward-integrated energy curve may depart from a straight line
+#: before its T20 is refused: 6 dB over the 20 dB range it is fitted across.
+MAX_T20_RESIDUAL_DB = 6.0
 
 
-def _tau_ms(voice: str, t0: float, t1: float | None = None):
-    cfg = VOICE_CFG[voice]
+def _t20_ms(t0: float = 0.0, t1: float | None = None, band=None):
+    """Decay as T20 off the backward-integrated energy curve
+    (`audio_measure.schroeder_t20`), for EVERY voice, and never a single
+    exponential's tau.
 
+    This was `decay_tau` and it refused five of the eight references outright:
+    "not a single exponential", residuals of 4 to 23 dB. It was right to. The
+    hats, the cowbell and the cymbal are sums of incommensurate squares whose
+    envelope beats by 6-10 dB, and the clap is three bursts over a tail -- two
+    exponentials, and a single tau fitted across them is the error that had the
+    snare's TONE law withdrawn (`docs/discrimination.md` section 2).
+
+    The right response to a refused precondition is an estimator whose
+    precondition holds, not a looser threshold on the first one. T20 off the
+    Schroeder curve assumes no model at all: the curve is monotone by
+    construction, so beating cannot make it read a trough, and on a signal that
+    IS a single exponential it equals ln(10)*tau exactly
+    (`test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid`). It is also the
+    convention Roland's own chart column is comparable to."""
     def f(y, sr):
-        seg = window(y, sr, t0, t1)
-        e = am.decay_tau(seg, sr, envelope=cfg["env"], rms_window_ms=cfg["env_ms"])
-        return e if not e.ok else am.Estimate(e.value * 1e3, True, "", e.detail)
+        seg = window(y, sr, t0, t1) if band is None else _bandpass(y, sr, band, t0, t1)
+        e = am.schroeder_t20(seg, sr)
+        if not e.ok:
+            return e
+        # A T20 fitted across a KNEE is not a decay time. The Schroeder curve
+        # is monotone but it need not be straight -- a voice that decays and
+        # then sits on a floor gives a line fit that is neither. The estimator
+        # reports the worst residual; this refuses past MAX_T20_RESIDUAL_DB of
+        # it, which is 30 % non-linearity over the 20 dB range and is the same
+        # bound on both sides of every comparison.
+        r = float(e.detail.get("residual_db", 0.0))
+        if r > MAX_T20_RESIDUAL_DB:
+            return am.Estimate(None, False,
+                               "the energy decay curve is not straight -- a T20 "
+                               "fitted across a knee is not a decay time", e.detail)
+        return am.Estimate(e.value * 1e3, True, "", e.detail)
     return f
 
 
-def _f0(voice: str, t0: float, t1: float):
-    lo, hi = VOICE_CFG[voice]["f0"]
+def _bandpass(y, sr, band, t0, t1):
+    from scipy.signal import butter as _b, sosfiltfilt as _s
+    lo, hi = band
+    sos = _b(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
+             btype="band", output="sos")
+    return _s(sos, window(y, sr, t0, t1))
+
+
+def _f0(sound: str, t0: float, t1: float):
+    lo, hi = BAND[sound]
 
     def f(y, sr):
         return am.dominant_frequency(window(y, sr, t0, t1), lo, hi, sr)
     return f
 
 
-def _pitch_drop(voice: str):
-    early, late = _f0(voice, 0.0, 0.030), _f0(voice, 0.060, 0.300)
+def _pitch_drop(sound: str):
+    band = (BAND[sound][0], SPLIT_HZ[sound])
 
     def f(y, sr):
-        a, b = early(y, sr), late(y, sr)
-        if not a.ok:
-            return am.Estimate(None, False, f"early window: {a.reason}", a.detail)
-        if not b.ok:
-            return am.Estimate(None, False, f"late window: {b.reason}", b.detail)
-        return am.Estimate(a.value - b.value, True, "", dict(early=a.value, late=b.value))
+        return pitch_drop_hz(y, sr, band)
     return f
 
 
-def _split_db(voice: str, t0: float, t1: float | None, lo: float = 0.0,
+def _split_db(sound: str, t0: float, t1: float | None, lo: float | None = None,
               hi: float | None = None):
-    split = VOICE_CFG[voice]["split"]
+    b_lo, b_hi = BAND[sound]
+    split = SPLIT_HZ[sound]
 
     def f(y, sr):
-        return band_ratio_db(window(y, sr, t0, t1), sr, split, lo,
-                             (sr / 2.0) if hi is None else hi)
+        return band_ratio_db(window(y, sr, t0, t1), sr, split,
+                             b_lo if lo is None else lo, b_hi if hi is None else hi)
     return f
 
 
-def _attack(voice: str, t1: float = 0.250):
-    ms = VOICE_CFG[voice]["env_ms"]
+def _attack(sound: str, t1: float = 0.250):
+    ms = ENV_WIN_MS[sound]
 
     def f(y, sr):
         return attack_ms(window(y, sr, 0.0, t1), sr, window_ms=ms)
     return f
 
 
-def _noise_tau_ms(voice: str, t0: float):
-    """The decay of the voice's ABOVE-split content alone -- the snare's
-    noise, separated from its two body modes by a 4th-order high-pass before
-    the decay fit, so the number is the noise's tau and not a blend."""
-    split, ms = VOICE_CFG[voice]["split"], VOICE_CFG[voice]["env_ms"]
-
-    def f(y, sr):
-        seg = highpass(window(y, sr, t0, None), sr, split)
-        e = am.decay_tau(seg, sr, envelope="rms", rms_window_ms=ms)
-        return e if not e.ok else am.Estimate(e.value * 1e3, True, "", e.detail)
-    return f
+def _noise_t20_ms(sound: str, t0: float):
+    """The T20 of the voice's ABOVE-split content alone -- the snare's noise,
+    separated from its two body modes by a band-pass before the curve is
+    integrated, so the number is the noise's decay and not a blend."""
+    return _t20_ms(t0, None, band=(SPLIT_HZ[sound], min(BAND[sound][1], 20000.0)))
 
 
-def _burst_span_ms(voice: str):
-    ms = VOICE_CFG[voice]["env_ms"]
+def _burst_span_ms(sound: str):
+    ms = ENV_WIN_MS[sound]
 
     def f(y, sr):
         env = am.rms_envelope(window(y, sr, 0.0, 0.120), ms, sr)
@@ -609,7 +729,13 @@ def _line_ratio(hz_num: float, hz_den: float, t1: float = 0.100):
     return f
 
 
-# The eight stops the kit implements, and the drum case that anchors each.
+def _band_pair(band_a, band_b, t1: float | None = None):
+    def f(y, sr):
+        return band_pair_db(window(y, sr, 0.0, t1), sr, band_a, band_b)
+    return f
+
+
+# The sixteen sounds, and the drum case that anchors each.
 DRUM_CASE_VOICE = {
     "D01A": "BD", "D02A": "SD", "D03A": "LT", "D04A": "LC", "D05A": "MT",
     "D06A": "MC", "D07A": "HT", "D08A": "HC", "D09A": "CL", "D10A": "RS",
@@ -617,47 +743,86 @@ DRUM_CASE_VOICE = {
     "D16A": "CH",
 }
 
-# name -> (units, estimator, tolerance rule). Names match cases.csv exactly.
+
+def _tom_plan(sound: str, drop: bool):
+    """The six tom/conga sounds differ only in whether the case asks for the
+    pitch DROP or the pitch. Three tunings of one circuit twice over."""
+    first = (("Pitch drop", "Hz", _pitch_drop(sound), tol_frequency_of_f0) if drop
+             else ("Pitch", "Hz", _f0(sound, 0.010, 0.200), tol_frequency))
+    return [first,
+            ("body spectrum", "dB", _split_db(sound, 0.0, 0.150), tol_db),
+            ("decay", "ms", _t20_ms(0.005), tol_time)]
+
+
+# name -> (units, estimator, tolerance rule). Names match cases.csv exactly,
+# because scorecard.py invalidates a case whose required component is missing --
+# and it should: the cheapest route to a better score is to stop measuring the
+# inconvenient thing.
 DRUM_PLAN = {
     "BD": [
         ("Pitch trajectory", "Hz", _f0("BD", 0.010, 0.500), tol_frequency),
-        ("early/body energy", "dB", _split_db("BD", 0.0, 0.010), tol_db),
-        ("decay", "ms", _tau_ms("BD", 0.010), tol_time),
+        # A TIME split, not a frequency one. The first version asked for the
+        # energy above 300 Hz inside a 10 ms window, and 10 ms is three periods
+        # of a 49 Hz kick: too short for a spectrum to resolve the split and
+        # too short for a 4th-order filter to settle. Early-against-body is
+        # what "no attack, no harmonics" (docs/drum-verification.md 4.1) is a
+        # statement about anyway, and it needs no filter at all.
+        ("early/body energy", "dB", _early_late_db(0.010, 0.200), tol_db),
+        ("decay", "ms", _t20_ms(0.005), tol_time),
     ],
     "SD": [
         ("Body/noise balance", "dB", _split_db("SD", 0.0, 0.100), tol_db),
         ("attack", "ms", _attack("SD"), tol_time),
-        ("noise decay", "ms", _noise_tau_ms("SD", 0.005), tol_time),
+        ("noise decay", "ms", _noise_t20_ms("SD", 0.002), tol_time),
     ],
-    "LT": [
-        ("Pitch drop", "Hz", _pitch_drop("LT"), tol_frequency_of_f0),
-        ("body spectrum", "dB", _split_db("LT", 0.0, 0.150), tol_db),
-        ("decay", "ms", _tau_ms("LT", 0.020), tol_time),
+    "LT": _tom_plan("LT", drop=True),
+    "MT": _tom_plan("MT", drop=True),
+    "HT": _tom_plan("HT", drop=True),
+    "LC": _tom_plan("LC", drop=False),
+    "MC": _tom_plan("MC", drop=False),
+    "HC": _tom_plan("HC", drop=False),
+    "CL": [
+        ("Pitch", "Hz", _f0("CL", 0.002, 0.060), tol_frequency),
+        ("attack duration", "ms", _attack("CL", 0.060), tol_time),
+        ("tail decay", "ms", _t20_ms(0.002), tol_time),
     ],
-    "HT": [
-        ("Pitch drop", "Hz", _pitch_drop("HT"), tol_frequency_of_f0),
-        ("body spectrum", "dB", _split_db("HT", 0.0, 0.150), tol_db),
-        ("decay", "ms", _tau_ms("HT", 0.020), tol_time),
+    "RS": [
+        # Two bridged-T networks on one circuit: reference section 5 gives the
+        # low mode at 455 Hz Q 6.7 and the high at 1786 Hz Q 13.5, so the
+        # balance is asked as the energy in a band around each.
+        ("Partial balance", "dB", _band_pair((1500, 2100), (380, 560), 0.060), tol_db),
+        ("attack", "ms", _attack("RS", 0.060), tol_time),
+        ("tail decay", "ms", _t20_ms(0.002), tol_time),
+    ],
+    "MA": [
+        ("Rise time", "ms", _attack("MA", 0.060), tol_time),
+        ("band energy", "dB", _split_db("MA", 0.0, 0.150), tol_db),
+        ("decay", "ms", _t20_ms(0.001), tol_time),
     ],
     "CP": [
         ("Burst timing", "ms", _burst_span_ms("CP"), tol_time),
         ("burst/tail ratio", "dB", _early_late_db(0.030, 0.200), tol_db),
-        ("decay", "ms", _tau_ms("CP", 0.040), tol_time),
+        ("decay", "ms", _t20_ms(0.002), tol_time),
     ],
     "CB": [
         ("Partial balance", "dB", _line_ratio(800.0, 540.0), tol_db),
         ("unwanted difference tone", "dB", _line_ratio(260.0, 800.0), tol_db),
-        ("decay", "ms", _tau_ms("CB", 0.010), tol_time),
+        ("decay", "ms", _t20_ms(0.005), tol_time),
+    ],
+    "CY": [
+        ("Band energy", "dB", _split_db("CY", 0.0, 0.400), tol_db),
+        ("band decay", "ms", _t20_ms(0.002, None, band=(SPLIT_HZ["CY"], 20000.0)), tol_time),
+        ("total decay", "ms", _t20_ms(0.002), tol_time),
     ],
     "OH": [
-        ("Band energy", "dB", _split_db("OH", 0.0, 0.200, lo=2000.0), tol_db),
+        ("Band energy", "dB", _split_db("OH", 0.0, 0.200), tol_db),
         ("attack", "ms", _attack("OH"), tol_time),
-        ("decay", "ms", _tau_ms("OH", 0.004), tol_time),
+        ("decay", "ms", _t20_ms(0.002), tol_time),
     ],
     "CH": [
-        ("Band energy", "dB", _split_db("CH", 0.0, 0.100, lo=2000.0), tol_db),
+        ("Band energy", "dB", _split_db("CH", 0.0, 0.100), tol_db),
         ("attack", "ms", _attack("CH"), tol_time),
-        ("decay", "ms", _tau_ms("CH", 0.002), tol_time),
+        ("decay", "ms", _t20_ms(0.001), tol_time),
     ],
 }
 
@@ -674,9 +839,12 @@ NOT_RUN = {}
 for _c in ("F1A", "F2A", "F3A", "F5A", "F1B", "F1C", "F1D", "F2B", "F2C", "F2D",
            "F3B", "F3C", "F3D", "F4A", "F4B", "F4C", "F4D", "F5B", "F5C", "F5D",
            "F6A", "F6B", "F6C", "F6D"):
-    NOT_RUN[_c] = ("Surge-dependent: model/reference_rigs.py is being repaired "
-                   "for a waveform-mapping bug. Numbers taken through it now "
-                   "would have to be withdrawn.")
+    NOT_RUN[_c] = ("no frozen reference profile and no filter plan in this "
+                   "runner: nothing maps these subjects to Surge parameter "
+                   "settings, and docs/scorecard/README.md requires that frozen "
+                   "before results are collected. (The waveform-mapping repair "
+                   "these were blocked on has since landed in #87, so the rig "
+                   "itself is no longer the blocker.)")
 for _c in ("M1A", "M2A", "M3A", "M4A", "M5A", "M6A", "M7A", "M8A"):
     NOT_RUN[_c] = ("no frozen reference profile: nothing in the repository maps "
                    "these subjects to Mini V3 patch and parameter settings, and "
@@ -762,12 +930,104 @@ OUTCOME_CODE = {"pass": 0, "fail": 1, "no verdict": 2, "not run": 2}
 OUTCOME_MEANING = "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
 
 
+class StaleBase(Exception):
+    """The premise of the whole batch is false. Not a per-case refusal."""
+
+
+# The inputs a result DEPENDS ON and does not own. If one of these differs from
+# `origin/main`, an earlier green run does not cover the tree -- which is
+# exactly what happened: eight drum cases refused because this worktree's
+# `drums_fx.py` had eight circuits while origin/main's had eleven.
+DEPENDENCIES = ("model/drums_fx.py", "model/voice_fx.py", "model/audio_measure.py",
+                "model/drum_verify.py", "docs/scorecard/cases.csv")
+
+
+def base_check(allow_stale: bool = False) -> dict:
+    """Assert the premise of the whole batch BEFORE any of it runs.
+
+    This exists because of a specific, expensive shape of wrong answer. Eight
+    drum cases came back
+
+        REFUSED: the eight-stop kit does not implement LC / MT / MC / HC /
+        CL / RS / MA / CY
+
+    which is exactly what the runner should say about the tree it had -- and
+    was a false statement about the project, because the complete sixteen-sound
+    kit had landed on `origin/main` two commits earlier. Eight honest per-case
+    refusals read as a permanent hole in the instrument, and the next person
+    would have re-implemented voices that already existed.
+
+    A stale premise is a property of the BATCH, not of a case, so it refuses
+    the batch. Per-case refusals describe the instrument; this describes our
+    checkout, and the two must never come out looking alike.
+
+    **What it refuses on is the DEPENDENCIES, not the commit count.** `main`
+    moves several times an hour here and most of those commits cannot change a
+    measurement; refusing on all of them would train everyone to pass
+    `--allow-stale`, and an ignored gate is worse than no gate. So: any of
+    `DEPENDENCIES` differing from `origin/main`, or a drum circuit count that
+    differs, refuses. Being behind on anything else is recorded and warned
+    about, because it is still worth knowing when reading the record."""
+    ref = "origin/main"
+    have = _git("rev-parse", "--verify", f"{ref}^{{commit}}").strip()
+    if not have:
+        return {"checked": False,
+                "why": f"no {ref} in this clone -- the base could not be checked"}
+    behind = int(_git("rev-list", "--count", f"HEAD..{ref}").strip() or 0)
+    import drums_fx as dx
+
+    stale_deps = {}
+    for rel in DEPENDENCIES:
+        theirs = _git("show", f"{ref}:{rel}")
+        ours = ""
+        try:
+            ours = (ROOT / rel).read_text()
+        except OSError:
+            pass
+        if theirs and ours and theirs != ours:
+            stale_deps[rel] = {"origin_main": hashlib.sha256(theirs.encode()).hexdigest()[:12],
+                               "here": hashlib.sha256(ours.encode()).hexdigest()[:12]}
+
+    theirs_stops = None
+    for line in _git("show", f"{ref}:model/drums_fx.py").splitlines():
+        if line.startswith("N_STOPS, N_ENV"):
+            try:
+                theirs_stops = int(line.split("=")[1].split(",")[0])
+            except (IndexError, ValueError):
+                theirs_stops = None
+            break
+
+    state = {"checked": True, "origin_main": have[:12], "behind_commits": behind,
+             "n_stops_here": dx.N_STOPS, "n_stops_origin_main": theirs_stops,
+             "stale_dependencies": stale_deps, "allow_stale": allow_stale}
+    problems = []
+    if stale_deps:
+        problems.append("these inputs differ from origin/main: " + ", ".join(sorted(stale_deps)))
+    if theirs_stops is not None and theirs_stops != dx.N_STOPS:
+        problems.append(f"the kit here has {dx.N_STOPS} drum circuits, {ref} has {theirs_stops}")
+    state["problems"] = problems
+    if problems and not allow_stale:
+        raise StaleBase("; ".join(problems) +
+                        f" -- rebase onto {ref} and re-run. Refusing the whole batch: "
+                        f"per-case refusals from a stale checkout describe our tooling, "
+                        f"not the instrument, and read like capability gaps. "
+                        f"--allow-stale overrides and records that it did.")
+    if behind:
+        state["note"] = (f"{behind} commit(s) behind {ref}, none of them touching an "
+                         f"input this measurement depends on")
+    return state
+
+
+BASE_STATE: dict = {}
+
+
 def provenance(inputs: dict, artefacts: dict, config: dict) -> dict:
     """What this result was produced by, in enough detail to re-derive it
     rather than re-trust it."""
     return {
         "engine": ENGINE,
         "worktree": worktree_state(),
+        "base_check": BASE_STATE,
         "command": " ".join([os.path.relpath(sys.argv[0], ROOT)] + sys.argv[1:])
                    if sys.argv and sys.argv[0] else "(imported)",
         "config": config,
@@ -844,17 +1104,20 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
     base = {"engine": ENGINE, "case_id": case["case_id"], "subject": case["subject"],
             "source_commit": source_commit(), "analysis_run": analysis_run()}
 
+    why = ""
     if voice not in REF_MAIN:
+        why = f"the Fischer corpus has no reference recording mapped for {voice}"
+    elif voice not in DRUM_PLAN:
+        why = f"this runner has no measurement plan for {voice}"
+    if why:
         base.update({
-            "reference_profile": f"none: the Fischer set's {voice.lower()} voice",
+            "reference_profile": "none",
             "render_run": "not rendered", "audio": "none",
-            "note": (f"REFUSED: the eight-stop kit in model/drums_fx.py does not "
-                     f"implement {voice}. There is nothing of ours to measure, so "
-                     f"this case has no distance -- not a zero one."),
+            "note": (f"REFUSED: {why}. There is nothing to compare, so this case "
+                     f"has no distance -- not a zero one."),
             "provenance": provenance(model_input_hashes(), {},
                                      dict(voice=voice, refs=str(refdir), inject=inject or None)),
-            "metrics": {m: invalid_metric("", f"{voice} is not implemented by the kit")
-                        for m in required}})
+            "metrics": {m: invalid_metric("", why) for m in required}})
         return base
 
     ref_x, ref_sr, rel, setting = load_reference(voice, refdir, inject)
@@ -864,7 +1127,7 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
     ref, ours = (ref_y, ref_sr), (ours_y, ours_sr)
 
     ctx = {}
-    f0 = _f0(voice, 0.060, 0.300)(*ref)
+    f0 = _f0(voice, 0.010, 0.200)(*ref)
     if f0.ok:
         ctx["ref_f0"] = f0.value
 
@@ -888,12 +1151,14 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
             model_input_hashes({f"reference:{rel}": _file_sha(refdir / rel)}),
             {"ours": audio_path, "reference": str(refdir / rel)},
             dict(voice=voice, refs=str(refdir), inject=inject or None,
-                 render_seconds=2.2, accent=1.0, bus_gain=0.45, level_matched=True)),
+                 render_seconds=SOLO_SECONDS.get(voice, 2.2), accent=1.0,
+                 bus_gain=0.45, level_matched=True)),
         "reference_profile": f"fischer-tr808-103852:{rel} ({setting})",
         "reference_identity": REF_ID,
-        "render_run": (f"drums_fx@{_sha(ROOT / 'model' / 'drums_fx.py')} kit_808() solo "
-                       f"{voice}, one hit at accent 1.0, 2.20 s, both drum buses 0.45, "
-                       f"{dx.SR} Hz"),
+        "render_run": (f"drums_fx@{_sha(ROOT / 'model' / 'drums_fx.py')} "
+                       f"kit_with_sounds({voice!r}) solo, one hit at accent 1.0, "
+                       f"{SOLO_SECONDS.get(voice, 2.2):.2f} s, both drum buses 0.45, "
+                       f"{dx.SR} Hz, circuit {dx.SOUND_STOP[voice]} of {dx.N_STOPS}"),
         "audio": audio,
         "tolerance_policy": TOLERANCE_POLICY,
         "metrics": metrics,
@@ -1082,6 +1347,9 @@ def main(argv=None) -> int:
     ap.add_argument("--expect", default="", choices=["", "pass", "fail", "no verdict"],
                     help="exit 1 unless every case lands in this state (for controls)")
     ap.add_argument("--no-audio", action="store_true", help="do not write the rendered WAVs")
+    ap.add_argument("--allow-stale", action="store_true",
+                    help="run even though this tree is behind origin/main, and say so "
+                         "on every record it writes")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
 
@@ -1123,6 +1391,22 @@ def main(argv=None) -> int:
         print("--inject refuses to write into docs/scorecard/results; pass --results",
               file=sys.stderr)
         return 2
+
+    # The premise of the batch, asserted before any of it runs. A stale
+    # checkout produces per-case refusals that read like capability gaps, and
+    # that has already happened once here.
+    global BASE_STATE
+    try:
+        BASE_STATE = base_check(a.allow_stale)
+    except StaleBase as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    if not BASE_STATE.get("checked"):
+        print(f"NOTE: {BASE_STATE.get('why')}")
+    elif BASE_STATE.get("problems"):
+        print(f"WARNING (--allow-stale): {'; '.join(BASE_STATE['problems'])}")
+    elif BASE_STATE.get("note"):
+        print(f"base: {BASE_STATE['note']}")
 
     refdir = pathlib.Path(a.refs)
     outdir.mkdir(parents=True, exist_ok=True)

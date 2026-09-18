@@ -2,17 +2,28 @@
   "engine": "fixed-model",
   "case_id": "D02A",
   "subject": "Snare / anchor",
-  "source_commit": "0d8a763",
-  "analysis_run": "run_case@88e63bc3d689 + audio_measure@ec0ef6c02fa4 at 2026-09-18T20:26:48Z",
+  "source_commit": "4892fa4",
+  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:47:33Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "0d8a763",
-      "described": "node/D-drums-bitexact-28-g0d8a763-dirty",
+      "commit": "4892fa4",
+      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
       "branch": "tools/case-runner",
       "dirty": true,
-      "uncommitted_sha256": "9c5c67c1202b2848",
-      "untracked_files": 5
+      "uncommitted_sha256": "bbe2a20ea9e262ce",
+      "untracked_files": 0
+    },
+    "base_check": {
+      "checked": true,
+      "origin_main": "edfcd4b3d761",
+      "behind_commits": 1,
+      "n_stops_here": 11,
+      "n_stops_origin_main": 11,
+      "stale_dependencies": {},
+      "allow_stale": false,
+      "problems": [],
+      "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
     },
     "command": "tools/run_case.py --batch First 32",
     "config": {
@@ -25,12 +36,12 @@
       "level_matched": true
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T20:26:54Z",
+    "run_at": "2026-09-18T20:47:42Z",
     "inputs": {
-      "model/drums_fx.py": "sha256:a0ec4ff4b067ebd4",
+      "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
-      "model/audio_measure.py": "sha256:ec0ef6c02fa43c0c",
-      "tools/run_case.py": "sha256:88e63bc3d689c418",
+      "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
+      "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
       "reference:sd8/SD5050.WAV": "sha256:6dcbf8acd5cee6d6"
     },
@@ -43,7 +54,7 @@
   },
   "reference_profile": "fischer-tr808-103852:sd8/SD5050.WAV (TONE 5.0, SNAPPY 5.0)",
   "reference_identity": "Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 s/n 103852, individual voice outputs, 16-bit/44.1 kHz",
-  "render_run": "drums_fx@a0ec4ff4b067 kit_808() solo SD, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz",
+  "render_run": "drums_fx@5ea51e6cf91b kit_with_sounds('SD') solo, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz, circuit 1 of 11",
   "audio": "reference sd8/SD5050.WAV; ours build/scorecard/D02A-ours.wav",
   "tolerance_policy": {
     "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
@@ -55,10 +66,10 @@
   },
   "metrics": {
     "Body/noise balance": {
-      "value": -4.9913,
+      "value": -4.9904,
       "units": "dB",
-      "reference": -3.2168,
-      "error": -1.7745,
+      "reference": -4.0779,
+      "error": -0.9125,
       "tolerance": 3.0,
       "valid": true,
       "tolerance_basis": "energy ratio"
@@ -73,11 +84,11 @@
       "tolerance_basis": "time"
     },
     "noise decay": {
-      "value": 29.268,
+      "value": 71.1114,
       "units": "ms",
-      "reference": 30.4416,
-      "error": -1.1737,
-      "tolerance": 15.2208,
+      "reference": 69.4904,
+      "error": 1.621,
+      "tolerance": 34.7452,
       "valid": true,
       "tolerance_basis": "time"
     }

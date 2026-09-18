@@ -1,9 +1,9 @@
 {
   "engine": "fixed-model",
-  "case_id": "D04A",
-  "subject": "Low conga / anchor",
+  "case_id": "E1B",
+  "subject": "Bass and kit / dense",
   "source_commit": "4892fa4",
-  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:47:52Z",
+  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:59:26Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
@@ -11,7 +11,7 @@
       "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
       "branch": "tools/case-runner",
       "dirty": true,
-      "uncommitted_sha256": "677162dbebac757b",
+      "uncommitted_sha256": "d327ba82dcd567b3",
       "untracked_files": 0
     },
     "base_check": {
@@ -27,35 +27,31 @@
     },
     "command": "tools/run_case.py --batch First 32",
     "config": {
-      "voice": "LC",
-      "refs": "/tmp/tr808-ref",
-      "inject": null,
-      "render_seconds": 2.2,
-      "accent": 1.0,
+      "patch": "01-bass-classic",
+      "dense": true,
+      "bpm": 124.0,
+      "seconds": 6.0,
       "bus_gain": 0.45,
-      "level_matched": true
+      "limiter": false
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T20:48:19Z",
+    "run_at": "2026-09-18T20:59:27Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
       "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
       "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
-      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
-      "reference:lc8/LC50.WAV": "sha256:6591f57bbbdb8918"
+      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
     },
     "artefacts": {
-      "ours": "build/scorecard/D04A-ours.wav",
-      "reference": "/tmp/tr808-ref/lc8/LC50.WAV"
+      "mix": "build/scorecard/E1B-mix.wav"
     },
-    "outcome_code": 1,
+    "outcome_code": 2,
     "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
   },
-  "reference_profile": "fischer-tr808-103852:lc8/LC50.WAV (TUNING 5.0)",
-  "reference_identity": "Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 s/n 103852, individual voice outputs, 16-bit/44.1 kHz",
-  "render_run": "drums_fx@5ea51e6cf91b kit_with_sounds('LC') solo, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz, circuit 2 of 11",
-  "audio": "reference lc8/LC50.WAV; ours build/scorecard/D04A-ours.wav",
+  "reference_profile": "our own per-bus stems and the written hit schedule; no external reference is involved in this case",
+  "render_run": "voice_fx 01-bass-classic + drums_fx dense groove, 124 BPM, 2 bars, buses 0.45/0.45, no limiter",
+  "audio": "build/scorecard/E1B-mix.wav",
   "tolerance_policy": {
     "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
     "time": "50 % of the reference value -- 1.7 states +-50 % on Q, and for these bridged-T resonators tau is proportional to Q",
@@ -65,41 +61,52 @@
     "rail": "0.01 % of samples at the rail, a stated budget for a render with no limiter in the path"
   },
   "metrics": {
-    "Pitch": {
-      "value": 192.2063,
-      "units": "Hz",
-      "reference": 200.423,
-      "error": -8.2167,
-      "tolerance": 20.0423,
-      "valid": true,
-      "tolerance_basis": "frequency"
-    },
-    "body spectrum": {
-      "value": -36.6182,
-      "units": "dB",
-      "reference": -33.5108,
-      "error": -3.1074,
-      "tolerance": 3.0,
-      "valid": true,
-      "tolerance_basis": "energy ratio"
-    },
-    "decay": {
-      "value": 171.7084,
+    "Event timing": {
       "units": "ms",
-      "reference": 177.0612,
-      "error": -5.3529,
-      "tolerance": 88.5306,
+      "valid": false,
+      "why": "BD: detected onsets do not match the scheduled events {'detected': 12, 'scheduled': 10}",
+      "tolerance": 10.0
+    },
+    "bus balance": {
+      "value": 0.0,
+      "units": "dB",
+      "reference": 0.0,
+      "error": 0.0,
+      "tolerance": 0.5,
       "valid": true,
-      "tolerance_basis": "time"
+      "tolerance_basis": "bus sum"
+    },
+    "output artifacts": {
+      "value": 0.0,
+      "units": "% of samples",
+      "reference": 0.0,
+      "error": 0.0,
+      "tolerance": 0.01,
+      "valid": true,
+      "tolerance_basis": "rail"
     }
   },
   "diagnostics": {
-    "ours_peak_fs": 0.224915,
-    "ours_rms_fs": 0.020774,
-    "reference_peak_fs": 0.675751,
-    "reference_rate_hz": 44100,
-    "ours_rate_hz": 48000,
-    "level_matched": true,
-    "note": "levels are not compared: the Fischer set pinned LEVEL at maximum for every voice, so its inter-voice levels are not the machine's. Original-gain peak and RMS are recorded above."
+    "peak_fs": 0.86908,
+    "stem_peaks_fs": {
+      "voice": 0.527618,
+      "drum-mix": 0.389587,
+      "body": 0.791809
+    },
+    "scheduled_events": 68,
+    "stops_timed": [
+      "BD",
+      "CB",
+      "CH",
+      "CP",
+      "HT",
+      "LT",
+      "MT",
+      "OH",
+      "SD"
+    ],
+    "dc_offset_fs": 0.00174852,
+    "patch": "01-bass-classic",
+    "bpm": 124.0
   }
 }

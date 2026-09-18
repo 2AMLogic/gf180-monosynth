@@ -19,3 +19,4 @@ pnr/orfs/joined.sh
 # no trailing slash: `.venv/` matches a directory but NOT a symlink to one,
 # which is how a venv symlink got staged by `git add -A` on another branch
 .venv
+build/
