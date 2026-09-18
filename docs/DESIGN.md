@@ -35,11 +35,13 @@ mapping.
 | block | cycles | cells | RAM | status |
 |---|---:|---:|---:|---|
 | ladder filter, time-shared, one context | **24** | 5,711 | 0 | RTL bit-exact against `model/fixed.py`, in simulation; 19-bit output (DR 0005); two contexts (the voice's and the drum filter's) bit-exact on every channel |
-| modal resonator, 4 modes | **15** | 7,017 | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
+| drum section: sources, 12 envelopes, 16 paths (`drum_dp`) | **48** | 10,716 (0.278 mm² of gf180 7t cells) | 0 | RTL bit-exact against `model/drums_fx.py` (DR 0008) |
+| modal bank, 12 modes / 6 numerators — the drums' bodies and filters | **39** (15 at 4 modes, 7,017 cells) | 13,845 (0.367 mm²) | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
 | the whole voice around the ladder (`rtl-sketch/voice_dp.v`) | **54 best, 64 mean, 136 worst** from `go` (drum filter off; +24 with it on, +8 for `go` at cycle 8: 168 of 256 worst) | 20,522 (7t-mapped) | 0 | RTL bit-exact against `model/voice_fx.py`: 255,060 frames, every sample, every tap of contract 16.4 and the final state; eight injected defects each caught; the worst frame is the all-maximum image (three reciprocals, both PolyBLEP windows on every edge of every oscillator) |
-| the chip (`rtl-sketch/synth_top.v`: link, voice, modal bank, placeholder drum sources, I2S) | **150 of 256 worst** | 29,812 (7t-mapped) | 0 | elaborates, synthesises, runs through its pins; ARCHITECTURE.md |
+| the chip (`rtl-sketch/synth_top.v`: link, voice, modal bank, **placeholder** drum sources, I2S) | **150 of 256 worst** | 29,812 (7t-mapped) | 0 | elaborates, synthesises, runs through its pins; ARCHITECTURE.md. The drum section above is not in it yet — contract 17.23 |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
 | existing 4-voice core (sibling repo) | not measured | 19,049 | 0 | verified, in production |
+| **used** | drum section **85 of 256** tick to `body_valid` (48 in the datapath + 39 in the bank, one clock overlapped) | | | the chip's own worst frame is 150, measured without it |
 
 The ladder's worst-case cycle count equals its mean — the fixed latency that
 justified choosing an explicit solver over an iterative one. The chip's worst
@@ -49,6 +51,13 @@ reciprocal divisions), three square waves and the drum filter engaged
 
 **Nothing needs a faster clock.** The formant family, the feature a 4× clock
 was contemplated for, fits nine times over at 12.288 MHz.
+
+The drum section's cell counts above are yosys → ABC on `gf180mcu_fd_sc_mcu7t5v0`
+at `tt_025C_5v00` (the method of `area-budget.md`), not the PDK-neutral
+counts of the other rows: `drum_kit` (both together) is 0.646 mm² of cells,
+0.605 with `synth -booth`, and 0.461 mm² at 8 modes / 8 envelopes / 12
+paths — four times the ladder, almost all of it state and its muxing. The
+strawman `drum_src_seq.v` (0.089 mm², verified against nothing) is gone.
 
 ---
 
@@ -98,6 +107,10 @@ fast-corner number.
 | PolyBLEP reciprocal | 16-bit mantissa + 16-bit reciprocal, computed at note-on; one 16×16 multiply per sample | set by tracking the float waveform inside Q1.15, not by aliasing — 8 bits already reach the float's suppression |
 | envelope | 24-bit level, Q0.16 rate, release `L −= max(1, (L·rate) >> 16)` | 20 is the floor for attack time; 24 keeps the release floor below −62 dBFS up to a 1 s release |
 | cutoff → `g` ROM | 128 × Q0.16, interpolated — 2 kbit | −0.6 % at 120 Hz, −0.05 % at 1 kHz |
+| drum envelope | the voice's release rule, 24-bit level, Q0.16 rate, plus a hold count, up to three re-strikes at 13/16 and a choke | one rule for every envelope on the chip; the dead zone closed the same way |
+| drum bodies and filters | modes of the modal bank: Q2.24 coefficients, 28-bit state; a numerator (`1 − z⁻²` or `(1 − z⁻¹)²`) on six of twelve | the 808's bridged-T voices are presets, its band- and high-passes the same resonator pre-differenced |
+| drum noise | 31-bit LFSR, 16 bits per frame | a one-cycle leap-forward; whiter than reading the low bits of a once-per-frame register |
+| swing VCA | ×4 / ÷8 into the ladder's 16-entry tanh table | the 808's asymmetric clipping on hats and cowbell, on the table already there |
 
 Holding state in units of 2·Vt rather than volts turns the paper's stage into
 `Y += g·(tanh(X) − tanh(Y))`: the `tanh` argument becomes the state itself and
@@ -244,33 +257,61 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   and [DR 0004](../spec/decision-records/0004-glide-constant-rate-linear-in-pitch.md)
   (proposed) and implemented in the integer model, which is now one
   continuous voice; the float audition still renders note by note.
-- **The drum sources are a placeholder.** `rtl-sketch/ladder_dp.v` /
-  `ladder_dp_n.v` and `modal_dp.v` / `modal_dp_rom.v` are bit-exact against
-  `model/fixed.py` and `model/modal_fixed.py` under iverilog, with negative
-  controls that show each bench can fail (`rtl-sketch/test_rtl.py`), and so
-  is the whole voice, `voice_dp.v`, against `model/voice_fx.py`. The drum
-  sources in `synth_top.v` are a labelled placeholder that the `drums` branch
-  replaces; `drum_src_seq.v` is an area strawman verified against nothing.
-  The earlier "20 cycles, 1,917 cells" ladder figure was the area of a
-  circuit whose ROM reads were out of range — every output was X — and is
+- **The chip's drum sources are still a placeholder.**
+  `rtl-sketch/ladder_dp.v` / `ladder_dp_n.v`, `modal_dp.v` /
+  `modal_dp_rom.v` and `drum_kit.v` (`drum_dp.v` + `modal_dp.v`) are
+  bit-exact against `model/fixed.py`, `model/modal_fixed.py` and
+  `model/drums_fx.py` under iverilog, with negative controls that show each
+  bench can fail (`rtl-sketch/test_rtl.py`), and so is the whole voice,
+  `voice_dp.v`, against `model/voice_fx.py`. What is **not** verified is the
+  join: `synth_top.v` still carries `drum_section_placeholder` and the
+  two-term master mix, not `drum_kit` and the output stage of contract 12
+  (contract 17.23). `drum_src_seq.v`, the area strawman verified against
+  nothing, and `touch_dp.v`, never compared against anything, are both
+  deleted. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
+  a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
+- **The drum section is an 808 by circuit, and now partly by measurement.**
+  [`docs/drum-verification.md`](drum-verification.md) compares every voice
+  against a real TR-808 (s/n 103852, CC0). Its section 8 withdraws one
+  measurement method and three of its own headline numbers, and records what
+  was actually wrong: the snare's noise *band* (not its level, which was
+  2.3 dB down and not 16), the cowbell's shared gate, and the bass drum's f0,
+  which the kit took from Roland's chart while taking its Q from the circuit.
+  Contract revision 6 fixes those; **the excitation is still an impulse where
+  the machine's is a shaped pulse, and that is the largest thing left
+  (17.20)**. DR 0008 builds
+  it from `docs/tr808-reference.md`: bridged-T bodies as modal presets,
+  six square oscillators for the hats and cowbell, one noise source, the
+  swing VCA. What the reference kit leaves out is listed in the contract's
+  17.14 (the BD's 4 ms attack shift and sigh, the toms' diode pitch fall,
+  the cymbal, rimshot, claves, maracas); the levels are balanced to
+  Roland's tuning chart, not to a recording; and the cowbell's band-pass
+  centre and the clap's timing are choices the reference could not settle.
+  The renders in `audio/drums/` are what a listener judges.
 - **The numeric contract is proposed, not ratified.**
-  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 4)
-  writes the integer voice down section by section, pins its five tables by
-  SHA-256 (`spec/reference/gen_tables.py --check` keeps them the model's),
-  and lists in its section 17 what it deliberately leaves open: the modal
-  bank's sizing and the drum section (the `drums` branch's), ratification
-  itself, and the self-oscillation tuning table. The physical control layer,
-  the power-on defaults and the cutoff register widths are closed by
-  [DR 0007](../spec/decision-records/0007-control-interface-spi-register-writes.md)
-  (proposed).
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 6)
+  writes the integer voice and the drum section down section by section,
+  pins its seven tables by SHA-256 (`spec/reference/gen_tables.py --check`
+  keeps them the model's), and lists in its section 17 what it deliberately
+  leaves open: the self-oscillation tuning table, the modal bank's sizing,
+  the drum section's size and what its kit does not model, and the chip's
+  unwired drum section (17.23). The physical control layer, the power-on
+  defaults and the cutoff register widths are closed by
+  [DR 0007](../spec/decision-records/0007-control-interface-spi-register-writes.md),
+  the drum section by
+  [DR 0008](../spec/decision-records/0008-drum-section-and-modal-bank-as-one-instrument.md),
+  and the kit's fit to real hardware by DR 0009 and DR 0010 (all proposed). Until the contract is ratified, the filter, the modal
+  bank, the drum section and the voice are bit-exact against their own
+  models and nothing more.
 - **The chip has been synthesised to gf180mcu but not placed or routed.**
   Cell area is measured (`area-budget.md`, ARCHITECTURE.md section 10: 0.663
-  mm² of cells, 0.603 with Booth, 7-track, tt/5 V, `*_1` cells allowed). No
-  floorplan, route, GDS, DRC, LVS, STA or power of the top level; the routed
-  `ladder_dp` and polysynth core in the uncommitted `pnr/` work are the only
-  calibration of cells to core, and under ORFS's default policy they say the
-  chip is at the edge of the quarter slot (ARCHITECTURE.md section 10).
+  mm² of cells, 0.603 with Booth, 7-track, tt/5 V, `*_1` cells allowed) —
+  **and that figure does not include the drum section's 0.646 mm²**, which is
+  not in `synth_top.v` yet. No floorplan, route, GDS, DRC, LVS, STA or power
+  of the top level; the routed `ladder_dp` and polysynth core in `pnr/` are
+  the only calibration of cells to core, and under ORFS's default policy they
+  say the chip is at the edge of the quarter slot (ARCHITECTURE.md section 10).
 - **No hardware.** No FPGA bitstream for this block, no board, no silicon.
 - **The drum branch's material is not in the headroom measurement** of
   ARCHITECTURE.md section 4.3; `rtl-sketch/headroom_check.py` must be re-run

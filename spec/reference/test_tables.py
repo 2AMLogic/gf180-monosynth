@@ -1,6 +1,12 @@
 """The contract's tables are the model's, and the hashes the contract states
-are the ones revision 3 was written with (revision 1's five, unchanged
-through revision 2, plus K_ROM32 from DR 0006).
+are the ones the revisions were written with: revision 1's five, unchanged
+through revisions 2, 3 and 4 (4 changed no arithmetic); K_ROM32 from DR 0006
+(revision 3); NOISE64 from DR 0008 (revision 5), which KIT808 joined in the
+same revision and then LEFT in revision 6 -- the kit was fitted to a real
+TR-808 (DR 0009, DR 0010) and its hash moved. It is the first pinned table in
+this contract's history to change, and the pair below is how that is visible
+rather than quiet: REV5 holds what rev 5 stated, REV6 what rev 6 states, and
+`test_the_only_hash_that_ever_moved_is_the_kits` asserts exactly which one.
 
     .venv/bin/python -m pytest spec/reference -q
 
@@ -22,6 +28,15 @@ REV3 = {
     "G_ROM128":      "c5ee86efeffbe3cadd040ca3851b5c90806f05f9fab13d5f3cea1cf7730fbe2a",
     "K_ROM32":       "514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a",
 }
+REV5 = {
+    "NOISE64":       "41f2adb399b60f0d7f1d77a03bf004d9b2ec28ab220f476cfafe96c36f99a613",
+}
+# KIT808 as revision 5 stated it, kept so the change is a visible fact and not
+# an edited literal. Revision 6 refitted the kit to the reference recording.
+KIT808_REV5 = "819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc"
+REV6 = {
+    "KIT808":        "06f47f307efbd44317e2aa0fcba99cba96f7cf747cdeffdc6c471b94b869914a",
+}
 
 
 def test_committed_images_and_contract_match_the_model():
@@ -30,9 +45,26 @@ def test_committed_images_and_contract_match_the_model():
     assert gt.main(["--check"]) == 0
 
 
-def test_rev3_hashes_are_the_models():
+def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
+    """Revision 5 added NOISE64 and KIT808 and changed no existing table;
+    revision 6 changed KIT808 and nothing else."""
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
-    assert got == REV3
+    assert {k: got[k] for k in REV3} == REV3
+    assert {k: got[k] for k in REV5} == REV5
+    assert {k: got[k] for k in REV6} == REV6
+    assert set(got) == set(REV3) | set(REV5) | set(REV6)
+
+
+def test_the_only_hash_that_ever_moved_is_the_kits():
+    """Loudly, because a pinned table changed: KIT808 is NOT what revision 5
+    pinned, and every other table in the contract's history still is. If this
+    test ever needs a second entry, a second pinned table has moved and that
+    needs its own revision and its own paragraph."""
+    got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
+    was = {**REV3, **REV5, "KIT808": KIT808_REV5}
+    moved = sorted(k for k, v in was.items() if got[k] != v)
+    assert moved == ["KIT808"], moved
+    assert got["KIT808"] == REV6["KIT808"]
 
 
 def test_spot_values_the_contract_quotes():
@@ -49,6 +81,11 @@ def test_spot_values_the_contract_quotes():
     assert all(b > a for a, b in zip(gr, gr[1:]))          # strictly increasing
     kr = gt.k_rom32()
     assert len(kr) == 33 and kr[0] == 32799 and max(kr) == 39879 and kr[22] == 33964
+    nz = gt.noise64()
+    assert len(nz) == 64 and nz[0] == 1 and all(-32768 <= v <= 32767 for v in nz)
+    kit = gt.kit808()
+    assert len(kit) == 100 and all(0 <= a < 256 and 0 <= v < (1 << 32) for a, v in kit)
+    assert kit[0] == (0x20, 71758)                           # OSC_INC[0]: 205.3 Hz
 
 
 def test_note_inc_is_the_siblings():

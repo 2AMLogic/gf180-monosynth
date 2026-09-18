@@ -435,11 +435,26 @@ the pad ring):**
 | as synthesised, at 50 % utilisation (this repository's convention) | 0.663 | **1.33** | **77 %** |
 | the same with Booth | 0.603 | 1.21 | 70 % |
 | flat + Booth | 0.592 | 1.18 | 68 % |
-| **projected with the drum branch's sources** (the strawman `drum_src_seq` measured 89 004 µm², 83 909 Booth, in place of the 11 338 placeholder) | 0.741 / 0.675 | 1.48 / 1.35 | 86 % / 78 % |
+| ~~projected with the strawman `drum_src_seq` (89 004 µm², 83 909 Booth) in place of the 11 338 placeholder~~ | ~~0.741 / 0.675~~ | ~~1.48 / 1.35~~ | ~~86 % / 78 %~~ |
+| **projected with the drum section that actually landed** — `drum_kit` 646 000 µm² (605 000 Booth) replacing BOTH the 11 338 placeholder sources and the 149 509 `modal_dp_rom` (the bank is inside `drum_kit`). **Derived arithmetic from two separate syntheses, not a measurement of the joined top** | **1.148 / 1.078** | **2.30 / 2.16** | **133 % / 125 %** |
+| the same at the 8-mode / 8-envelope / 12-path drum section (461 000 µm², contract 17.13), derived the same way | 0.963 | 1.93 | 111 % |
 | calibrated on the two routed blocks (uncommitted `pnr/` runs, ORFS defaults incl. `DONT_USE_CELLS = *_1`): routed core ≈ 2.8 × these cells (ladder 322 k µm² core for 113.6 k of cells; polysynth core 1 073 k for 396 k) | 0.663 / 0.603 | 1.88 / 1.71 | 108 % / 99 % |
 
-So: on the 50 %-utilisation cell model the chip fits with 23–32 % of the
-slot to spare before the real drum sources and 14–22 % after them. On the
+**The strawman row is withdrawn.** It projected the chip with
+`drum_src_seq.v`'s 89 004 µm² of drum sources; that file is deleted and the
+drum section that replaced it (`drum_kit.v`, DR 0008) measures **646 000 µm²
+of cells — 7.3× the strawman**. The withdrawn row understated the chip by
+0.4 mm² of cells. Recomputed, the chip with the real drum section is
+**1.148 mm² of cells, 133 % of the quarter slot at 50 % utilisation**: on this
+repository's own cell model it **does not fit**, with Booth or without, and the
+8-mode variant is still at 111 %. That arithmetic subtracts two measured blocks
+and adds a third and has **not** been checked by synthesising the joined top —
+which cannot be done until `synth_top.v` actually instantiates `drum_kit`
+(contract 17.23). It is the first thing to measure after that, and it moves
+17.13 (8 vs 12 modes) from a budget preference to a constraint.
+
+On the 50 %-utilisation cell model the chip fitted with 23–32 % of the
+slot to spare *before* any real drum sources. On the
 calibration from the two blocks actually routed — under ORFS's default
 policy, which this repository's numbers do not use — it does not fit
 without Booth, and with Booth it is at the edge. **The decisive next

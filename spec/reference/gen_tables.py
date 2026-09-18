@@ -13,6 +13,8 @@ drifting away from it. It does three things:
         TANH16      16 x Q1.15     fixed.LadderFx(tanh_entries=16, interp=True).tbl
         G_ROM128   129 x Q0.16     voice_fx.make_g_rom()  (128 entries + guard)
         K_ROM32     33 x Q1.15     voice_fx.make_k_rom()  (32 entries + guard, DR 0006)
+        NOISE64     64 x Q1.15     drums_fx.lfsr_frame from LFSR_SEED (the first 64 noise words, DR 0008)
+        KIT808      (addr, value)  drums_fx.kit_808()  (the reference kit, informative but pinned)
      plus two derived images the contract also states hashes for:
         SINE_FULL1024   the 1024-entry expansion via voice_fx.sine_fx
         TANH16_ROM      the 17-word ROM image ladder_dp.v reads (TANH16 + 32767)
@@ -38,6 +40,7 @@ sys.path.insert(0, os.path.join(ROOT, "model"))
 sys.path.insert(0, os.path.join(ROOT, "audition"))
 import numpy as np                      # noqa: E402
 import dsp, fixed, voice_fx as vf       # noqa: E402
+import drums_fx as dx                   # noqa: E402
 
 CONTRACT = os.path.join(ROOT, "spec", "NUMERIC-CONTRACT.md")
 TABLE_DIR = os.path.join(HERE, "tables")
@@ -80,6 +83,26 @@ def k_rom32() -> list[int]:
     return [int(v) for v in vf.make_k_rom(vf.KROM_BITS, vf.GROM_BITS, vf.LADDER_CFG.get("oversample", 2))]
 
 
+def noise64() -> list[int]:
+    """The first 64 noise words from reset: the LFSR of contract 15.4 run by
+    the model (drums_fx.lfsr_frame from LFSR_SEED), signed Q1.15."""
+    s, out = dx.LFSR_SEED, []
+    for _ in range(64):
+        s, w = dx.lfsr_frame(s)
+        out.append(w)
+    return out
+
+
+def kit808() -> list[tuple[int, int]]:
+    """The reference kit, Appendix G: (address, value) writes from drums_fx.kit_808()."""
+    return [(int(a), int(v)) for a, v in dx.kit_808()]
+
+
+def kit808_words() -> list[int]:
+    """One 40-bit word per write, address in the top byte: the hex image."""
+    return [(a << 32) | v for a, v in kit808()]
+
+
 # name, values, hex digits per word, signed?, hex file (None = derived only)
 def tables():
     return [
@@ -90,6 +113,8 @@ def tables():
         ("TANH16_ROM", tanh16_rom(), 4, True, None),
         ("G_ROM128", g_rom128(), 4, False, "g_rom128.hex"),
         ("K_ROM32", k_rom32(), 4, False, "k_rom32.hex"),
+        ("NOISE64", noise64(), 4, True, "noise64.hex"),
+        ("KIT808", kit808_words(), 10, False, "kit808.hex"),
     ]
 
 
@@ -163,8 +188,56 @@ def appendix() -> str:
     s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
     s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     s.append(_rows(kr, 8))
-    s.append(f"\nSHA-256 of the 33 decimal values joined by commas: `{sha(kr)}`")
+    s.append(f"\nSHA-256 of the 33 decimal values joined by commas: `{sha(kr)}`\n")
+    nz, kit = noise64(), kit808()
+    s.append("### Appendix F -- NOISE64: the first 64 noise words from reset\n")
+    s.append("Normative (DR 0008), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, "
+             "`s <- (s << 1) | (s[30] xor s[15] xor s[17] xor s[19])` -- the recurrence "
+             "`b[n] = b[n-31] + b[n-16] + b[n-18] + b[n-20]` over GF(2), characteristic polynomial "
+             "x^31 + x^15 + x^13 + x^11 + 1, primitive, period 2^31 - 1 bits -- seeded with 1 at reset and "
+             "stepped 16 times per frame; the noise word of a frame is the 16 bits shifted in, oldest first, "
+             "read as signed Q1.15 (`drums_fx.lfsr_frame`). Frame 0's word is 1: the seed's bit reaches the "
+             "tap at bit 15 on the frame's last step. Eight words per row; the first column is the frame.\n")
+    s.append("| frame | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
+    s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    s.append(_rows(nz, 8))
+    s.append(f"\nSHA-256 of the 64 decimal values joined by commas: `{sha(nz)}`\n")
+    s.append("### Appendix G -- KIT808: the reference kit as register writes\n")
+    s.append("Informative, pinned so that the renders and the RTL bench are reproducible: the write list "
+             "`drums_fx.kit_808()` produces (section 15.7), address and value per row, in write order; the "
+             "register map is section 15.1. Every number is docs/tr808-reference.md's where it gives one; "
+             "the levels are the balance of `drums_fx_render.py --balance`; what was chosen rather than "
+             "sourced is marked in `kit_808`'s comments and in 15.7.\n")
+    s.append("| addr | value | register | | addr | value | register |")
+    s.append("|---:|---:|---|---|---:|---:|---|")
+    half = (len(kit) + 1) // 2
+    for i in range(half):
+        cells = []
+        for j in (i, i + half):
+            if j < len(kit):
+                a_, v_ = kit[j]
+                cells.append(f"| 0x{a_:02X} | 0x{v_:X} | {_reg_name(a_)} ")
+            else:
+                cells.append("| | | ")
+        # the spacer column between the two halves, as Appendix A's rows have:
+        # without it every row is one cell short of the header and the
+        # right-hand triple renders shifted a column left
+        s.append(cells[0] + "| " + cells[1] + "|")
+    s.append(f"\nSHA-256 of the {len(kit)} decimal words `address << 32 | value`, joined by commas, which is "
+             f"`spec/reference/tables/kit808.hex` read as decimal: `{sha(kit808_words())}`")
     return "\n".join(s) + "\n"
+
+
+def _reg_name(a: int) -> str:
+    if a == dx.A_STOPS: return "STOPS"
+    if dx.A_ACCENT <= a < dx.A_ACCENT + 8: return f"ACCENT[{a - dx.A_ACCENT}]"
+    if dx.A_OSC <= a < dx.A_OSC + 6: return f"OSC_INC[{a - dx.A_OSC}]"
+    if dx.A_ENV <= a < dx.A_ENV + 48:
+        e, f = divmod(a - dx.A_ENV, 4); return f"ENV_{('CTL', 'PEAK', 'RATE', '-')[f]}[{e}]"
+    if dx.A_PATH <= a < dx.A_PATH + 16: return f"PATH[{a - dx.A_PATH}]"
+    if dx.A_MODE <= a < dx.A_MODE + 48:
+        m, f = divmod(a - dx.A_MODE, 4); return f"MODE_{('A1', 'A2', 'AMP', 'NUM')[f]}[{m}]"
+    return "?"
 
 
 # ---- write / check ----------------------------------------------------------

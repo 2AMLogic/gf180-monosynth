@@ -318,8 +318,16 @@ filter with state, "each note is slightly different, as in a real 808, since
 the remaining filter states may interfere constructively or destructively with
 the response to a new trigger".
 
-**What to implement (BD).** One two-pole resonator (a modal-bank mode) at
-f0 = 56 Hz (tunable 45–65 Hz), excited by a **1 ms rectangular pulse** of
+**What to implement (BD).** *Amended 2026-09-18 (DR 0009,
+`drum-verification.md` §8.3): **f0 = 49.4 Hz**, not 56. The 56 Hz below was
+Roland's chart's, and it contradicts this section's own derivation from the
+component values four paragraphs above. It is also incompatible with the decay
+table above: that table's Q and τ columns satisfy τ = Q/(π f0) to 1.5 % at
+49.4 Hz and only to 12.8 % at 56, so the table is computed at 49.4. Two sample
+sets measure 48.8–51.6 Hz.*
+
+One two-pole resonator (a modal-bank mode) at
+~~f0 = 56 Hz~~ **f0 = 49.4 Hz** (tunable 45–65 Hz), excited by a **1 ms rectangular pulse** of
 amplitude ∝ accent. (The analog pulse shaper turns that pulse into a
 positive kick of A at t = 0 and a negative kick of ≈0.05A + 0.7 V at t = 1 ms,
 clamped at −0.7 V: a 1-pole high-pass with τ ≈ 0.1 ms and a one-sided clamp
@@ -729,15 +737,15 @@ f0/Q/τ are nominal for one unit built to the schematic; ±10 % on f0 and
 
 | voice | generator | f0 (Hz) | Q | τ (ms) | chart decay (ms) | envelope | post-filter | controls |
 |---|---|---|---|---|---|---|---|---|
-| BD | bridged-T, pulse-struck, feedback | 49–56 (attack ≈130 for 4 ms) | 2.3 → 84 (decay knob) | 15 → 540 | 50 / 300 / 800 | ring-down (+ retrigger kick) | 1-pole LP 305 Hz–7.2 kHz (tone) | tone, decay, level |
-| SD | 2 × bridged-T + noise | 238 & 476 (1981) / 173 & 336 (later) | 17 & 11 / 16 & 10 | 22 & 7 / 30 & 9 | 60 | ring-down; noise exp τ ≈ 15 ms | noise: 2-pole HP 2.75 kHz Q 0.7 | tone (mix), snappy (noise level), level |
+| BD | bridged-T, pulse-struck, feedback | **49.4** *(amended: not 56 — DR 0009)* (attack ≈130 for 4 ms) | 2.3 → 84 (decay knob) | 15 → 540 | 50 / 300 / 800 | ring-down (+ retrigger kick) | 1-pole LP 305 Hz–7.2 kHz (tone) | tone, decay, level |
+| SD | 2 × bridged-T + noise | 238 & 476 (1981) / 173 & 336 (later) | 17 & 11 / 16 & 10 | 22 & 7 / 30 & 9 | 60 | ring-down; noise exp τ ≈ 15 ms | noise: 2-pole **BP** 2.75 kHz Q 0.7 *(amended: the pole is right, the response is a band-pass — `drum-verification.md` §8.1)* | tone (mix), snappy (noise level), level |
 | LT / MT / HT | bridged-T + feedback + pink noise; diode pitch drop | 90 / 135 / 185 (±10 %) | ≈25 | 92 / 58 / 44 | 200 / 130 / 100 | ring-down; noise τ ≈ 85 ms | noise: 1-pole LP 400 Hz | tuning, level |
 | LC / MC / HC | same circuit, smaller C2, no noise | 185 / 280 / 400 | 55 / 38 / 56 | 92 / 44 / 44 | 180 / 100 / 80 | ring-down | — | tuning, level |
 | RS | 2 × bridged-T → swing VCA → gate | 455 & ≈1700 | 6.7 & 13.5 | 4.7 & 2.4 | 10 | VCA τ ≈ 0.5 ms; gate ≈22 ms | — | level |
 | CL | bridged-T, near self-oscillation → gate | 2500 | ≥100 | (gated) | 25 | gate ≈22 ms | — | level |
 | CP | white noise → BP → 2 VCAs | BP 1070 | 1.6 | — | 100 | 3 bursts @ ≈10 ms in 30 ms + tail τ ≈ 47 ms | — | level |
 | MA | white noise → gate → HP | HP 10.6 k | 2.3 | — | 25–35 | ≈15 ms | 2-pole HP 10.6 kHz Q 2.3 | level |
-| CB | 2 squares (540, 800) → gates → BP | BP 0.9–2.6 k (unresolved) | 4–8 | — | 50 | two-slope exp | 2-pole BP | level |
+| CB | 2 squares (540, 800) → **separate** gates → BP | BP **1100** *(fitted, DR 0010; was "0.9–2.6 k unresolved")* | **2.8** | — | 50 | two-slope exp | 2-pole BP | level |
 | CY | 6 squares → 2 BP → 3 VCA → 3 HP | BP 3450 & 7100 | 6 | — | 350 / 800 / 1200 | 3 exp (one variable) | HP 2.5 k Q1; ≈10 k resonant | tone, decay, level |
 | OH | 6 squares → BP 7100 → VCA → HP | HP 7800 | 2.5 | — | 90 / 450 / 600 | exp, variable; choked by CH | 2-pole HP 7.8 kHz Q 2.5 | decay, level |
 | CH | same source → VCA → HP | HP 11700 | 2.5 | — | 50 | exp, fixed | 2-pole HP 11.7 kHz Q 2.5 | level |

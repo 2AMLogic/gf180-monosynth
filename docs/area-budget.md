@@ -332,8 +332,12 @@ changes: C becomes ≈ 297,000 µm² (0.59 mm², 34 %), D ≈ 369,000 (0.74, 43 
 and F ≈ 626,000 (1.25 mm², 72 %; ≈ 1.15 with Booth). That is the difference
 between "pick two" and "everything, with USB". It is also unbuilt.
 
-**The drum sources**, since rows B, F and G depend on them: `rtl-sketch/drum_src_seq.v`
-is an *area strawman, verified against nothing*: eight edge-triggered stops, eight exponential-decay envelopes
+**The drum sources**, since rows B, F and G depend on them. *Withdrawn as a
+projection: `drum_src_seq.v` is deleted and the drum section that replaced it
+measures 0.646 mm², 7.3× this figure — see the note in section 7. The
+measurement below is kept because rows B, F and G were computed from it.*
+`rtl-sketch/drum_src_seq.v`
+was an *area strawman, verified against nothing*: eight edge-triggered stops, eight exponential-decay envelopes
 through one time-shared shifter, a 23-bit LFSR, a swept-pitch sine kick via
 the contract's quarter-sine ROM, one 16 × 16 multiplier applying env × source
 in 8 cycles per frame, a saturating mix, and an enveloped-noise excitation for
@@ -396,10 +400,16 @@ written, the core is 0.50 mm² of cells, not 0.37–0.40.
   is the ROM-as-logic and the Booth multiplier shown correct after mapping,
   on a tenth of the stimulus; the full 48,000-sample gate-level run costs
   about an hour per netlist and had not completed when this was committed.
-- **`drum_src_seq.v` is an area sketch**, unverified against any model. Its
-  0.089 mm² is a lower bound for "drum sources", not a design; the chip of
-  row G carries a smaller placeholder in its place until the `drums` branch
-  lands.
+- **`drum_src_seq.v` was an area sketch**, unverified against any model, and
+  is **deleted**. The `drums` branch has landed: the drum section is
+  `drum_kit.v` (`drum_dp.v` + `modal_dp.v`, DR 0008), bit-exact against
+  `model/drums_fx.py`, and it measures **0.646 mm²** — 7.3× the strawman's
+  0.089. Every row below that was sized with the strawman's number
+  (`drum_sources`, rows B, F, G and the "projected" row of
+  `ARCHITECTURE.md` section 10) **understates the chip by about 0.4 mm² of
+  cells** and is withdrawn as a projection; the measured per-block numbers
+  themselves stand. `synth_top.v` still carries the small placeholder
+  (contract 17.23), so no measurement of the joined top exists yet.
 - **The time-shared 4-voice engine (2.3) and the shared ladder/modal
   multiplier (3.2) are derived**, each from the difference of two
   measurements. They are labelled as such wherever they appear.
@@ -437,7 +447,7 @@ vvp -n build/p8.vvp +vec=build/modal_rom_vectors_p8.hex               # expect P
 
 Files added by this document: `rtl-sketch/ladder_dp_n.v`, `tb_ladder_n.v`,
 `modal_dp_rom.v`, `modal_dp_regs.v`, `modal_coef_rom_p{4,8,16}.v`
-(generated), `gen_modal_rom.py`, `tb_modal_rom.v`, `drum_src_seq.v`,
+(generated), `gen_modal_rom.py`, `tb_modal_rom.v`, `drum_src_seq.v` (since deleted),
 `rtl-sketch/area/{synth_area.py,wrap_polysynth.py,run_all.sh}`. Row G's
 sources are `ARCHITECTURE.md`'s (`synth_top.v` and the files it
 instantiates); `run_all.sh` measures them as `top_7t` and `top_7t_booth`.

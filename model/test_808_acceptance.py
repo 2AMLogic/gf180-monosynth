@@ -135,6 +135,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "audition"))
 
 import audio_measure as am
+import modal_fixed
 from audio_measure import t20_from_tau
 
 try:
@@ -191,24 +192,25 @@ NOT_ASSERTED = {
 # meta test that writes the missing feature by hand and requires the same
 # measurement to succeed), and each is strict, so the build breaks when one
 # starts passing and the entry has to go.
-KNOWN_DEFECTS = {
-    "test_bd_attack_window_is_written_into_the_coefficients":
-        "kit_808() writes one coefficient set per voice and never switches it, so the "
-        "bass drum has no ~130 Hz attack window (reference 2). Positive control: "
-        "test_meta_bd_attack_check_passes_when_the_attack_window_is_written",
-    "test_bd_attack_window_is_audible_in_the_first_half_cycle":
-        "the same defect, seen in the audio rather than the registers",
-    "test_tom_pitch_falls_during_the_ring":
-        "kit_808() loads one fixed coefficient pair per tom and never changes it while "
-        "the mode rings, so there is no diode pitch fall (reference 4). Positive "
-        "control: test_meta_tom_pitch_check_passes_when_a_drop_is_written",
-    "test_sd_noise_balance_matches_a_real_machine":
-        "the snappy path is about 12 dB too quiet: 3 % of the snare's energy above "
-        "700 Hz against a real machine's 51.5 % (docs/drum-verification.md 4.2)",
-    "test_cowbell_decay_matches_a_real_machine":
-        "E_CBB is 30 ms where a real machine's cowbell has tau 98 ms "
-        "(docs/drum-verification.md 4.6)",
-}
+# Every defect this suite was written around is now closed, by contract
+# revision 6 (DR 0009, DR 0010) and the coefficient sequences of 15.7.1. The
+# entries are kept, commented, as the record of what they were and of what
+# closed them -- a suite whose defect list is silently emptied cannot be
+# audited. Adding a key here and decorating a test with @known_defect is still
+# how a new tracked defect is declared.
+#
+#   test_bd_attack_window_is_written_into_the_coefficients  } closed: 15.7.1
+#   test_bd_attack_window_is_audible_in_the_first_half_cycle}  writes the
+#       130 Hz / Q 6 window for 4 ms and back. They had also been asserting
+#       the chart's 56 Hz as the steady frequency; DR 0009 makes that 49.4.
+#   test_tom_pitch_falls_during_the_ring -- closed: 15.7.1 sweeps the tom's
+#       f0 from x1.7 over 60 ms, scaled by accent (reference 4).
+#   test_sd_noise_balance_matches_a_real_machine -- closed: the level is set
+#       to the SNAPPY knob's measured curve at 5.0. Its MEASUREMENT was also
+#       withdrawn; see the test.
+#   test_cowbell_decay_matches_a_real_machine -- closed: E_CBB is the
+#       measured tau 100 ms, not 30.
+KNOWN_DEFECTS = {}
 
 STUB = os.environ.get("TR808_STUB", "")
 STRICT = bool(os.environ.get("TR808_STRICT", ""))
@@ -379,16 +381,33 @@ def coef_freq_tau(r: Render, mode: int):
 # control path -- registers, independent of any rendering
 # ===========================================================================
 # Reference 2's DECAY table: knob -> (Q, tau). Roland's chart (1.6) gives
-# 50 / 300 / 800 ms for short / mid / long.
-BD_DECAY = ((0.1, 5.2, 0.029), (0.5, 22.3, 0.127), (0.9, 62.0, 0.352))
+# 50 / 300 / 800 ms for short / mid / long -- those are T20-like figures, not
+# taus, and reference 2's own table gives tau 33 / 144 / 408 ms at these Q.
+#
+# The taus are DERIVED here rather than written down, from the resonator
+# identity tau = Q / (pi f0) at the f0 the kit ships. Revision 5 wrote them as
+# 29 / 127 / 352 ms, which is that identity at Roland's chart's 56 Hz -- and
+# reference 2's own table is only self-consistent at its computed 49.4 Hz
+# (1.5 % against 12.8 %). DR 0009 resolves that; deriving them here means this
+# table cannot drift from the law again.
+BD_DECAY = tuple((knob, dx.bd_decay_q(knob * 10), dx.bd_decay_q(knob * 10) / (math.pi * dx.BD_HZ))
+                 for knob in (0.1, 0.5, 0.9))
 
 
 def bd_at_decay(knob: float, q: float, tau_ref: float) -> Render:
+    """A DECAY setting is a KIT setting, so it goes into the register image
+    rather than alongside it. Since contract 15.7.1 the reference host also
+    emits the BD's 4 ms attack window per hit, and that window restores the
+    coefficients it found IN THE IMAGE -- as Q43 releases back to whatever the
+    DECAY knob currently sets. Writing the setting as `extra_writes` instead
+    would have it restored away 4 ms later, which is what a real host would
+    also suffer, so the test drives the real path."""
     seconds = max(0.5, 9 * tau_ref)
     at = int(PRE_ROLL_S * SR)
-    extra = [(at - 1, a, v) for a, v in dx.mode_writes(dx.M_BD, 56.0, q, 0.0)[:2]]
-    return render([(at, dx.BD, 1.0)], seconds + PRE_ROLL_S, extra_writes=extra,
-                  controls=dict(decay_knob=knob, decay_q=q, f0_hz=56.0),
+    kit = [(a, dict(dx.mode_writes(dx.M_BD, dx.BD_HZ, q, 0.0)[:2]).get(a, v))
+           for a, v in dx.kit_808()]
+    return render([(at, dx.BD, 1.0)], seconds + PRE_ROLL_S, kit=kit,
+                  controls=dict(decay_knob=knob, decay_q=q, f0_hz=dx.BD_HZ),
                   name=f"BD-decay-{knob}")
 
 
@@ -397,7 +416,8 @@ def test_control_bd_decay_coefficients_carry_the_intended_decay(knob, q, tau_ref
     """[source-inferred: reference 2's DECAY table and reference 14's presets]
     The CONTROL path on its own: the Q2.24 coefficients that the DECAY setting
     actually wrote, converted back to (f0, tau) with no audio involved. tau
-    29 / 127 / 352 ms at knob 0.1 / 0.5 / 0.9, f0 unchanged at 56 Hz.
+    reference 2's own 33 / 144 / 408 ms at knob 0.1 / 0.5 / 0.9, f0 unchanged
+    at the kit's 49.4 Hz (DR 0009).
 
     Asserted separately from the rendered ring so a failure localises: right
     coefficients with a short ring means the fault is downstream -- excitation,
@@ -408,7 +428,7 @@ def test_control_bd_decay_coefficients_carry_the_intended_decay(knob, q, tau_ref
     r = bd_at_decay(knob, q, tau_ref)
     assert r.manifest["controls"]["decay_q"] == q, "the manifest does not describe this render"
     f, t = coef_freq_tau(r, dx.M_BD)
-    assert abs(f.require("coefficient f0") / 56.0 - 1) <= 0.01
+    assert abs(f.require("coefficient f0") / dx.BD_HZ - 1) <= 0.01
     got = t.require("coefficient tau")
     assert abs(got / tau_ref - 1) <= 0.05, \
         f"knob {knob}: coefficients mean tau {got*1e3:.1f} ms, reference {tau_ref*1e3:.0f} ms"
@@ -434,7 +454,10 @@ def test_control_six_oscillator_increments_are_the_reference_frequencies():
 
 # Reference 12 and 14: the bridged-T bodies the kit loads.
 MODE_PRESETS = (
-    ("BD", dx.M_BD, 56.0, 0.127, 0.10),        # reference 2, DECAY mid
+    # DR 0009: the circuit's f0, and the tau reference 2's own table gives for
+    # the Q the kit writes at DECAY mid -- not the chart's 56 Hz / 127 ms pair,
+    # which is that table's Q read at the chart's frequency.
+    ("BD", dx.M_BD, dx.BD_HZ, dx.bd_decay_q(5.0) / (math.pi * dx.BD_HZ), 0.10),
     ("SD low", dx.M_SDLO, 173.0, 0.030, 0.15),  # reference 3, later units [inferred]
     ("SD high", dx.M_SDHI, 336.0, 0.0094, 0.20),
     ("LT", dx.M_LT, 90.0, 0.088, 0.15),        # reference 4
@@ -476,6 +499,9 @@ def test_bd_fundamental_of_the_rendered_ring():
     r = one_hit(dx.BD, 1.0, 1.0)
     f0 = am.dominant_frequency(r.after_hit(0, 1.0, "body"), 20.0, 400.0, SR).require("BD f0")
     assert 49.0 * 0.9 <= f0 <= 56.0 * 1.1, f"BD fundamental {f0:.1f} Hz outside 44.1-61.6 Hz"
+    # and, since DR 0009 chose within that band, the tighter statement:
+    assert abs(f0 / dx.BD_HZ - 1) <= 0.05, \
+        f"BD fundamental {f0:.1f} Hz against the kit's {dx.BD_HZ} Hz (DR 0009)"
 
 
 @pytest.mark.parametrize("knob,q,tau_ref", BD_DECAY)
@@ -508,8 +534,15 @@ def test_bd_rendered_decay_at_each_setting(knob, q, tau_ref):
     assert abs(env / coef - 1) <= 0.20, \
         (f"knob {knob}: the ring decays in {env*1e3:.1f} ms but its coefficients say "
          f"{coef*1e3:.1f} ms -- the fault is downstream of the registers")
-    f = am.damped_sinusoid(body[int(PRE_ROLL_S * SR) + 8:], SR).freq.require("two-pole frequency")
-    assert abs(f / 56.0 - 1) <= 0.03, f"knob {knob}: two-pole frequency {f:.2f} Hz, reference 56 Hz"
+    # measured from AFTER the 4 ms attack window of 15.7.1, not from the strike:
+    # during the window the mode really is at ~130 Hz, and at the shortest
+    # DECAY that window is a large fraction of the whole hit, so a fit that
+    # starts at the strike reads the two frequencies mixed (55 Hz at knob 0.1)
+    # and would be measuring the window rather than the body.
+    after = int((PRE_ROLL_S + dx.BD_ATTACK_MS * 1e-3) * SR) + 8
+    f = am.damped_sinusoid(body[after:], SR).freq.require("two-pole frequency")
+    assert abs(f / dx.BD_HZ - 1) <= 0.03, \
+        f"knob {knob}: two-pole frequency {f:.2f} Hz, reference {dx.BD_HZ} Hz"
 
 
 def test_bd_decay_control_spans_roland_s_chart_range():
@@ -567,11 +600,13 @@ def test_bd_decay_does_not_move_the_pitch_of_the_ring():
     assert max(f) / min(f) <= 1.03, f"BD pitch moves with DECAY: {[round(v, 2) for v in f]} Hz"
 
 
-@known_defect("test_bd_attack_window_is_written_into_the_coefficients")
 def test_bd_attack_window_is_written_into_the_coefficients():
-    """[defect: the reference kit has no bass-drum attack window]
+    """[source-verified: reference 2 "attack frequency shift", W14a 8.1 + SN p.6]
 
-    [source-verified: reference 2 "attack frequency shift", W14a 8.1 + SN p.6]
+    **Was a tracked defect; closed in contract revision 6** -- the coefficient
+    sequence of 15.7.1 writes this window, and the steady frequency it returns
+    to is the circuit's 49.4 Hz rather than the chart's 56 (DR 0009).
+
     For the duration of the envelope generator's pulse, Q43 shorts R165, the
     foot resistance drops from 53.8 k to 6.8 k, and f0 rises to about 130 Hz
     with Q about 6 for ~4 ms before falling back. Reference 12 carries it in
@@ -590,18 +625,21 @@ def test_bd_attack_window_is_written_into_the_coefficients():
     late = render([(at, dx.BD, 1.0)], PRE_ROLL_S + 0.020, name="BD-attack-late")
     f_early = coef_freq_tau(early, dx.M_BD)[0].require("BD f0 at +2 ms")
     f_late = coef_freq_tau(late, dx.M_BD)[0].require("BD f0 at +20 ms")
-    assert abs(f_late / 56.0 - 1) <= 0.10, f"BD settles at {f_late:.1f} Hz, reference 56 Hz"
+    assert abs(f_late / dx.BD_HZ - 1) <= 0.10, \
+        f"BD settles at {f_late:.1f} Hz, reference {dx.BD_HZ} Hz"
     assert 130.0 * 0.75 <= f_early <= 130.0 * 1.25, (
         f"2 ms after the strike the bass drum's coefficients are still {f_early:.1f} Hz; "
         f"reference 2 requires about 130 Hz for the first 4 ms. kit_808() writes one "
         f"coefficient set per voice and never switches it, so the attack window is absent.")
 
 
-@known_defect("test_bd_attack_window_is_audible_in_the_first_half_cycle")
 def test_bd_attack_window_is_audible_in_the_first_half_cycle():
-    """[defect: the reference kit has no bass-drum attack window]
+    """[source-verified: reference 2]
 
-    [source-verified: reference 2] The AUDIO half of the same claim, and the
+    **Was a tracked defect; closed in contract revision 6** -- the same window,
+    seen in the audio rather than the registers.
+
+    The AUDIO half of the same claim, and the
     localisation: if the coefficients are right and this fails, the fault is in
     the excitation or the switch timing.
 
@@ -616,7 +654,8 @@ def test_bd_attack_window_is_audible_in_the_first_half_cycle():
     f = am.damped_sinusoid(window, SR).freq.require("BD attack frequency")
     steady = am.damped_sinusoid(r.body[i + int(0.010 * SR):i + int(0.30 * SR)], SR) \
         .freq.require("BD steady frequency")
-    assert abs(steady / 56.0 - 1) <= 0.10, f"BD steady ring {steady:.1f} Hz, reference 56 Hz"
+    assert abs(steady / dx.BD_HZ - 1) <= 0.10, \
+        f"BD steady ring {steady:.1f} Hz, reference {dx.BD_HZ} Hz"
     assert 130.0 * 0.75 <= f <= 130.0 * 1.25, (
         f"the bass drum's first 4 ms ring at {f:.1f} Hz, not the reference's ~130 Hz; "
         f"it is already at its steady {steady:.1f} Hz, so there is no attack window.")
@@ -685,53 +724,74 @@ def test_sd_snappy_sets_the_noise_level_and_nothing_else():
     assert spread <= 0.5, f"SNAPPY moves the resonators by {spread:.2f} dB; reference 3 says it must not"
 
 
-@known_defect("test_sd_noise_balance_matches_a_real_machine")
 def test_sd_noise_balance_matches_a_real_machine():
-    """[hardware-measured: docs/drum-verification.md section 4.2, a real TR-808
-    serial 103852 from its individual voice outputs] With every knob at 12
-    o'clock -- the condition the kit's presets are derived from -- the real
-    machine puts about half the snare's energy above 700 Hz: 51.5 % noise
-    against 48.5 % body, with a power centroid of 2513 Hz. Roland's chart gives
-    no such number and reference 3 gives none either, so before that
-    measurement there was nothing to assert.
+    """[hardware-measured: docs/drum-verification.md section 8.1, a real TR-808
+    serial 103852 from its individual voice outputs]
 
-    This is the "noise balance" half of the snare, and it is the half that
-    decides whether the voice reads as a snare or as a tuned tom. Asserted as a
-    wide band, 30-75 %, because the reference set pins LEVEL at maximum on
-    every voice and one machine's SNAPPY law is not every machine's.
+    **Both this measurement and its target were replaced in contract revision
+    6.** The 51.5 % it used to assert came from a body/air split above and
+    below 700 Hz, computed on a Hann-windowed 500 ms span -- which weights
+    t = 10 ms by 0.0039 against t = 250 ms by 1.0 and therefore reports
+    whichever component decays slowest, not the energy. On our own render,
+    where the true share is exact arithmetic (18.55 %), that split returned
+    1.25 %. It is withdrawn, and `model/test_drum_fit.py` keeps it as a
+    control that must stay wrong.
 
-    Ground truth: test_audio_measure.test_dominant_frequency_on_known_tones
-    (this is a sum over the same spectrum that test validates)
+    The validated separator fits the two body modes as damped sinusoids and
+    calls the residual noise. By it, the real machine at SNAPPY 5.0 -- the
+    12-o'clock condition the kit's presets are derived from -- carries
+    **27.66 %** of the hit's energy as noise, with a spread of +-8.0
+    percentage points across the five TONE positions. Asserted as that spread,
+    widened to +-10 points: one machine's SNAPPY law is not every machine's.
+
+    Ground truth: test_drum_fit.test_separator_recovers_a_known_noise_share,
+    test_drum_fit.test_separator_matches_the_exact_share_of_our_own_render
     """
+    import drum_fit as df
     r = one_hit(dx.SD, 1.0, 0.5)
-    x = r.after_hit(0, 0.4)
-    f, X = am.spectrum(x, SR)
-    p = X ** 2
-    body = float(p[(f >= 20) & (f < 700)].sum())
-    noise = float(p[(f >= 700) & (f <= 20000)].sum())
-    share = noise / max(body + noise, 1e-300)
-    assert 0.30 <= share <= 0.75, (
-        f"the snare puts {share*100:.1f} % of its energy above 700 Hz; a real TR-808 at "
-        f"the same knob positions puts 51.5 % there. The snappy path is about "
-        f"{10*math.log10(0.515/max(share, 1e-9)):.0f} dB too quiet, so this reads as a "
-        f"tuned tom -- docs/drum-verification.md section 4.2.")
+    share = df.noise_share(r.after_hit(0, 0.4, "body"), SR, df.VOICE_MODES["SD"])["share"]
+    assert abs(share - 0.2766) <= 0.10, (
+        f"the snare carries {share*100:.1f} % of its energy as noise; a real TR-808 at "
+        f"the same knob positions carries 27.7 % (docs/drum-verification.md section 8.1). "
+        f"The snappy path is {10*math.log10(0.2766/max(share, 1e-9)):+.1f} dB off.")
 
 
-def test_sd_noise_highpass_corner():
+def test_sd_noise_filter_is_a_band_pass_on_the_reference_s_pole():
     """[source-inferred: reference 3, the Sallen-Key on Q49 read from the p.9
-    values] f0 about 2.75 kHz, Q about 0.7. Inferred, so +-20 %.
+    values] f0 about 2.75 kHz, Q about 0.7. Inferred, so +-20 % on the centre.
 
-    Below Q 0.707 the response has no peak at all, so the -3 dB corner is the
-    quantity -- asking for a "centre frequency" here would be asking for
-    something that does not exist. Measured from the transfer response of a
-    controlled probe into that mode.
+    **The numerator changed in contract revision 6** (docs/drum-verification.md
+    section 8.1). Reference 3 calls this a high-pass; on that pole a high-pass
+    is flat to Nyquist, and the real machine's snare noise -- recovered as the
+    residual after subtracting the two body modes -- peaks at 3-5 kHz and falls
+    above, with 2.9 % of its energy over 12 kHz. The same pole read as a
+    BAND-pass fits that spectrum to 1.9 dB weighted rms against the
+    high-pass's 5.2, so the kit keeps reference 3's f0 and Q exactly and
+    changes only the numerator. Contract 17.22 records that the schematic
+    reading is not settled.
 
-    Ground truth: test_audio_measure.test_corner_3db_of_a_highpass_matches_the_closed_form,
-    test_audio_measure.test_resonant_peak_refuses_a_response_with_no_resonance
+    The POLE and the response PEAK are different quantities and are asserted
+    separately, because conflating them is how a filter gets "moved" to fix a
+    number that was never about its pole. The pole is what reference 3 states
+    and what the register holds, so it is asserted tightly; the peak of
+    pole x numerator sits above it at this Q, and what matters about the peak
+    is only that it lands in the 3-5 kHz band where the real machine's snare
+    noise peaks (docs/drum-verification.md section 8.1).
+
+    Ground truth: test_audio_measure.test_resonant_peak_matches_the_closed_form_response
     """
-    ir = mode_impulse_response(dx.M_SDHP)
-    corner = am.corner_3db(ir, "highpass", SR).require("SD noise high-pass corner")
-    assert abs(corner / 2750.0 - 1) <= 0.20, f"SD noise high-pass corner {corner:.0f} Hz, reference 2750 Hz"
+    assert dict(dx.kit_808())[dx.A_MODE + dx.M_SDN * dx.MODE_STRIDE + 3] == modal_fixed.BP, \
+        "the snappy mode's numerator register is not BP"
+    r = one_hit(dx.SD, 1.0, 0.2)
+    f, _ = coef_freq_tau(r, dx.M_SDN)
+    pole = f.require("SD snappy pole")
+    assert abs(pole / 2750.0 - 1) <= 0.02, \
+        f"SD snappy pole {pole:.0f} Hz, reference 3 says 2750 Hz"
+    ir = mode_impulse_response(dx.M_SDN)
+    fc = am.resonant_peak(ir, SR).require("SD noise band-pass peak")
+    assert 3000.0 <= fc <= 5000.0, (
+        f"the snappy band-pass peaks at {fc:.0f} Hz; the real machine's snare noise "
+        f"peaks in 3-5 kHz (docs/drum-verification.md section 8.1)")
 
 
 # ===========================================================================
@@ -769,12 +829,14 @@ def test_tom_decay(name, stop, f0_ref, tau_ref):
         f"{name} T20 {t20_from_tau(tau)*1e3:.0f} ms against Roland's chart decay {chart*1e3:.0f} ms"
 
 
-@known_defect("test_tom_pitch_falls_during_the_ring")
 @pytest.mark.parametrize("name,stop,f0_ref,tau_ref", TOMS)
 def test_tom_pitch_falls_during_the_ring(name, stop, f0_ref, tau_ref):
-    """[defect: the reference kit has no amplitude-dependent tom pitch]
+    """[source-verified: SN p.6, quoted in reference 4]
 
-    [source-verified: SN p.6, quoted in reference 4] "While the oscillation is
+    **Was a tracked defect; closed in contract revision 6** -- 15.7.1 sweeps
+    the tom's f0 from x1.7 over 60 ms, scaled by accent, which is this
+    section's "accent changes the pitch envelope".
+ "While the oscillation is
     large in amplitude immediately after triggering, it is on a higher
     frequency due to conductions of D80 and D81, which reduce time constant of
     the filter. As the resonance is damped, its frequency is lowered..." Roland
@@ -971,13 +1033,13 @@ def test_cowbell_band_pass_centre():
     assert fc < 1800.0, "SOS's 2.64 kHz centre is refuted by the recording; do not drift back to it"
 
 
-@known_defect("test_cowbell_decay_matches_a_real_machine")
 def test_cowbell_decay_matches_a_real_machine():
     """[hardware-measured: docs/drum-verification.md section 4.6] Roland's chart
     says 50 ms and reference 9 reads the two-slope envelope off the schematic,
     but neither gives a time constant. A real machine, fitted over -3 to -30 dB,
-    rings with **tau 98 ms** -- past 700 ms in the tail -- against the kit's
-    E_CBB of 30 ms. +-40 %, which is wide, and the kit misses it by 3x anyway.
+    rings with **tau 98 ms** -- past 700 ms in the tail. Contract revision 6
+    sets E_CBB to 100 ms from this measurement (DR 0010), where revision 5 had
+    30. +-40 %, which is wide: it is one machine's envelope.
 
     An 808 cowbell that has stopped in a quarter of a second is not the sound,
     and the chart's 50 ms is the reason nobody noticed: read as T20 it is very
@@ -1288,8 +1350,13 @@ def test_meta_render_manifest_describes_what_was_played():
     assert len(m["osc_hz"]) == 6 and m["noise_seed"] is not None
     f, t = am.poles_to_freq_tau(m["coefficients"][dx.M_BD]["a1"],
                                 m["coefficients"][dx.M_BD]["a2"], SR)
-    assert abs(f.require("manifest BD f0") - 56.0) < 1.0
-    onsets = am.onsets(r.mix, SR, min_gap_s=0.1)
+    assert abs(f.require("manifest BD f0") - dx.BD_HZ) < 1.0
+    # floor_db is tightened from the -50 default because the bass drum's tail
+    # now runs to -48 dB at 1.26 s -- tau is 144 ms since DR 0009, and the
+    # attack window of 15.7.1 leaves a small step in it -- and a rise 48 dB
+    # down is a tail wobble, not a fourth hit. -40 dB is well clear of both:
+    # every hit here peaks within 6 dB of the loudest.
+    onsets = am.onsets(r.mix, SR, min_gap_s=0.1, floor_db=-40.0)
     assert len(onsets) == 3, f"the audio holds {len(onsets)} onsets, the manifest lists 3"
     for got, h in zip(onsets, m["hits"]):
         assert abs(got - h["frame"]) < 0.012 * SR, \
@@ -1307,7 +1374,7 @@ def test_meta_decay_range_check_rejects_a_frozen_control():
         pytest.skip("a negative control is meaningless against a stub")
     taus = []
     for knob, _, tau_ref in BD_DECAY:
-        r = bd_at_decay(knob, 22.3, 0.127)          # the same Q at every "setting"
+        r = bd_at_decay(knob, dx.bd_decay_q(5.0), BD_DECAY[1][2])   # the same Q at every "setting"
         taus.append(am.decay_tau(r.after_hit(0, 1.2, "body"), SR).require("frozen tau"))
     assert max(taus) / min(taus) < 1.05, "the frozen control was not frozen"
     with pytest.raises(AssertionError):
@@ -1328,7 +1395,7 @@ def test_meta_bd_attack_check_passes_when_the_attack_window_is_written():
         pytest.skip("a positive control is meaningless against a stub")
     at = int(PRE_ROLL_S * SR)
     attack = [(at, a, v) for a, v in dx.mode_writes(dx.M_BD, 130.0, 6.1, 0.0)[:2]]
-    steady = [(at + 192, a, v) for a, v in dx.mode_writes(dx.M_BD, 56.0, 22.3, 0.0)[:2]]
+    steady = [(at + 192, a, v) for a, v in dx.mode_writes(dx.M_BD, dx.BD_HZ, dx.bd_decay_q(5.0), 0.0)[:2]]
     r = render([(at, dx.BD, 1.0)], 0.6 + PRE_ROLL_S, extra_writes=attack + steady,
                controls=dict(attack_hz=130.0, attack_ms=4.0), name="BD-attack-control")
     f = am.damped_sinusoid(r.body[at:at + int(0.004 * SR)], SR).freq.require("attack frequency")

@@ -8,16 +8,16 @@ USB-MIDI microcontroller. A 2AM Logic canary block.
 
 ## Status: a chip-level RTL, bit-exact against its models, synthesised to gf180mcu. No layout, no hardware.
 
-Being precise about this, because "synth" covers five different things:
+Being precise about this, because "synth" covers six different things:
 
 | | | |
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank and the whole voice (`rtl-sketch/voice_dp.v`: 255,060 frames over 24 scenario segments — every waveform, every note and the clamped increments, glide up/down/at its limits, gate/trig/retrigger, a release to exactly zero, paraphonic keys, the register extremes, three audition sequences — every sample, every tap of contract 16.4 and the final state) are each identical to their model with no tolerance, and all three benches are shown to fail on injected defects (three for the ladder and the modal bank, eight for the voice) and, for the voice, on an all-X stub |
-| 4 | The chip: `rtl-sketch/synth_top.v` — SPI link (DR 0007), voice, drum section, I2S | **elaborates, synthesises, runs through its pins** ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); the drum *sources* are a labelled placeholder for the `drums` branch |
+| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank, the whole voice (`rtl-sketch/voice_dp.v`: 255,060 frames over 24 scenario segments — every waveform, every note and the clamped increments, glide up/down/at its limits, gate/trig/retrigger, a release to exactly zero, paraphonic keys, the register extremes, three audition sequences — every sample, every tap of contract 16.4 and the final state) and the drum section (`rtl-sketch/drum_kit.v`: 172,063 frames, both buses) are each identical to their model with no tolerance, and every bench is shown to fail: **24 injected defects** (3 ladder, 5 modal, 8 voice, 8 drum), a timing control that violates the coefficient hold, and two stubs — `voice_dp_stub.v` with every output X and `ladder_dp_stub.v` with every output 0. `touch_dp.v` is deleted |
+| 4 | The chip: `rtl-sketch/synth_top.v` — SPI link (DR 0007), voice, drum bus, I2S | **elaborates, synthesises, runs through its pins** ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); its drum *sources* are still the labelled placeholder — `drum_kit.v` is verified standalone but not yet wired into the top (contract 17.23) |
 | 5 | FPGA bitstream on real hardware | not started |
-| 6 | gf180mcu ASIC | synthesised to `gf180mcu_fd_sc_mcu7t5v0`: **0.663 mm² of cells, 0.603 with Booth** ([docs/area-budget.md](docs/area-budget.md), ARCHITECTURE.md section 10); not placed, not routed, no timing, no power |
+| 6 | gf180mcu ASIC | synthesised to `gf180mcu_fd_sc_mcu7t5v0`: **0.663 mm² of cells, 0.603 with Booth**, before the drum section's 0.646 mm² ([docs/area-budget.md](docs/area-budget.md), ARCHITECTURE.md section 10); not placed, not routed, no timing, no power |
 
 The cell counts in the sections below are PDK-neutral yosys output from the
 block benches; the mm² figures are gf180mcu cell area at tt/5 V with `*_1`
@@ -353,10 +353,12 @@ locks it.
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
-| `rtl-sketch/` | The chip's RTL: `synth_top.v` (the top and the drum placeholder), `spi_ctl.v` (the link), `voice_dp.v` + `recip_div.v` (the voice), `ladder_dp.v` / `ladder_dp_n.v` (the ladder, one or N contexts), `modal_dp_rom.v` (the bank), `i2s_tx.v`; their benches and the `verify_*.py` drivers; `area/` (the gf180mcu synthesis flow) |
+| `rtl-sketch/` | The chip's RTL: `synth_top.v` (the top and the drum placeholder), `spi_ctl.v` (the link), `voice_dp.v` + `recip_div.v` (the voice), `ladder_dp.v` / `ladder_dp_n.v` (the ladder, one or N contexts), `modal_dp.v` / `modal_dp_rom.v` (the bank), the drum section (`drum_dp.v` + `drum_kit.v`), `i2s_tx.v`; their benches and the `verify_*.py` drivers, each bit-exact against its model with negative controls (`test_rtl.py`); `area/` (the gf180mcu synthesis flow) |
 | `docs/ARCHITECTURE.md` | The chip: block diagram, signal path, the 256-cycle schedule, multipliers, clock and reset, pins, register map, measured area, what is verified |
-| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 4, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
-| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006), the control interface (0007) — all proposed |
+| `spec/NUMERIC-CONTRACT.md` | The voice and the drum section as a numeric contract, revision 6, **proposed, not ratified**: every per-sample operation, the seven tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
+| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006), the control interface (0007), the drum section on the modal bank (0008), the bass drum's frequency (0009), one gate per oscillator (0010) — all proposed |
+| `docs/tr808-reference.md` | The TR-808's circuits, per voice, with every claim tagged — what the drum section is built from |
+| `docs/drum-verification.md` | The drum section measured against a real TR-808 (serial 103852), and what that comparison changed. **Read section 8 first**: it withdraws one measurement method and the three headline numbers that rested on it |
 
 ## Playing it
 
@@ -376,6 +378,9 @@ device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
 afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
 afplay model/audio/voice_fx/00-aliasing-naive-vs-blep.wav
+.venv/bin/python model/drums_fx_render.py             # the drum section: solos, grooves, bass + drums, unnormalised
+afplay audio/drums/02-groove-808.wav
+afplay audio/drums/05-combined.wav
 .venv/bin/python -m pytest model/ rtl-sketch/ -q
 ```
 
