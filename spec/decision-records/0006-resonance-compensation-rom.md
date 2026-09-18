@@ -148,7 +148,8 @@ contract's convention (3.9) forbids. The tests: the ring decays at `res =
 - **A new open item, the tuning**: the frequency the filter self-oscillates
   at is 0.968 × the cutoff at 30 Hz (the tanh slope `s0` and the g ROM's
   rounding at the bottom), 1.072 × at 10 kHz (the delay's phase, the paper's
-  <10 % figure), 0.906 × at the clamp. Below 2 kHz that is within 14 cents;
+  <10 % figure), 0.906 × at the clamp. Below 2 kHz that is within **57 cents** (0.968x is -56.3 cents; 14 cents
+  would be 0.81%, and this error is 3.2%);
   at 3 kHz it is 34 cents. A retuned g ROM would fix the resonant frequency
   and move the zero-resonance corner by the same amount — the paper's
   two-dimensional caveat — and is its own decision, after listening.
