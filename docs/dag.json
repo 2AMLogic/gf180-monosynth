@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "The capability DAG, as data. docs/capability-dag.md is prose about it;",
+    "THIS is what tools/compile_dag.py reads and what README.md renders from.",
+    "",
+    "A node is not green because someone wrote that it is. Every node names the",
+    "evidence that would make it green, and the compiler checks that evidence.",
+    "This document twice carried findings that had already been fixed -- the",
+    "modal_dp exc hazard, and red on four repaired drum circuits -- because a",
+    "human maintained it by hand. Compiling it from evidence is the fix.",
+    "",
+    "class: 'implementation' = tested against OUR model. 'fidelity' = tested",
+    "against an EXTERNAL reference. A subsystem with no fidelity evidence is",
+    "UNVALIDATED however many implementation tests pass -- see issue #45."
+  ],
+  "nodes": {
+    "F1": {"name": "Ladder bit-exact", "group": "foundation", "class": "implementation",
+           "tag": "node/F1-ladder", "verifier": "rtl-sketch/verify_ladder.py", "deps": []},
+    "F2": {"name": "Modal bank bit-exact", "group": "foundation", "class": "implementation",
+           "tag": "node/F2-modal", "verifier": "rtl-sketch/verify_modal.py", "deps": []},
+    "F3": {"name": "Measurement ground truth", "group": "foundation", "class": "implementation",
+           "suite": "model/test_audio_measure.py", "deps": []},
+
+    "M1": {"name": "One Moog voice bit-exact", "group": "minimoog", "class": "implementation",
+           "tag": "node/M1-voice", "verifier": "rtl-sketch/verify_voice.py", "deps": ["F1"]},
+    "M2": {"name": "Matches our own spec", "group": "minimoog", "class": "implementation",
+           "tag": "node/M2-minimoog", "suite": "model/test_moog_acceptance.py", "deps": ["M1", "F3"]},
+    "M3": {"name": "Matches software references", "group": "minimoog", "class": "fidelity",
+           "suite": "model/test_reference_compare.py", "deps": ["M2"]},
+    "M4": {"name": "Matches real hardware", "group": "minimoog", "class": "fidelity",
+           "blocked": "0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip",
+           "deps": ["M3"]},
+    "M5": {"name": "Noise, osc-3 modulation, full waveform set", "group": "minimoog",
+           "class": "implementation", "issue": 48, "deps": ["M2"]},
+
+    "D1": {"name": "Drum kit bit-exact", "group": "drums", "class": "implementation",
+           "tag": "node/D-drums-bitexact", "verifier": "rtl-sketch/verify_drums.py", "deps": ["F2"]},
+    "D2": {"name": "Is an 808, per the reference", "group": "drums", "class": "fidelity",
+           "suite": "model/test_808_acceptance.py", "deps": ["D1", "F3"]},
+    "D3": {"name": "Per-voice measured against targets", "group": "drums", "class": "fidelity",
+           "tool": "model/sound_report.py", "deps": ["D2"]},
+    "D4": {"name": "Complete 808 -- all 16 sounds", "group": "drums", "class": "implementation",
+           "issue": 22, "deps": ["D2"]},
+
+    "I1": {"name": "Control link carries every write", "group": "integration", "class": "implementation",
+           "verifier": "rtl-sketch/verify_ctl.py", "deps": ["M1", "D1"]},
+    "I2": {"name": "Whole chip at its pins", "group": "integration", "class": "implementation",
+           "verifier": "rtl-sketch/verify_synth_top.py", "deps": ["I1"]},
+
+    "S1": {"name": "Routed on gf180, DRC clean", "group": "silicon", "class": "implementation",
+           "evidence_file": "pnr/orfs/evidence/synth_top/joined-d1e5068/6_report.json", "deps": ["I2"]},
+    "S2": {"name": "Fits a real shuttle padframe", "group": "silicon", "class": "implementation",
+           "blocked": "routed die has padcells: 0 -- LibreLane half-slot in progress", "deps": ["S1"]},
+    "S3": {"name": "FPGA build of the real engine", "group": "silicon", "class": "implementation",
+           "evidence_file": "fpga/reports/ecp5_25f.txt", "deps": ["I2"]}
+  }
+}

@@ -18,6 +18,14 @@ jobs:
         with: { python-version: '3.12' }
       - run: python -m pip install --upgrade pip numpy scipy pytest
 
+      # The roadmap is compiled from evidence, not maintained by hand. This
+      # document twice carried findings that had already been fixed -- the
+      # modal_dp exc hazard, and red on four repaired drum circuits. --check
+      # fails if README's diagram is out of date, or if any node is STALE:
+      # a green claim whose evidence has gone out from under it.
+      - name: the roadmap matches the evidence
+        run: python tools/compile_dag.py --check
+
       # First on purpose: every node above F1 measures with these estimators,
       # so a suite built on untested analysers measures the analysers.
       - name: F3 -- measurement ground truth
