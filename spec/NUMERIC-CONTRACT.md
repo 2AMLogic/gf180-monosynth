@@ -1,15 +1,17 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 3 — 2026-09-17 — status: PROPOSED. Not ratified.**
+**Revision 4 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
 saturating mixer, Huovilainen's nonlinear ladder with a resonance-compensation
-ROM, two integer ADSRs and a VCA, producing one signed 16-bit sample per
-frame. It is written from the committed reference model and claims
-nothing the model does not do. It becomes the specification RTL is verified
-against only when ratified through the two-key process this fleet uses; until
-then it is revision 3, proposed, and the status line above must not be read as
+ROM, two integer ADSRs and a VCA — and, since revision 4, the drum section: a
+TR-808-shaped set of eight stops whose bodies and filters are the modal
+resonator bank — producing one signed 16-bit sample per frame. It is written
+from the committed reference model and claims nothing the model does not do.
+It becomes the specification RTL is verified against only when ratified
+through the two-key process this fleet uses; until then it is revision 4,
+proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
 
@@ -22,12 +24,14 @@ read differently the code is what "bit-exact" means:
 | `model/voice_fx.py` | the voice: oscillators, glide, PolyBLEP, mixer, envelopes, cutoff path, resonance compensation, VCA and output (sections 6–10, 12); `KeyHost`, the reference host (5.6, informative) |
 | `model/fixed.py` | `LadderFx`, the ladder filter (section 11) |
 | `audition/dsp.py` | the tables the voice imports: `phase_inc`, `note_hz`, `_QUARTER` (Appendices A, B) |
-| `model/modal_fixed.py` | the modal resonator bank — **proposed sizing, not ratified** (section 15) |
+| `model/drums_fx.py` | `DrumsFx`, the drum section: stops, envelopes, sources, paths, the two buses, the output stage `output_fx`, the register map (section 15; 12); the reference kit `kit_808` (Appendix G, informative) |
+| `model/modal_fixed.py` | `ModalFx`, the modal resonator bank — the drum section's bodies and filters (15.6) |
 
 Their tests (`model/test_voice_fx.py`, `model/test_fixed.py`,
-`model/test_modal_fixed.py`, `spec/reference/test_tables.py`, 68 tests) lock the sizing decisions; the RTL
-sketches `rtl-sketch/ladder_dp.v` and `rtl-sketch/modal_dp.v` are already
-bit-exact against `LadderFx` and `ModalFx` respectively
+`model/test_modal_fixed.py`, `model/test_drums_fx.py`, `spec/reference/test_tables.py`) lock the sizing decisions; the RTL
+sketches `rtl-sketch/ladder_dp.v`, `rtl-sketch/modal_dp.v` and
+`rtl-sketch/drum_kit.v` are bit-exact against `LadderFx`, `ModalFx` and
+`DrumsFx` respectively
 (`rtl-sketch/test_rtl.py`). Every table in the appendices is regenerated from
 the model by `spec/reference/gen_tables.py`, and `gen_tables.py --check` fails
 if any hash or table image in this document is no longer the model's.
@@ -65,6 +69,10 @@ all musical time. One sample leaves per frame, as I2S.
    │                                cutoff = clamp(lo + span·filt env + track) ─► g ROM, kc ROM ─┘      │
    └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+The drum section (section 15) runs beside the voice on the same frames and
+joins it at the output stage: `sample = sat16((v·vol + dmix·dvol +
+body·bvol) >> 15)` (12), where `dmix` and `body` are its two buses.
 
 The block's observable behaviour is exactly two things: the sequence of output
 samples, and how that sequence depends on the sequence of control writes and
@@ -104,6 +112,12 @@ envelope.
 | Volume | `vol`, unsigned Q0.15, 16 bits; the reference host writes 14746 = 0.45 (`VOL_REF`) — DR 0005 |
 | Tuning | A4 (MIDI note 69) = 440 Hz |
 | Glide | `glide`, unsigned Q0.24, 24 bits, the ratio per frame minus 1; increment accumulator Q24.8 (`GLIDE_BITS`, `INC_FRAC`); the reference host writes 2692 = 90 ms per octave (`GLIDE_REF_S`) — DR 0004 |
+| Drum stops / accents | 8 stops, edge-triggered; accent Q0.15, 16 bits per stop (15.2) — DR 0007 |
+| Drum envelopes | 12; level 24-bit unsigned Q0.24, rate Q0.16, hold 8 bits, bursts 2, period 9, frame counter 11 (15.3) |
+| Drum paths | 16; source 5 bits, two envelope indices, nonlinearity 2 bits, attenuation 3, destination 4 (15.5) |
+| Drum sources | a 31-bit LFSR (16 bits per frame), six 24-bit square-wave phase accumulators, a pulse (15.4) |
+| Modal bank | 12 modes, the first 6 with a selectable numerator; coefficients Q2.24 signed (26 bits); amp Q0.16; state 28 bits, 15 fraction; excitation 21 bits; output Q4.15, 19 bits (15.6) |
+| Drum buses / gains | `dmix` 21 bits, `body` 19 bits; `dvol`, `bvol` unsigned Q0.15, 16 bits (12) |
 
 ---
 
@@ -167,7 +181,9 @@ Sample f is a pure function of the register state at the start of frame f
 6. **Ladder** (section 11): two oversampling passes on `mixed` with `g,
    k_eff, gain, ogain`, producing `y`, saturated to 19 bits.
 7. **Amplitude** (section 9): `v = (y · ae) >> 15`.
-8. **Output** (section 12): `sample_f = sat16((v · vol) >> 15)`.
+8. **Output** (section 12): `sample_f = sat16((v · vol + dmix · dvol + body · bvol) >> 15)`,
+   with `dmix` and `body` the drum section's buses for this frame (15.2);
+   `sat16((v · vol) >> 15)` when the drum gains are 0.
 9. **Advance.** For each oscillator `phase_k ← (phase_k + inc_k) mod 2^24`,
    then the glide slew of 6.7 moves `inc_acc_k` toward its target. Each
    envelope's level is updated by the rule of 8.3. The ladder's state was
@@ -196,14 +212,17 @@ applied write. A packet that carries several registers is one write.
 
 ### 4.4 Cycle budget
 
-An implementation MUST finish steps 1–9 within 256 cycles of the tick. The
-measured sequenced ladder (`rtl-sketch/ladder_dp.v`) takes 24 of them per
-frame including both oversampling passes, fixed, worst case equal to mean
-(`rtl-sketch/tb_cycles.v`). Nothing in the sample sequence depends on the
+An implementation MUST finish steps 1–9 and the drum section's frame (15.2)
+within 256 cycles of the tick. The measured sequenced ladder
+(`rtl-sketch/ladder_dp.v`) takes 24 of them per frame including both
+oversampling passes, fixed, worst case equal to mean (`rtl-sketch/tb_cycles.v`);
+the drum section (`rtl-sketch/drum_kit.v`) takes 85, fixed, from its tick to
+`body_valid` (`rtl-sketch/tb_drums.v`: 48 in the drum datapath and 39 in the
+bank, one clock overlapped). Nothing in the sample sequence depends on the
 clock frequency; an implementation that needs fewer cycles MAY be clocked
 slower. *Informative:* revision 3 adds six multiplies per frame to the front
 end — three glide slews, the kc interpolation, `k · kc` and the VCA — all on
-a shared multiplier.
+a shared multiplier; the output stage of 12 adds two more.
 
 ---
 
@@ -980,11 +999,21 @@ full scale and the RTL bench's stimulus at 1.96, against the word's 8.0
 
 ## 12. Output stage and the saturation points (DR 0005)
 
-Step 8 of 4.2, after the VCA of section 9:
+Step 8 of 4.2, after the VCA of section 9 (`drums_fx.output_fx`):
 
 ```
-sample = sat16( (v · vol) >> 15 )        v the VCA's output (9), vol the Q0.15 register; exact 35-bit product
+sample = sat16( (v · vol + dmix · dvol + body · bvol) >> 15 )
+             v     the VCA's output (9), 20 bits signed;  vol   the voice's Q0.15 register
+             dmix  the drum section's mix bus (15.5), 21 bits signed;  dvol  its Q0.15 register
+             body  the modal bank's word (15.6), 19 bits signed;      bvol  its Q0.15 register
+             exact sum of three products (under 2^38), one arithmetic shift, ONE clamp
 ```
+
+With `dvol = bvol = 0` — or with no drum section — this is rev 3's
+`sat16((v · vol) >> 15)` bit for bit, and every rev-3 reference sequence is
+unchanged. Rev 4 adds the two drum terms (DR 0007) so that the two drum buses
+reach the rail at their full width: a bus clipped to 16 bits before the
+master gains could not be recovered by lowering them.
 
 `vol` replaces rev 1's fixed gain of 0.9. The reference host writes `vol =
 14746` (0.45), at which the loudest audition patch (`growl-bass`) peaks at
@@ -994,11 +1023,13 @@ hard, and the headroom above the reference is the host's to spend — the
 policy Sequential states for the Prophet-6 ("rather than limit the outputs
 … we allow you to adjust levels", DR 0005) — not a limiter's.
 
-**Saturation is designed, and it is in two places.** The overdrive of the
+**Saturation is designed, and it is in three places.** The overdrive of the
 instrument is the ladder's `tanh` in every stage, driven by `gain` (11.3,
 11.4; DR 0001); the mixer's `sat16` is the hard rail of the Q1.15 word, which
-weights the host normalises never reach (7). The signal path has exactly
-these clamps, in signal order, and no others:
+weights the host normalises never reach (7); and the drum section's swing VCA
+is the same `tanh` table on an asymmetric drive (15.5; DR 0007), the 808's
+own nonlinearity. The signal path has exactly these clamps, in signal order,
+and no others:
 
 | # | where | clamp | section |
 |---|---|---|---|
@@ -1007,11 +1038,19 @@ these clamps, in signal order, and no others:
 | 3 | ladder input stage `u` | `sat24` (state units, ±8.0) | 11.4 |
 | 4 | ladder state `y[s]` after each integrator | `sat24` | 11.4 |
 | 5 | ladder output `y_out` | `sat19` (Q4.15, ±8.0) — never reached on the audition patches or the bench | 11.4 |
-| 6 | output sample | `sat16` — reached only if the host raises `vol` past the reference | 12 |
+| 6 | output sample | `sat16` — reached only if the host raises `vol`, `dvol` or `bvol` past the reference | 12 |
+| 7 | drum path tap `TAP m` | `sat16` of the mode's state ÷ 8 — the rail of a resonator's output; never reached by the reference kit | 15.5 |
+| 8 | modal bank state `y[m]` | `sat28` — part of the bank's arithmetic since rev 1; reached only by register values that put a mode past ±4096 × full scale, never by the reference kit | 15.6 |
+| 9 | modal bank word `body` | `sat19` (Q4.15, ±8.0) — a width; never reached by the reference kit at any accent | 15.6 |
 
 The VCA multiply (9), the cutoff shift (10, before its clamp to Hz), the kc
 interpolation and `k · kc` (10.2, saturated only at the port width), the tanh
-interpolation and the glide slew cannot overflow and have no clamp. In rev 1
+interpolation and the glide slew cannot overflow and have no clamp; nor do
+the drum section's path values, its two buses or a mode's excitation sum,
+which are carried exactly at the widths of 15.5. The drum section adds no
+clip of its own to the path of a signal: the tap rail (7) and the state
+word (8) are reachable by register values only, and the reference kit is
+tested not to reach them (`test_bank_headroom_zero_and_nineteen_bits_hold_the_kits_loudest_hit`). In rev 1
 the ladder's output was 16 bits and clamp 5 was where four of the eight
 audition patches clipped; with the width, the VCA after the filter and the
 volume, the float-versus-fixed gap on `growl-bass` is −32 dB instead of
@@ -1070,6 +1109,10 @@ is no other observable state.
 | `cut_lo`, `cut_hi`, `track_hz` | 0 | the clamp makes the cutoff 30 Hz |
 | `k`, `gain`, `ogain` | 0 | |
 | ladder `y[0..3]`, `w[0..3]`, `d1`, `d2` | 0 | `LadderFx.reset()` |
+| `dvol`, `bvol` | 0 | the drum buses are silent until the host writes a gain (17.8) |
+| every drum register of 15.1, every envelope level, `strike`, `t`, `stops_prev`, the six phases | 0 | 15.8; all-zero paths are OFF, so the section is silent |
+| LFSR state | 1 | 15.4: frame 0's noise word is 1 |
+| modal bank `y1[m]`, `y2[m]`, `exc[m]`, `h1[m]`, `h2[m]` | 0 | `ModalFx.reset()` |
 | output sample register | 0 | |
 | control parser / queue | idle, empty | |
 
@@ -1084,36 +1127,314 @@ the whole image every slice and needs none.
 
 ---
 
-## 15. Modal resonator bank — PROPOSED, not part of the rev-1 voice
+## 15. The drum section and the modal resonator bank (DR 0007)
 
-`model/modal_fixed.py` (`ModalFx`) and `rtl-sketch/modal_dp.v` are bit-exact
-against each other and their sizing is **proposed, not ratified** (the model
-says so in its own docstring). This section records what they compute so the
-proposal is citeable; it is **informative in revision 1**. How the bank is
-triggered, what excites it (the model's strike is a float Hann-windowed noise
-burst quantised to Q1.15), how it is mixed with the voice, and its gain
-staging are all OPEN (17.4).
+`model/drums_fx.py` (`DrumsFx`) and `model/modal_fixed.py` (`ModalFx`) are
+the specification of this section; `rtl-sketch/drum_kit.v` (`drum_dp.v` +
+`modal_dp.v`) is bit-exact against them (16). **Proposed, not ratified**, as
+the rest of this document.
 
-Four two-pole resonators, each `y[n] = x[n] + a1·y[n−1] + a2·y[n−2]` with
-`a1 = 2r·cos ω`, `a2 = −r²`, no delay line and no RAM. Proposed formats:
-coefficients Q2.24 signed (26 bits — Q2.16 cannot tune a low bar: 2.4 %,
-41 cents off at MIDI 28), `amp` Q0.16, state 28 bits with 15 fraction bits,
-excitation entering as `exc << 0`, and 10 headroom bits on the output because
-the bank rings to 657× the strike at note 28. Per sample:
+The drum section is the TR-808 as `docs/tr808-reference.md` describes it,
+on this chip's parts: the bridged-T bodies (BD, SD, the toms) are modes of
+the modal bank pinged by a pulse and left to ring; the metallic voices (CH,
+OH, CB) are six square-wave oscillators through a band-pass mode, an
+asymmetric "swing" VCA and a high-pass mode; the snare's snap and the clap
+are one white-noise source through a high-pass or band-pass mode under an
+envelope. Everything that plays is *envelope × source → a mode or the mix*,
+so the hardware is one sequenced datapath — envelopes, sources, a routing
+table on one multiplier — in front of the bank, and a kit is a table of
+register values (15.7, Appendix G), not a circuit.
 
 ```
-e = exc                                        SQ = 15, so no shift
-for each mode m:
-    acc  = a1_m · y1_m + a2_m · y2_m           exact, no rounding constant (measured to buy nothing)
-    y    = sat28( (acc >> 24) + e )            shift, then clamp
-    y2_m ← y1_m ; y1_m ← y
-    mix += (y · amp_m) >> 16
-out = sat16( mix >> 10 )
+   stops[8], accent[8] ─► 12 envelopes ──┐            ┌──────────── modal bank, 12 modes ────────────┐
+   LFSR ─► NOISE ─┐                      │            │ exc[m] ─► num (RAW | 1−z⁻² | (1−z⁻¹)²) ─► y[m] │
+   6 squares ─► SQSUM, SQPAIR ─┼─► 16 paths: v = nl(src) · (ENV(e1)+ENV(e2)) >> (15+att) ─┼─► mix ─► body (Q4.15)
+   PULSE ─────────┘  TAP m ◄───┼──────────────────────┴── y1[m] >> 3 ────────────────────┘
+                               └─► dmix (the paths routed to MIX, 21 bits)
+                                                 dmix, body ─► output stage (12), with the voice
 ```
 
-A mode whose frequency exceeds 0.45·fs has `(a1, a2, amp) = (0, 0, 0)`. The
-host derives the coefficients in float (`ModalFx.coefficients`), as for the
-voice. The sizing evidence is `python3 model/modal_fixed.py`.
+### 15.1 Registers
+
+The drum section's control image, host-written like the voice's (5.1);
+addresses are 8 bits, values up to 32 (`drums_fx.write`). Every value is
+legal; nothing is rejected for range. Writes apply at frame boundaries by
+4.3. An address that names no register is ignored.
+
+| Address | Register | Width | Meaning |
+|---|---|---:|---|
+| `0x00` | `STOPS` | 8 | the stop mask; bit s is stop s (15.2) |
+| `0x10 + s` | `ACCENT[s]` | 16 u | Q0.15 strike level of stop s; 32768 = 1.0, 65535 = 2.0 (15.3) |
+| `0x20 + i` | `OSC_INC[i]` | 24 u | phase increment of square oscillator i = 0..5 (15.4) |
+| `0x40 + 4e` | `ENV_CTL[e]` | 27 | `[3:0] stop`, `[7:4] choke`, `[15:8] hold`, `[17:16] bursts`, `[26:18] period` (15.3); a stop or choke index ≥ 8 means never |
+| `0x41 + 4e` | `ENV_PEAK[e]` | 24 u | Q0.24 level at a strike, before the accent |
+| `0x42 + 4e` | `ENV_RATE[e]` | 16 u | Q0.16 decay rate, the voice's `rate` (8.3) |
+| `0x80 + p` | `PATH[p]` | 22 | `[4:0] src`, `[8:5] e1`, `[12:9] e2`, `[14:13] nl`, `[17:15] att`, `[21:18] dest` (15.5) |
+| `0xC0 + 4m` | `MODE_A1[m]` | 26 s | Q2.24 coefficient a1 = 2r·cos ω |
+| `0xC1 + 4m` | `MODE_A2[m]` | 26 s | Q2.24 coefficient a2 = −r² |
+| `0xC2 + 4m` | `MODE_AMP[m]` | 16 u | Q0.16 level of mode m in the body bus |
+| `0xC3 + 4m` | `MODE_NUM[m]` | 2 | numerator: 0 RAW, 1 BP, 2 HP, 3 reads as RAW; effective on modes 0..5 only (15.6) |
+| `0xFF` | `RESET` | — | every register and state of this section to 15.8 |
+
+e = 0..11, p = 0..15, m = 0..11. Sizes (`drums_fx.N_*`): 8 stops, 12
+envelopes, 16 paths, 12 modes of which the first 6 (`N_NUMS`) carry a
+numerator, 6 oscillators. State registers, not host-writable except by
+RESET: `stops_prev` (8), per envelope `level` (24), `strike` (24), `t`
+(11), the six phases (24 each), the LFSR (31), and the bank's `y1[m]`,
+`y2[m]`, `exc[m]` (21), `h1[m]`, `h2[m]` (21, modes 0..5). The gains
+`dvol`, `bvol` of the output stage (12) are the instrument's, 16 bits
+unsigned each.
+
+### 15.2 What happens in a frame
+
+After step 1 of 4.2 (control applied), in this order (`DrumsFx.frame`):
+
+1. **Fire.** `fire = STOPS & ~stops_prev`; `stops_prev ← STOPS`. A stop
+   fires when its bit is 1 at the start of this frame and was 0 at the start
+   of the previous one — the register's value, however many writes produced
+   it: a held bit fires once, `1, 0, 1` in three consecutive frames fires
+   twice, a rewrite of 1 over 1 does not fire, and two hits of one stop in
+   consecutive frames cannot both fire (gf180-polysynth issue 7 §1's
+   "0→1 between consecutive slices"; `test_stops_fire_on_the_edge_between_frames_only`).
+2. **Envelopes** (15.3), every one, before the paths read them.
+3. **Sources** (15.4): the LFSR advances 16 bits and yields `noise`; the six
+   squares are read from their phases and the phases advance.
+4. **Paths** (15.5), in order p = 0..15: each computes `v` and adds it to
+   `dmix` or to `exc[dest]`. `TAP m` reads the bank's `y1[m]` as the
+   previous frame's step 5 left it.
+5. **The bank** (15.6): one step on `exc[0..11]`, producing `body`; every
+   `exc[m]` is consumed and cleared.
+6. `dmix` (21 bits) and `body` (19 bits) are this frame's buses for step 8
+   of 4.2.
+
+An implementation may schedule this across the frame however it likes,
+provided the buses are identical; `drum_kit.v` takes 85 clocks (4.4).
+
+### 15.3 Envelopes
+
+Twelve identical exponential-decay envelopes (`drums_fx.EnvFx`). Registers
+per 15.1; state `level` (24-bit unsigned), `strike` (24), `t` (11-bit frame
+counter, saturating at 2047). Per frame, for envelope e with `fire` from
+15.2:
+
+```
+if stop < 8 and fire[stop]:                                 fired
+    level  ← usat24( (peak · ACCENT[stop]) >> 15 )          exact 40-bit product
+    strike ← level ;  t ← 0
+else:
+    t ← min(t + 1, 2047)
+    if t < hold:                                            held: level unchanged
+    elif period ≠ 0 and t = k·period for some k in 1..bursts:
+        strike ← (strike · 53248) >> 16 ;  level ← strike   re-strike at 13/16 of the last
+    else:                                                   decay, the release rule of 8.3
+        dec   ← (level · rate) >> 16
+        level ← max(0, level − max(1, dec))
+if choke < 8 and fire[choke]:  level ← 0                    choked, after everything above
+ENV(e) = level >> 9                                         Q0.15, what the paths multiply by
+```
+
+`ENV(e)` is read *after* this frame's update: the fired frame reads the
+strike, the next frame the first decay. A `hold` of H keeps the strike for
+H frames (frames t = 0..H−1; H = 48 is the 808's 1 ms trigger pulse); with
+`rate = 65535` the level then falls to 0 in three frames (5.5). Bursts:
+`bursts` re-strikes, at `t = period, 2·period, 3·period`, each 13/16 of the
+last (1.0, 0.8125, 0.660, 0.536 — the reference's 1.0 / ≈0.8 / ≈0.65 for
+the clap); `period = 0` means no re-strike. A choke zeroes the level and
+nothing else; a strike and a choke in one frame leave the level at 0.
+
+**The dead zone is the voice's, closed the same way.** `dec` truncates to
+zero below `level = 2^16 / rate`; without `max(1, ·)` the level would stall
+there and the drum would never end — measured: it does
+(`test_envelope_reaches_exactly_zero_and_the_dead_zone_is_closed`, `EnvFx(floor=False)`). With
+it the tail below that floor is one LSB per frame to exactly zero; at 24
+bits the floor is below −60 dBFS for every time constant up to 0.25 s
+(`rate` ≥ 5) and −48 dBFS at `rate = 1` (a 1.4 s time constant). `rate = 0`
+decays at one LSB per frame from any level (350 s from full). The negative
+control `INJECT_BUG_DRUM_ENV_FLOOR` removes the `max(1, ·)` and is caught
+by the bench's decay-to-silence segment.
+
+### 15.4 Sources
+
+Four source values are computed per frame, all Q1.15 signed:
+
+- **NOISE** (`drums_fx.lfsr_frame`): a 31-bit LFSR `s ← (s << 1) | (s[30]
+  xor s[15] xor s[17] xor s[19])`, the recurrence `b[n] = b[n−31] + b[n−16]
+  + b[n−18] + b[n−20]` over GF(2), whose characteristic polynomial x³¹ +
+  x¹⁵ + x¹³ + x¹¹ + 1 is primitive (2³¹ − 1 is prime, so irreducibility —
+  `test_lfsr_polynomial_is_primitive…` checks x^(2³¹) ≡ x and no root — is
+  enough): period 2³¹ − 1 bits. It is stepped **16 times per frame**; the
+  frame's word is the 16 bits shifted in, oldest first, as signed Q1.15.
+  Every bit is one output of a maximal-length sequence and the words are
+  disjoint windows of it; reading the low bits of a once-per-frame LFSR
+  (the audition's `dsp.lfsr_noise`) makes each word a shifted copy of the
+  last, a one-pole low-pass, and is not this source. A pentanomial rather
+  than the strawman's trinomial because a sparse feedback recovers slowly
+  from the sparse reset state: x³¹ + x³ + 1 measured a +351 mean (a 0.5 %
+  ones deficit) over the first 200 000 words, this polynomial −5
+  (`test_noise_is_white_and_full_scale`). An implementation computes the
+  16 new bits at once: bit i (i = 0 first) is the XOR of `s[t−i]` over the
+  four taps, all from the old state since every tap is at bit 15 or above
+  (`lfsr_frame_leap`). Reset state 1; frame 0's word is 1 (Appendix F).
+  The 808 has one noise generator shared by every voice, and so does this
+  section.
+- **SQSUM**: six 24-bit phase accumulators, `phase[i] ← (phase[i] +
+  OSC_INC[i]) mod 2²⁴` per frame after being read; square i is +5461 if
+  `phase[i] < 2²³` else −5461; SQSUM is their sum, the 808's seven-level
+  staircase, ±32766. The oscillators free-run and are never reset by a
+  stop.
+- **SQPAIR**: squares 4 and 5 at ±16383 each, ±32766: the 808's trimmed
+  oscillators 5 and 6, the cowbell's pair (reference 9).
+- **PULSE**: the constant 32767. Shaped by an envelope it is the trigger
+  pulse of the bridged-T voices.
+
+### 15.5 Paths: the one multiplier, the nonlinearity, the tap, the buses
+
+Sixteen paths, in order (`DrumsFx.frame`). Path p's word gives `src`,
+`e1`, `e2`, `nl`, `att`, `dest`:
+
+```
+s   =  NOISE            src = 1        SQSUM  src = 2        PULSE  src = 3        SQPAIR  src = 4
+       sat16(y1[m] >> 3) src = 16 + m  (TAP m, m = 0..11)     0      otherwise (0 = OFF, 5..15, 28..31)
+s'  =  s                              nl = 0  LIN
+       tanh( sat24( u << 5 ) )        nl = 1  SWING, u = s << 2 if s > 0 else s >> 3
+       tanh( sat24( s << 5 ) )        nl = 2, 3  TANH
+env =  ENV(e1) + ENV(e2)              ENV(15) = 32767, ENV(12..14) = 0;  0..65534
+v   =  (s' · env) >> (15 + att)       exact 32-bit product, arithmetic shift; |v| ≤ 65532, 17 bits
+dest = 15:  dmix ← dmix + v           dest < 12:  exc[dest] ← exc[dest] + v         12..14:  dropped
+```
+
+`tanh` is the ladder's (11.3, Appendix C): the Q1.15 value shifted to the
+table's Q4.20 argument, so `TANH` maps 1.0 to tanh(1.0) = 0.762 and `SWING`
+maps a positive full scale to 32766 (four times it is one LSB short of the
+table's clamp, and the last bin interpolates to it) and a negative one to
+tanh(−0.125) — ×4 on the positive half, ÷8 on the negative, the "swing
+VCA" of the 808's hats, cymbal, cowbell and rimshot (reference 1.3; W14b's
+fit). The negative control `INJECT_BUG_DRUM_TAP_NOSAT` wraps the tap
+instead of railing it.
+
+`TAP m` is a mode's state divided by 8, saturated to Q1.15: a resonator's
+output rails at ±8.0 × full scale as an op-amp's does at its supply. It is
+the only way a mode feeds a path (the hats' band-pass into their VCAs, the
+clap's band-pass into its VCAs); `y1[m]` is read as the previous frame left
+it, so a band-pass → VCA → high-pass chain has one frame of latency per
+tap. `dmix` and every `exc[m]` are exact sums of at most 16 values of 17
+bits: 21 bits, no clamp (`test_path_sums_are_exact_and_bounded`).
+
+A path whose word is 0 is OFF and contributes nothing, so the reset image
+is silent. `att` divides by 2^att.
+
+### 15.6 The modal bank: excitation, numerators, output, timing
+
+Twelve two-pole resonators (`ModalFx`, `modal_dp.v`), the sizing of rev 3
+unchanged — coefficients Q2.24 signed (26 bits), `amp` Q0.16, state 28 bits
+with 15 fraction bits, floor rounding in the recursion — with three
+additions for the drum section. Per frame, for each mode m:
+
+```
+e   = exc[m]                                            21 bits, the sum of 15.5; then exc[m] ← 0
+x   = e                                    RAW  (num = 0 or 3, or m ≥ 6)
+    = e − h2[m]                            BP   (num = 1, m < 6)      the (1 − z⁻²) numerator
+    = e − 2·h1[m] + h2[m]                  HP   (num = 2, m < 6)      the (1 − z⁻¹)² numerator
+h2[m] ← h1[m] ;  h1[m] ← e                (m < 6)
+acc = a1[m] · y1[m] + a2[m] · y2[m]        exact, no rounding constant
+y   = sat28( (acc >> 24) + x )             shift, then clamp
+y2[m] ← y1[m] ;  y1[m] ← y
+mix += (y · amp[m]) >> 16
+body = sat19( mix >> 0 )                   headroom 0: Q4.15, 19 bits (DR 0005's width)
+```
+
+The pre-differenced input turns a mode into the 808's band-pass (the hats'
+7.1 kHz, the clap's 1.07 kHz, the cowbell's) or high-pass (the hats' 7.8
+and 11.7 kHz, the snare's 2.75 kHz) filters at the cost of two 21-bit
+history registers on six of the modes; the other six are the bodies and
+need none. `test_numerators_reject_dc_and_the_resonator_passes_it` and
+the negative control `INJECT_BUG_MODAL_NUM_HOLD` cover it. The `sat28` of
+the state word is part of the arithmetic since rev 1 and is the analogue
+of the ladder's; the 19-bit word is a width, reached only by register
+values that put more than ±8.0 × full scale on the bus, never by the
+reference kit at any accent (12).
+
+**Excitation timing.** The excitation is not a port to be held: an
+implementation MUST accumulate each mode's excitation into `exc[m]` while
+the bank is idle (`modal_dp.v`: `exc_we`, `exc_mode`, `exc_val`), consume
+every `exc[m]` exactly once in the frame's step and clear it. The
+coefficient and `num` registers MUST be held from the frame's tick to
+`body_valid`, as the ladder's coefficients are held while it is busy (11);
+`tb_drums.v +jitter` shows the comparison detects a violation, and
+`INJECT_BUG_MODAL_EXC_NOCLEAR` an excitation consumed twice.
+
+**Presets.** The 808 bodies and filters of Appendix G are the bank's
+*required* presets — the drums' bodies; the struck bar of
+`ModalFx.coefficients(note)` (rev 3's four-mode preset, `physical.modal`'s
+ratios 1 : 2.76 : 5.40 : 8.93, `headroom = 10`) is an *optional* family the
+same hardware can carry, kept so that an area cut can take it without
+touching the drums. A host may write any mode's coefficients on any frame
+while it rings (the BD decay presets of reference 2 are three coefficient
+pairs; `06-bd-decay-short-mid-long.wav`).
+
+### 15.7 Host conversions and the reference kit (informative)
+
+Host side, float, as 5.5 (`drums_fx`):
+
+```
+rate      = fit16( max(1, round((1 − exp(−1 / (τ · 48000))) · 2^16)) )     τ the amplitude 1/e time; τ ≤ 0 → 65535
+accent    = fit16( round(level · 2^15) )                                   1.0 → 32768; 2.0 is the maximum
+peak      = fit24( round(level · (2^24 − 1)) )
+amp       = fit16( round(level · 2^16) )
+OSC_INC   = fit24( round(f · 2^24 / 48000) )                               6.3's phase_inc
+a1, a2    = fit26( round(2 r cos ω · 2^24) ), fit26( round(−r² · 2^24) )   r = exp(−π f0 / (Q · 48000)), ω = 2π f0 / 48000
+```
+
+`pole_regs(f0, Q)` reproduces every Q2.24 pair of `docs/tr808-reference.md`
+§14 (`test_pole_regs_reproduce_the_808_reference_table`).
+
+**The reference kit** (`drums_fx.kit_808`, Appendix G) is one 808 as the
+reference tabulates it, later-unit snare. Every frequency, Q and time
+constant is the reference's where it gives one; the rest is chosen and
+says so:
+
+| stop | what | modes (num) | envelopes | sourced | chosen |
+|---|---|---|---|---|---|
+| 0 BD | PULSE × 0.1 ms exponential → mode 6 (56 Hz, Q 22.3, decay mid); PULSE × 1 ms rectangle → MIX at 0.06 (the click) | 6 (RAW) | 0, 1 | f0, Q, the 1 ms pulse, the click leak | the 0.1 ms kick as the pulse shaper's rising edge (reference 2, "what to implement"); no attack shift, no sigh, no tone filter (17.14) |
+| 1 SD | PULSE × 0.1 ms → modes 7 (173 Hz, Q 16.3) and 8 (336 Hz, Q 9.9); NOISE × 15 ms → mode 3 (HP 2.75 kHz, Q 0.7) | 7, 8 (RAW), 3 (HP) | 2, 3 | both f0/Q, the noise HP, τ 15 ms | both bodies from the pulse, not the cascade (17.15); SNAPPY 0.5, TONE = amp ratio 0.004 : 0.0041 |
+| 2 LT, 3 HT | PULSE × 0.1 ms → mode 9 (90 Hz, Q 25) / 10 (185 Hz, Q 25) | 9, 10 (RAW) | 4, 5 | f0, Q | no diode pitch fall, no pink-noise rumble (17.14) |
+| 4 CH, 5 OH | SQSUM → mode 0 (BP 7117 Hz, Q 6, amp 0); TAP 0, SWING × envelope → mode 2 (HP 11.7 kHz, Q 2.5) / mode 1 (HP 7.8 kHz, Q 2.5); CH chokes OH | 0 (BP), 1, 2 (HP) | 6 (20 ms), 7 (150 ms, choke 4) | oscillators, BP, HPs, CH τ, the choke | OH τ 150 ms (DECAY mid) |
+| 6 CP | NOISE → mode 4 (BP 1071 Hz, Q 1.6, amp 0); TAP 4, TANH × (3 bursts τ 4 ms every 480 frames + tail τ 47 ms at 0.32) → MIX | 4 (BP) | 8, 9 | BP, three bursts, τ 47 ms | period 480 = 10 ms, tail −10 dB (17.17) |
+| 7 CB | SQPAIR, SWING × (τ 5 ms at 0.5 + τ 30 ms at 0.5) → mode 5 (BP 900 Hz, Q 4) | 5 (BP) | 10, 11 | oscillators 540/800 Hz, two-slope envelope | BP centre 0.9 kHz, Q 4 (17.16) |
+
+Mode 11 is spare (zero). Levels are balanced by `drums_fx_render.py
+--balance` so that each voice alone at accent 1.0 peaks at Roland's chart
+proportions with the loudest at 0.5 × full scale on its bus
+(`test_kit_voices_sit_at_the_chart_levels`); the bodies' exciters are 0.25 so
+that an accent of 2.0 keeps the BD's state — the bank's loudest ring,
+≈ 720 × its kick — under a quarter of the 28-bit rail. All eight stops in
+one frame at accent 2.0 stay inside every width
+(`test_bank_headroom_zero_and_nineteen_bits_hold_the_kits_loudest_hit`).
+The reference host (`hit_writes`) writes a stop's accent and raises its
+bit in the hit's frame and drops the bit in the next; `pattern_hits` turns
+`engines.render_groove`'s step strings into hits.
+
+### 15.8 Reset
+
+RESET (`0xFF`, or hardware reset) sets every register of 15.1 and every
+state register to 0, except the LFSR, which takes 1. Consequences: every
+path is OFF, every mode has zero coefficients and amp, no stop can fire
+(no bit is set), and both buses are 0 until the host writes a kit. The
+output stage's `dvol` and `bvol` reset to 0 with the voice's `vol` (14).
+
+### 15.9 Cycles and area (informative)
+
+Measured (`tb_drums.v`, `rtl-sketch/area/synth_area.py`, gf180mcu 7t
+`tt_025C_5v00`, cell area): the drum datapath takes 48 clocks per frame
+(1 + 12 envelopes + 1 + 2 × 16 paths + 2) and the bank 39 (3 × 12 + 3),
+85 from tick to `body_valid` with one overlapped; with the ladder's 24
+that is 109 of the 256, before the voice's own front end. `drum_dp` is
+0.278 mm² (10 716 cells, 1 355 flops), the 12-mode bank 0.367 mm² (13 845
+cells, 2 076 flops; 0.370 with numerators on all twelve; 0.251 at 8 modes
+with 4; 0.188 for rev 3's four with two), `drum_kit` 0.646 mm² (0.605 with
+`synth -booth`) and 0.461 mm² at 8 modes / 8 envelopes / 12 paths. The
+cost is state and its muxing, ≈120 bits per envelope and ≈100 per mode,
+not the multipliers. Whether the product takes 8 or 12 modes is 17.13.
 
 ---
 
@@ -1134,6 +1455,17 @@ simulation:
    `rtl-sketch/verify_ladder.py`'s vector format (`x, g, k, gain, ogain` in,
    `y_out` out, `k` per sample), which drives 28 800 samples that reach
    every clamp and both coefficient MSBs.
+5. **The drum section's two buses**, `dmix` and `body`, with `body_valid`
+   once per frame, and its control input at the register level (15.1) so
+   that a bench delivers each write to a chosen frame. `rtl-sketch/verify_drums.py`
+   is the reference: the model's write stream (the kit of Appendix G, every
+   stop soloed, the edge semantics of 15.2, all eight stops at accent 2.0,
+   a bar with the hi-hat choke and a BD retune while ringing, register
+   extremes on the last paths and the spare mode, a mid-run RESET, and
+   decay into silence — 172 063 frames) applied by `tb_drums.v` to
+   `drum_kit.v`, both buses compared every frame with no tolerance; the
+   modal bank alone through `verify_modal.py` (57 600 samples: the bar,
+   the numerators on noise and DC, coefficient extremes).
 
 A test compares the implementation's sample f with the model's for every f,
 for a scripted sequence of (frame, write) deliveries. Any mismatch is a
@@ -1141,13 +1473,21 @@ failure; there is no tolerance. In this revision the reference sequences are
 single notes from reset — `VoiceFx().note(note, dur, **patch)` — and the
 eight audition patches of `audition/patches.py::MONO` played through one
 continuous voice by `render_mono_fx`, whose write lists (from `KeyHost`,
-5.6) are the sequences. A bench MUST also be shown to fail: the injected defects of
+5.6) are the sequences; for the drum section, the write stream of
+`verify_drums.stimulus`. A bench MUST also be shown to fail: the injected defects of
 `rtl-sketch/ladder_dp.v` (`INJECT_BUG_LADDER_FB`, `_SAT`, `_TANH_CLAMP`) are
-the pattern.
+the pattern; `modal_dp.v` carries `_SHIFT`, `_SAT`, `_PREEXC`, `_NUM_HOLD`,
+`_EXC_NOCLEAR` and `drum_dp.v` `_ENV_FLOOR` (no `max(1, ·)`), `_LEVEL_TRIG`
+(level- not edge-triggered stops), `_LFSR_TAP`, `_TAP_NOSAT`, `_LAST_PATH`
+(the strawman's dropped last drum), and `tb_drums.v`'s `+jitter` applies a
+frame's writes while the datapath is busy, which the comparison MUST see
+(the hold requirement of 15.6). Every one is required to fail by
+`rtl-sketch/test_rtl.py`.
 
 Table freshness: `spec/reference/gen_tables.py --check` MUST pass; it fails
 if any hash in the appendices, any image under `spec/reference/tables/`, or
-`rtl-sketch/tanh16.hex` is not what the model generates.
+`rtl-sketch/tanh16.hex` is not what the model generates — since rev 4 that
+includes the noise sequence of Appendix F and the kit of Appendix G.
 
 Register widths: `test_every_host_conversion_fits_its_register` walks every
 conversion of 5.5 over its input domain and fails if any result leaves the
@@ -1174,8 +1514,11 @@ record that extends this document; none may be resolved by picking a reading.
    packets (gf180-polysynth issue 7); with it, the encodings of `wave[k]` and
    every opcode or field. A placeholder encoding, for discussion only: saw 0,
    square 1, pulse25 2, tri 3, sine 4.
-4. **Modal bank** (15): sizing proposed, not ratified; trigger, excitation
-   source, mixing and gain staging unspecified.
+4. **Modal bank** (15) — **closed in rev 4 by DR 0007**: the bank is the
+   drum section's bodies and filters; excitation is the drum paths'
+   routed values accumulated per mode (15.5, 15.6), mixing is the output
+   stage of 12 with `bvol`, gain staging is `headroom = 0`, a 19-bit word
+   and the per-mode `amp`; sizing 12 modes / 6 numerators, still proposed.
 5. **Resonance compensation above ~3 kHz** (11.5) — **closed in rev 3 by
    DR 0006**: `K_ROM32` (10.2, Appendix E); `res = 1` is the onset within
    0.39 %.
@@ -1199,6 +1542,34 @@ record that extends this document; none may be resolved by picking a reading.
     0.968 × the cutoff at 30 Hz and 1.072 × at 10 kHz. A retuned g ROM would
     move the zero-resonance corner by the same amount (Huovilainen's
     two-dimensional caveat); whether to, and how, is a separate decision.
+13. **The drum section's size** (15.9): 12 modes / 12 envelopes / 16 paths
+    is 0.646 mm² of cells, four times the ladder; the same RTL at 8 modes /
+    8 envelopes / 12 paths is 0.461 mm² and loses three bodies. Which the
+    product takes, and whether the ladder and the bank share a multiplier
+    (docs/area-budget.md 3.2), is a budget decision.
+14. **What the reference kit does not model** (15.7): the BD's 4 ms attack
+    at ≈130 Hz and its slow pitch sigh, the toms' diode pitch fall, the
+    toms' pink-noise rumble, the BD tone low-pass, the cymbal, rimshot,
+    claves, maracas and congas. Each is a coefficient sequence or a
+    preset the block can already carry (a host may retune any mode on any
+    frame; the render `06-bd-decay-short-mid-long.wav` does); none is
+    specified.
+15. **The snare's cascade** (15.7): the 808 drives the high resonator from
+    the low one's output ×1/38; the kit drives both from the pulse.
+16. **The cowbell's band-pass centre** (15.7): 0.9 kHz, Q 4 is chosen on
+    the reading that Roland's chart measures the cowbell's output *at* its
+    oscillators' periods; the reference records 0.9 kHz against Sound On
+    Sound's 2.64 kHz and could not settle it.
+17. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
+    and −10 dB are the reference's bounds, not measurements.
+18. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
+    oscillators vary by tens of percent between units; the kit uses the
+    schematic's nominal values. A host models a unit by writing `OSC_INC`.
+19. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
+    voice's reference) the combined render clips 68 samples where all
+    eight stops land accented under a bass note; at 0.30 it clips 24. The
+    rail is the host's to manage (DR 0005); a reference value for the two
+    gains is not decided.
 
 ---
 
@@ -1230,6 +1601,18 @@ record that extends this document; none may be resolved by picking a reading.
   reference sequence's values change (the chain order, the volume, the
   compensation). Rev 1 and 2 were proposed, not frozen, so their text is
   revised rather than extended. Not ratified.
+- **Rev 4 (2026-09-18)** — resolves 17.4 by DR 0007: the drum section
+  (section 15, rewritten; `model/drums_fx.py`) and the modal bank as one
+  instrument — eight edge-triggered stops with accents, twelve envelopes on
+  the voice's release rule with hold, bursts and choke, sixteen routing
+  paths on one multiplier, a 31-bit pentanomial LFSR, six square oscillators, the swing
+  VCA on the ladder's tanh table, and the bank grown to twelve modes with
+  numerators on six, a 19-bit word, per-mode accumulated excitation and a
+  stated hold requirement on its coefficients. The output stage (12) sums
+  the two drum buses with the voice under `dvol`, `bvol` before the one
+  rail — rev 3's formula bit for bit at zero gains, so no rev-3 reference
+  sequence changes. Two tables added (Appendices F, G); no existing table
+  or hash changed. Open items 13–19 added. Not ratified.
 
 ---
 
@@ -1401,5 +1784,81 @@ Normative (DR 0006). `K_ROM32[i] = round(k_onset(clamp(1024*i, 30, 21600)) / 4 *
 | 32 | 33964 |  |  |  |  |  |  |  |
 
 SHA-256 of the 33 decimal values joined by commas: `514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a`
+
+### Appendix F -- NOISE64: the first 64 noise words from reset
+
+Normative (DR 0007), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, `s <- (s << 1) | (s[30] xor s[15] xor s[17] xor s[19])` -- the recurrence `b[n] = b[n-31] + b[n-16] + b[n-18] + b[n-20]` over GF(2), characteristic polynomial x^31 + x^15 + x^13 + x^11 + 1, primitive, period 2^31 - 1 bits -- seeded with 1 at reset and stepped 16 times per frame; the noise word of a frame is the 16 bits shifted in, oldest first, read as signed Q1.15 (`drums_fx.lfsr_frame`). Frame 0's word is 1: the seed's bit reaches the tap at bit 15 on the frame's last step. Eight words per row; the first column is the frame.
+
+| frame | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1 | 20483 | 4353 | 17495 | 8965 | 4442 | 16915 | 21506 |
+| 8 | 12388 | 14207 | 6431 | 16439 | 22023 | 30344 | 28748 | 1611 |
+| 16 | 10021 | 20488 | 8000 | 14708 | 2622 | 15098 | 17303 | 703 |
+| 24 | 13589 | 3711 | 30509 | 16746 | 11132 | -32320 | 16213 | 12533 |
+| 32 | 20845 | 12746 | 3198 | 19506 | 8961 | 4501 | 747 | 12629 |
+| 40 | 19395 | 12069 | 16792 | 7085 | 8140 | -16743 | 25935 | -10374 |
+| 48 | 5452 | -24641 | 23346 | 18227 | 17640 | 12282 | 12075 | 23015 |
+| 56 | 25686 | 30920 | 18906 | 11937 | -27561 | -19132 | 3054 | 8995 |
+
+SHA-256 of the 64 decimal values joined by commas: `41f2adb399b60f0d7f1d77a03bf004d9b2ec28ab220f476cfafe96c36f99a613`
+
+### Appendix G -- KIT808: the reference kit as register writes
+
+Informative, pinned so that the renders and the RTL bench are reproducible: the write list `drums_fx.kit_808()` produces (section 15.7), address and value per row, in write order; the register map is section 15.1. Every number is docs/tr808-reference.md's where it gives one; the levels are the balance of `drums_fx_render.py --balance`; what was chosen rather than sourced is marked in `kit_808`'s comments and in 15.7.
+
+| addr | value | register | | addr | value | register |
+|---:|---:|---|---|---:|---:|---|
+| 0x20 | 0x1184E | OSC_INC[0] | 0x40 | 0xF0 | ENV_CTL[0] |
+| 0x21 | 0x1F8A1 | OSC_INC[1] | 0x41 | 0x400000 | ENV_PEAK[0] |
+| 0x22 | 0x19F9C | OSC_INC[2] | 0x42 | 0x3025 | ENV_RATE[0] |
+| 0x23 | 0x2C9A9 | OSC_INC[3] | 0x44 | 0x30F0 | ENV_CTL[1] |
+| 0x24 | 0x44444 | OSC_INC[4] | 0x45 | 0xF5C29 | ENV_PEAK[1] |
+| 0x25 | 0x2E148 | OSC_INC[5] | 0x46 | 0xFFFF | ENV_RATE[1] |
+| 0xC0 | 0x11A9D23 | MODE_A1[0] | 0x48 | 0xF1 | ENV_CTL[2] |
+| 0xC1 | 0x324D110 | MODE_A2[0] | 0x49 | 0x400000 | ENV_PEAK[2] |
+| 0xC2 | 0x0 | MODE_AMP[0] | 0x4A | 0x3025 | ENV_RATE[2] |
+| 0xC3 | 0x1 | MODE_NUM[0] | 0x4C | 0xF1 | ENV_CTL[3] |
+| 0xC4 | 0xDA1B85 | MODE_A1[1] | 0x4D | 0x800000 | ENV_PEAK[3] |
+| 0xC5 | 0x355D5AE | MODE_A2[1] | 0x4E | 0x5B | ENV_RATE[3] |
+| 0xC6 | 0x7333 | MODE_AMP[1] | 0x50 | 0xF2 | ENV_CTL[4] |
+| 0xC7 | 0x2 | MODE_NUM[1] | 0x51 | 0x400000 | ENV_PEAK[4] |
+| 0xC8 | 0xECC30 | MODE_A1[2] | 0x52 | 0x3025 | ENV_RATE[4] |
+| 0xC9 | 0x37543CC | MODE_A2[2] | 0x54 | 0xF3 | ENV_CTL[5] |
+| 0xCA | 0xB0A4 | MODE_AMP[2] | 0x55 | 0x400000 | ENV_PEAK[5] |
+| 0xCB | 0x2 | MODE_NUM[2] | 0x56 | 0x3025 | ENV_RATE[5] |
+| 0xCC | 0x1728A19 | MODE_A1[3] | 0x58 | 0xF4 | ENV_CTL[6] |
+| 0xCD | 0x366ECC6 | MODE_A2[3] | 0x59 | 0xFFFFFF | ENV_PEAK[6] |
+| 0xCE | 0x570A | MODE_AMP[3] | 0x5A | 0x44 | ENV_RATE[6] |
+| 0xCF | 0x2 | MODE_NUM[3] | 0x5C | 0x45 | ENV_CTL[7] |
+| 0xD0 | 0x1E53ED0 | MODE_A1[4] | 0x5D | 0xFFFFFF | ENV_PEAK[7] |
+| 0xD1 | 0x31579F2 | MODE_A2[4] | 0x5E | 0x9 | ENV_RATE[7] |
+| 0xD2 | 0x0 | MODE_AMP[4] | 0x60 | 0x78200F6 | ENV_CTL[8] |
+| 0xD3 | 0x1 | MODE_NUM[4] | 0x61 | 0xB0A3D6 | ENV_PEAK[8] |
+| 0xD4 | 0x1F504B3 | MODE_A1[5] | 0x62 | 0x154 | ENV_RATE[8] |
+| 0xD5 | 0x3076E0C | MODE_A2[5] | 0x64 | 0xF6 | ENV_CTL[9] |
+| 0xD6 | 0x5BC | MODE_AMP[5] | 0x65 | 0x3851EB | ENV_PEAK[9] |
+| 0xD7 | 0x1 | MODE_NUM[5] | 0x66 | 0x1D | ENV_RATE[9] |
+| 0xD8 | 0x1FFE6F0 | MODE_A1[6] | 0x68 | 0xF7 | ENV_CTL[10] |
+| 0xD9 | 0x300158A | MODE_A2[6] | 0x69 | 0x800000 | ENV_PEAK[10] |
+| 0xDA | 0xBB | MODE_AMP[6] | 0x6A | 0x110 | ENV_RATE[10] |
+| 0xDB | 0x0 | MODE_NUM[6] | 0x6C | 0xF7 | ENV_CTL[11] |
+| 0xDC | 0x1FF8366 | MODE_A1[7] | 0x6D | 0x800000 | ENV_PEAK[11] |
+| 0xDD | 0x3005AFC | MODE_A2[7] | 0x6E | 0x2D | ENV_RATE[11] |
+| 0xDE | 0x106 | MODE_AMP[7] | 0x80 | 0x181C03 | PATH[0] |
+| 0xDF | 0x0 | MODE_NUM[7] | 0x81 | 0x3C1C23 | PATH[1] |
+| 0xE0 | 0x1FE5EB2 | MODE_A1[8] | 0x82 | 0x1C1C43 | PATH[2] |
+| 0xE1 | 0x3012282 | MODE_A2[8] | 0x83 | 0x201C43 | PATH[3] |
+| 0xE2 | 0x10D | MODE_AMP[8] | 0x84 | 0xC1C61 | PATH[4] |
+| 0xE3 | 0x0 | MODE_NUM[8] | 0x85 | 0x241C83 | PATH[5] |
+| 0xE4 | 0x1FFD807 | MODE_A1[9] | 0x86 | 0x281CA3 | PATH[6] |
+| 0xE5 | 0x3001EE0 | MODE_A2[9] | 0x87 | 0x1DE2 | PATH[7] |
+| 0xE6 | 0x12D | MODE_AMP[9] | 0x88 | 0x83CD0 | PATH[8] |
+| 0xE7 | 0x0 | MODE_NUM[9] | 0x89 | 0x43CF0 | PATH[9] |
+| 0xE8 | 0x1FF9A1F | MODE_A1[10] | 0x8A | 0x101DE1 | PATH[10] |
+| 0xE9 | 0x3003F74 | MODE_A2[10] | 0x8B | 0x3C5314 | PATH[11] |
+| 0xEA | 0x268 | MODE_AMP[10] | 0x8C | 0x143744 | PATH[12] |
+| 0xEB | 0x0 | MODE_NUM[10] | | | |
+
+SHA-256 of the 99 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc`
 
 <!-- END GENERATED APPENDICES -->

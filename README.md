@@ -12,7 +12,7 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **ladder and modal: done, in simulation** — each is identical to its model over 28,800 / 48,000 samples, and each bench is shown to fail on injected defects. `touch_dp.v`: unverified |
+| 3 | RTL, bit-exact against (2) | **ladder, modal bank and drum section: done, in simulation** — each is identical to its model over 28,800 / 57,600 samples / 172,063 frames, and each bench is shown to fail on injected defects (16 negative controls). `touch_dp.v`: unverified |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
 
@@ -302,9 +302,10 @@ locks it.
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
-| `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
-| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 3, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
-| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006) — all proposed |
+| `rtl-sketch/` | The time-shared ladder (`ladder_dp.v`), the modal bank (`modal_dp.v`) and the drum section (`drum_dp.v` + `drum_kit.v`), each bit-exact against its model with negative controls (`verify_*.py`, `test_rtl.py`); `touch_dp.v`, an area sketch only |
+| `spec/NUMERIC-CONTRACT.md` | The voice and the drum section as a numeric contract, revision 4, **proposed, not ratified**: every per-sample operation, the seven tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
+| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006), the drum section on the modal bank (0007) — all proposed |
+| `docs/tr808-reference.md` | The TR-808's circuits, per voice, with every claim tagged — what the drum section is built from |
 
 ## Playing it
 
@@ -324,6 +325,9 @@ device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
 afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
 afplay model/audio/voice_fx/00-aliasing-naive-vs-blep.wav
+.venv/bin/python model/drums_fx_render.py             # the drum section: solos, grooves, bass + drums, unnormalised
+afplay audio/drums/02-groove-808.wav
+afplay audio/drums/05-combined.wav
 .venv/bin/python -m pytest model/ rtl-sketch/ -q
 ```
 

@@ -33,7 +33,7 @@ module tb_modal_rom;
         repeat (2) @(posedge clk);
         $display("tb_modal_rom: PRESETS=%0d %0d samples driven, %0d outputs, %0d mismatches, worst |error| %0d LSB, first at %0d",
                  PRESETS, n, nout, mism, maxerr, first_i);
-        if (mism == 0 && nout == n) $display("tb_modal_rom: PASS"); else $display("tb_modal_rom: FAIL");
+        if (mism == 0 && nout == n && n > 0) $display("tb_modal_rom: PASS"); else $display("tb_modal_rom: FAIL");
         $finish;
     end
 endmodule

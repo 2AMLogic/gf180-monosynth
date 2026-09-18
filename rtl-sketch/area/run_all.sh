@@ -17,7 +17,7 @@ q --tag core_nv4_9t --track 9 --top synth_core --chparam NV=4 $P
 q --tag core_nv1_9t --track 9 --top synth_core --chparam NV=1 $P
 q --tag coreh_nv4_7t --top synth_core --chparam NV=4 $PW
 # the monosynth blocks
-for t in 7 9; do q --tag ladder16_${t}t --track $t --top ladder_dp $R/ladder_dp.v; q --tag modal_${t}t --track $t --top modal_dp $R/modal_dp.v; done
+for t in 7 9; do q --tag ladder16_${t}t --track $t --top ladder_dp $R/ladder_dp.v; q --tag modal_${t}t --track $t --top modal_dp --chparam OW=16 $R/modal_dp.v; done
 q --tag ladder256_7t --top ladder_dp --chparam TANH_LOG2N=8 --chparam 'ROM_FILE="tanh256.hex"' $R/ladder_dp.v
 q --tag ladder16_7t_booth --top ladder_dp --booth $R/ladder_dp.v
 q --tag modal_7t_booth --top modal_dp --booth $R/modal_dp.v
@@ -43,8 +43,14 @@ for w in 28:26:1 24:24:1 24:20:0 18:18:1 16:16:1; do a=${w%%:*}; r=${w#*:}; b=${
   q --tag mul_${a}x${b}_7t --top mul --chparam A=$a --chparam B=$b --chparam BSIGNED=$s $B/mul.v; done
 q --tag mul_28x26_booth_7t --top mul --booth --chparam A=28 --chparam B=26 --chparam BSIGNED=1 $B/mul.v
 q --tag mul_24x20_booth_7t --top mul --booth --chparam A=24 --chparam B=20 --chparam BSIGNED=0 $B/mul.v
-q --tag drumseq_7t --top drum_src_seq $R/drum_src_seq.v
-q --tag drumseq_7t_booth --top drum_src_seq --booth $R/drum_src_seq.v
+# the drum section (DR 0007): the sources/envelopes/routing datapath, the 12-mode bank, and both together
+q --tag drumdp_7t --top drum_dp $R/drum_dp.v
+q --tag modal12_7t --top modal_dp --chparam MODES=12 --chparam NUMS=6 --chparam HR=0 $R/modal_dp.v
+q --tag modal12n12_7t --top modal_dp --chparam MODES=12 --chparam NUMS=12 --chparam HR=0 $R/modal_dp.v
+q --tag modal8_7t --top modal_dp --chparam MODES=8 --chparam NUMS=4 --chparam HR=0 $R/modal_dp.v
+q --tag drumkit_7t --top drum_kit $R/drum_kit.v $R/drum_dp.v $R/modal_dp.v
+q --tag drumkit_7t_booth --top drum_kit --booth $R/drum_kit.v $R/drum_dp.v $R/modal_dp.v
+q --tag drumkit8_7t --top drum_kit --chparam MODES=8 --chparam NUMS=4 --chparam ENVS=8 --chparam PATHS=12 $R/drum_kit.v $R/drum_dp.v $R/modal_dp.v
 python3 - <<'PY'
 import json, glob, os
 for f in sorted(glob.glob('../build/area/*/result.json')):

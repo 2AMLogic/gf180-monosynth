@@ -1,36 +1,44 @@
 // tb_modal_fx.v -- bit-exact bench for modal_dp against model/modal_fixed.py.
 //
-// verify_modal.py runs the model and writes one 320-bit word per sample:
-//   [319:304] exc            [303:80] a1_0 a2_0 a1_1 a2_1 a1_2 a2_2 a1_3 a2_3, 28-bit fields
-//   [79:16]   amp0..amp3     [15:0]   y, the model's output
+// verify_modal.py runs the model and writes one 336-bit word per sample:
+//   [335:320] exc (Q1.15, pushed to EVERY mode through the accumulate port)
+//   [319:96]  a1_0 a2_0 a1_1 a2_1 a1_2 a2_2 a1_3 a2_3, 28-bit fields
+//   [95:32]   amp0..amp3      [31:24] num3 num2 num1 num0, 2 bits each
+//   [23:0]    y, the model's output, sign-extended from OW bits
 // Every y_out is written to +out= and compared against y with no tolerance.
 // verify_modal.py is the comparator of record.
 `timescale 1ns/1ps
 module tb_modal_fx;
+    parameter NUMS = 2;
     parameter MAXN = 1 << 17;
-    reg clk = 0, rst_n = 0, sample_valid = 0;
-    reg signed [15:0] exc = 0;
-    reg signed [25:0] a1_0 = 0, a2_0 = 0, a1_1 = 0, a2_1 = 0, a1_2 = 0, a2_2 = 0, a1_3 = 0, a2_3 = 0;
-    reg [15:0] amp0 = 0, amp1 = 0, amp2 = 0, amp3 = 0;
-    wire signed [15:0] y_out; wire y_valid;
-    modal_dp dut (.clk(clk), .rst_n(rst_n), .sample_valid(sample_valid), .exc(exc),
-        .a1_0(a1_0), .a2_0(a2_0), .a1_1(a1_1), .a2_1(a2_1), .a1_2(a1_2), .a2_2(a2_2), .a1_3(a1_3), .a2_3(a2_3),
-        .amp0(amp0), .amp1(amp1), .amp2(amp2), .amp3(amp3), .y_out(y_out), .y_valid(y_valid));
+    reg clk = 0, rst_n = 0, sample_valid = 0, exc_we = 0;
+    reg [1:0] exc_mode = 0;
+    reg signed [20:0] exc_val = 0;
+    reg [4*26-1:0] a1_bus = 0, a2_bus = 0;
+    reg [4*16-1:0] amp_bus = 0;
+    reg [4*2-1:0]  num_bus = 0;
+    wire signed [18:0] y_out; wire y_valid;
+    wire signed [27:0] tap_y1;
+    modal_dp #(.MODES(4), .NUMS(NUMS), .HR(10), .OW(19), .EW(21), .MW(2)) dut (
+        .clk(clk), .rst_n(rst_n), .exc_we(exc_we), .exc_mode(exc_mode), .exc_val(exc_val),
+        .sample_valid(sample_valid), .a1_bus(a1_bus), .a2_bus(a2_bus), .amp_bus(amp_bus), .num_bus(num_bus),
+        .tap_sel(2'd0), .tap_y1(tap_y1), .y_out(y_out), .y_valid(y_valid));
     always #10 clk = ~clk;
 
-    reg [319:0] vec [0:MAXN-1];
+    reg [335:0] vec [0:MAXN-1];
     reg [8*256-1:0] vecfile, outfile;
-    integer n, i, fd, nout, mism, first_i, first_exp, first_got, maxerr, err, timeout;
-    reg signed [15:0] expv;
+    integer n, i, m, fd, nout, mism, first_i, first_exp, first_got, maxerr, err, timeout;
+    reg signed [23:0] expv;
+    reg signed [15:0] exc16;
 
     always @(posedge clk) if (rst_n && y_valid) begin
-        expv = vec[nout][15:0];
+        expv = vec[nout][23:0];
         if (^y_out === 1'bx) $fdisplay(fd, "x"); else $fdisplay(fd, "%0d", y_out);
-        if (^y_out === 1'bx || y_out !== expv) begin
+        if (^y_out === 1'bx || y_out !== expv[18:0]) begin
             if (mism == 0) begin first_i = nout; first_exp = expv; first_got = y_out; end
             mism = mism + 1;
         end
-        err = (^y_out === 1'bx) ? 65536 : (y_out > expv) ? y_out - expv : expv - y_out;
+        err = (^y_out === 1'bx) ? (1 << 19) : (y_out > expv) ? y_out - expv : expv - y_out;
         if (err > maxerr) maxerr = err;
         nout = nout + 1;
     end
@@ -38,18 +46,27 @@ module tb_modal_fx;
     initial begin
         if (!$value$plusargs("vec=%s", vecfile)) vecfile = "build/modal_vectors.hex";
         if (!$value$plusargs("out=%s", outfile)) outfile = "build/modal_rtl_out.txt";
-        for (i = 0; i < MAXN; i = i + 1) vec[i] = {320{1'bx}};
+        for (i = 0; i < MAXN; i = i + 1) vec[i] = {336{1'bx}};
         $readmemh(vecfile, vec);
-        n = 0; while (n < MAXN && vec[n] !== {320{1'bx}}) n = n + 1;
+        n = 0; while (n < MAXN && vec[n] !== {336{1'bx}}) n = n + 1;
         fd = $fopen(outfile, "w");
         nout = 0; mism = 0; maxerr = 0; first_i = -1; first_exp = 0; first_got = 0;
         repeat (4) @(posedge clk); rst_n = 1; repeat (2) @(posedge clk);
         for (i = 0; i < n; i = i + 1) begin
             @(negedge clk);
-            exc  = vec[i][319:304];
-            a1_0 = vec[i][303:276]; a2_0 = vec[i][275:248]; a1_1 = vec[i][247:220]; a2_1 = vec[i][219:192];
-            a1_2 = vec[i][191:164]; a2_2 = vec[i][163:136]; a1_3 = vec[i][135:108]; a2_3 = vec[i][107:80];
-            amp0 = vec[i][79:64]; amp1 = vec[i][63:48]; amp2 = vec[i][47:32]; amp3 = vec[i][31:16];
+            exc16 = vec[i][335:320];
+            for (m = 0; m < 4; m = m + 1) begin
+                a1_bus[m*26 +: 26] = vec[i][(317 - m*56) -: 26];
+                a2_bus[m*26 +: 26] = vec[i][(289 - m*56) -: 26];
+                amp_bus[m*16 +: 16] = vec[i][(95 - m*16) -: 16];
+                num_bus[m*2 +: 2]   = vec[i][(24 + m*2) +: 2];
+            end
+            // push the excitation to every mode, one accumulate per clock
+            for (m = 0; m < 4; m = m + 1) begin
+                exc_we = 1; exc_mode = m; exc_val = {{5{exc16[15]}}, exc16};
+                @(negedge clk);
+            end
+            exc_we = 0;
             sample_valid = 1;
             @(negedge clk); sample_valid = 0;
             timeout = 0;

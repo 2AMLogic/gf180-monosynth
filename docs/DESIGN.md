@@ -34,17 +34,25 @@ mapping.
 | block | cycles | cells | RAM | status |
 |---|---:|---:|---:|---|
 | ladder filter, time-shared | **24** | 5,711 | 0 | RTL bit-exact against `model/fixed.py`, in simulation; 19-bit output (DR 0005) |
-| modal resonator, 4 modes | **15** | 7,017 | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
+| drum section: sources, 12 envelopes, 16 paths (`drum_dp`) | **48** | 10,716 (0.278 mm² of gf180 7t cells) | 0 | RTL bit-exact against `model/drums_fx.py` (DR 0007) |
+| modal bank, 12 modes / 6 numerators — the drums' bodies and filters | **39** (15 at 4 modes) | 13,845 (0.367 mm²) | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed |
 | capacitive touch, 8 pads | — | 568 | 0 | area sketch |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
 | existing 4-voice core (sibling repo) | not measured | 19,049 | 0 | verified, in production |
-| **used** | **39 of 256** | | | |
+| **used** | **109 of 256** (ladder 24 + drum section 85, tick to `body_valid`) | | | before the voice's own front end (six multiplies per frame, unbuilt) |
 
 The ladder's worst-case cycle count equals its mean — the fixed latency that
 justified choosing an explicit solver over an iterative one.
 
 **Nothing needs a faster clock.** The formant family, the feature a 4× clock
 was contemplated for, fits nine times over at 12.288 MHz.
+
+The drum section's cell counts above are yosys → ABC on `gf180mcu_fd_sc_mcu7t5v0`
+at `tt_025C_5v00` (the method of `area-budget.md`), not the PDK-neutral
+counts of the other rows: `drum_kit` (both together) is 0.646 mm² of cells,
+0.605 with `synth -booth`, and 0.461 mm² at 8 modes / 8 envelopes / 12
+paths — four times the ladder, almost all of it state and its muxing. The
+strawman `drum_src_seq.v` (0.089 mm², verified against nothing) is gone.
 
 ---
 
@@ -94,6 +102,10 @@ fast-corner number.
 | PolyBLEP reciprocal | 16-bit mantissa + 16-bit reciprocal, computed at note-on; one 16×16 multiply per sample | set by tracking the float waveform inside Q1.15, not by aliasing — 8 bits already reach the float's suppression |
 | envelope | 24-bit level, Q0.16 rate, release `L −= max(1, (L·rate) >> 16)` | 20 is the floor for attack time; 24 keeps the release floor below −62 dBFS up to a 1 s release |
 | cutoff → `g` ROM | 128 × Q0.16, interpolated — 2 kbit | −0.6 % at 120 Hz, −0.05 % at 1 kHz |
+| drum envelope | the voice's release rule, 24-bit level, Q0.16 rate, plus a hold count, up to three re-strikes at 13/16 and a choke | one rule for every envelope on the chip; the dead zone closed the same way |
+| drum bodies and filters | modes of the modal bank: Q2.24 coefficients, 28-bit state; a numerator (`1 − z⁻²` or `(1 − z⁻¹)²`) on six of twelve | the 808's bridged-T voices are presets, its band- and high-passes the same resonator pre-differenced |
+| drum noise | 31-bit LFSR, 16 bits per frame | a one-cycle leap-forward; whiter than reading the low bits of a once-per-frame register |
+| swing VCA | ×4 / ÷8 into the ladder's 16-entry tanh table | the 808's asymmetric clipping on hats and cowbell, on the table already there |
 
 Holding state in units of 2·Vt rather than volts turns the paper's stage into
 `Y += g·(tanh(X) − tanh(Y))`: the `tanh` argument becomes the state itself and
@@ -240,23 +252,35 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   and [DR 0004](../spec/decision-records/0004-glide-constant-rate-linear-in-pitch.md)
   (proposed) and implemented in the integer model, which is now one
   continuous voice; the float audition still renders note by note.
-- **One of three sketches is still unverified.** `rtl-sketch/ladder_dp.v` and
-  `modal_dp.v` are bit-exact against `model/fixed.py` and `model/modal_fixed.py`
+- **One sketch is still unverified.** `rtl-sketch/ladder_dp.v`,
+  `modal_dp.v` and `drum_kit.v` (`drum_dp.v` + `modal_dp.v`) are bit-exact
+  against `model/fixed.py`, `model/modal_fixed.py` and `model/drums_fx.py`
   under iverilog, with negative controls that show each bench can fail
   (`rtl-sketch/test_rtl.py`). `touch_dp.v` has never been compared against
   anything. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
+- **The drum section is an 808 by circuit, not by ear — yet.** DR 0007 builds
+  it from `docs/tr808-reference.md`: bridged-T bodies as modal presets,
+  six square oscillators for the hats and cowbell, one noise source, the
+  swing VCA. What the reference kit leaves out is listed in the contract's
+  17.14 (the BD's 4 ms attack shift and sigh, the toms' diode pitch fall,
+  the cymbal, rimshot, claves, maracas); the levels are balanced to
+  Roland's tuning chart, not to a recording; and the cowbell's band-pass
+  centre and the clap's timing are choices the reference could not settle.
+  The renders in `audio/drums/` are what a listener judges.
 - **The numeric contract is proposed, not ratified.**
-  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 3)
-  writes the integer voice down section by section, pins its five tables by
-  SHA-256 (`spec/reference/gen_tables.py --check` keeps them the model's),
-  and lists in its section 17 what it deliberately leaves open: the physical
-  control layer, the modal bank's sizing, power-on defaults, the widths of
-  the cutoff registers, and the self-oscillation tuning table. Until it is ratified, the filter and the modal bank
-  are bit-exact against their own models and the rest of the voice is
-  bit-exact against `model/voice_fx.py` by inspection of the contract only —
-  no RTL exists for it yet.
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 4)
+  writes the integer voice and the drum section down section by section,
+  pins its seven tables by SHA-256 (`spec/reference/gen_tables.py --check`
+  keeps them the model's), and lists in its section 17 what it deliberately
+  leaves open: the physical control layer, power-on defaults, the widths of
+  the cutoff registers, the self-oscillation tuning table, the drum
+  section's size and what its kit does not model. Until it is ratified, the
+  filter, the modal bank and the drum section are bit-exact against their
+  own models and the rest of the voice is bit-exact against
+  `model/voice_fx.py` by inspection of the contract only — no RTL exists for
+  it yet.
 - **No PDK has been run.** No synthesis, floorplan, route, GDS, DRC, LVS, STA
   or ERC on gf180mcu. **No area in mm², no timing, no power.** Every cell count
   here is PDK-neutral yosys output.

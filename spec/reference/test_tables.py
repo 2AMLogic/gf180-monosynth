@@ -1,6 +1,7 @@
 """The contract's tables are the model's, and the hashes the contract states
-are the ones revision 3 was written with (revision 1's five, unchanged
-through revision 2, plus K_ROM32 from DR 0006).
+are the ones the revisions were written with: revision 1's five, unchanged
+through revisions 2, 3 and 4; K_ROM32 from DR 0006 (revision 3); NOISE64 and
+KIT808 from DR 0007 (revision 4).
 
     .venv/bin/python -m pytest spec/reference -q
 
@@ -22,6 +23,10 @@ REV3 = {
     "G_ROM128":      "c5ee86efeffbe3cadd040ca3851b5c90806f05f9fab13d5f3cea1cf7730fbe2a",
     "K_ROM32":       "514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a",
 }
+REV4 = {
+    "NOISE64":       "41f2adb399b60f0d7f1d77a03bf004d9b2ec28ab220f476cfafe96c36f99a613",
+    "KIT808":        "819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc",
+}
 
 
 def test_committed_images_and_contract_match_the_model():
@@ -30,9 +35,12 @@ def test_committed_images_and_contract_match_the_model():
     assert gt.main(["--check"]) == 0
 
 
-def test_rev3_hashes_are_the_models():
+def test_rev3_hashes_are_unchanged_and_rev4_adds_two():
+    """Revision 4 added NOISE64 and KIT808 and changed no existing table."""
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
-    assert got == REV3
+    assert {k: got[k] for k in REV3} == REV3
+    assert {k: got[k] for k in REV4} == REV4
+    assert set(got) == set(REV3) | set(REV4)
 
 
 def test_spot_values_the_contract_quotes():
@@ -49,6 +57,11 @@ def test_spot_values_the_contract_quotes():
     assert all(b > a for a, b in zip(gr, gr[1:]))          # strictly increasing
     kr = gt.k_rom32()
     assert len(kr) == 33 and kr[0] == 32799 and max(kr) == 39879 and kr[22] == 33964
+    nz = gt.noise64()
+    assert len(nz) == 64 and nz[0] == 1 and all(-32768 <= v <= 32767 for v in nz)
+    kit = gt.kit808()
+    assert len(kit) == 99 and all(0 <= a < 256 and 0 <= v < (1 << 32) for a, v in kit)
+    assert kit[0] == (0x20, 71758)                           # OSC_INC[0]: 205.3 Hz
 
 
 def test_note_inc_is_the_siblings():
