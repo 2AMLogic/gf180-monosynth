@@ -12,13 +12,15 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the filter | **done** — `model/`, oscillators and envelopes still float |
-| 3 | RTL, bit-exact against (2) | **not started** — `rtl-sketch/` is an area sketch only, never simulated |
+| 3 | RTL, bit-exact against (2) | **ladder: done, in simulation** — `rtl-sketch/ladder_dp.v` is identical to the model on 28,800 samples across five patches, and the bench is shown to fail on injected defects. Modal and touch sketches: unverified |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
 
 Nothing here has been synthesized to a PDK, so there is **no area in mm², no
 timing and no power number**. The cell counts below are PDK-neutral yosys
-output from a datapath sketch that has never been simulated for correctness.
+output. The ladder's is from RTL that is bit-exact against the model; the
+modal and touch sketches' are from datapaths that have never been simulated
+for correctness.
 
 ## Why this block exists
 
@@ -82,17 +84,63 @@ in silicon; **not implemented**, and the filter's first open work item.
 |---|---|---|
 | signal | Q1.15 | |
 | filter state | 24-bit, 20 fraction | 20 is the floor — below it the low-cutoff dead zone opens |
-| coefficient | Q0.16 | |
-| `tanh` table | **16 entries, edge-sampled, interpolated — 256 ROM bits** | 16 scores identically to 256 on every patch |
+| cutoff `g` | Q0.16, unsigned | reaches 61,659 at the 0.45·fs clamp: bit 15 is data, not sign |
+| resonance `k` | Q3.14, 17 bits | 4·res; res = 1.0 is exactly 65,536 |
+| `gain`, `ogain` | Q4.16, 20 bits | drive·vpu/2Vt = 2.6·drive; 2Vt/vpu·(1+2·res). Not Q0.16, whatever the model's older comment said |
+| `tanh` table | **16 entries, edge-sampled, interpolated — 272 ROM bits** | 16 scores identically to 256 on every patch; the +1 top word is the model's 32767 |
 
-Area follows the table directly. The same sketch synthesises to **6,165 cells
-with a 256-entry table and 1,917 with a 16-entry one**. Against
-`gf180-polysynth`'s 19,049-cell core, the filter is roughly **+10 %**, not the
-+32 % a bigger table implies.
+The interpolation is a multiply, and it goes through the one shared multiplier
+(two clocks per `tanh`), so the table costs no second multiplier. The RTL that
+is bit-exact against this model synthesises to **5,725 cells with the 16-entry
+table and 7,058 with 256**, 24 clocks per sample. The multiplier is 24 × 20 —
+it has to carry `k·fb` at full state precision and the two 20-bit gains — and
+is 3,299 of those cells, 58 %. Against `gf180-polysynth`'s 19,049-cell core
+the filter is about **+30 %**.
 
-An earlier guess that `tanh`'s odd symmetry would halve the cost was wrong — it
-saved 4 %. ABC already compresses a large table's redundancy; the win is
-needing *fewer entries*, not exploiting symmetry in more of them.
+The figures this README quoted before — *1,917 cells with a 16-entry table,
+6,165 with 256* — were wrong, and not by a rounding error. They were the area
+of a sketch that computed nothing: its 16-entry variant read the `tanh` ROM
+out of range on every lookup (so every output was X, and yosys was free to
+optimise most of the datapath away), and both variants had no interpolation,
+no input or output gain, a 16 × 16 multiplier, an integrator shift 8× too
+large, a wrapping 16-bit stage difference, and a second oversample pass that
+reused the first pass's feedback. See `rtl-sketch/verify_ladder.py` and the
+history of `ladder_dp.v`. The claim that odd symmetry "saved 4 %" was measured
+on that sketch and is withdrawn with it.
+
+### Verifying the RTL
+
+The model is the specification and the RTL is compared against it sample for
+sample with no tolerance. `rtl-sketch/verify_ladder.py` runs `LadderFx` on
+five patches (the saw above with a 60 Hz → 12 kHz sweep; near-silence at
+resonance 1.08; a full-scale square at 15 kHz and drive 3; LFSR noise; a
+silent limit-cycle tail — 28,800 samples that reach the input clamp 61 times,
+the output clamp 4,835 times, the `tanh` clamp 2,148 times, `g ≥ 2¹⁵` on
+5,084 samples and `k ≥ 2¹⁶` on 9,600), drives `ladder_dp.v` with the same
+integers under iverilog, and reports the first mismatch and the worst error.
+
+```bash
+export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
+.venv/bin/python rtl-sketch/verify_ladder.py                     # 16-entry table
+.venv/bin/python rtl-sketch/verify_ladder.py --tanh-n 256
+.venv/bin/python rtl-sketch/verify_ladder.py --inject FB --expect-fail   # negative control
+.venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
+rtl-sketch/synth_count.sh                                        # the cell counts
+```
+
+A bench that cannot fail proves nothing, so three defects are compiled in
+behind `INJECT_BUG_LADDER_FB` (unit delay instead of the half-sample average),
+`INJECT_BUG_LADDER_SAT` (wrap instead of clamp) and
+`INJECT_BUG_LADDER_TANH_CLAMP` (the old sketch's index wrap past 4.0). Each
+is caught — 23,377, 3,155 and 18,389 mismatching samples respectively — and
+`test_negative_control_is_caught` requires it.
+
+One thing the bench cannot reach: the model's ±8.0 state clamp fired **zero**
+times, and cannot. Once |y| ≥ 4.0 the stage's own `tanh` is pinned at 32767,
+the difference driving the integrator changes sign, and the state turns back;
+it peaks at 4.0 + 2g ≈ 5.9. The 24th state bit is still required — 5.9 needs
+three integer bits and a sign — but it is not "6 dB of headroom before the
+clamp"; the clamp is dead logic in both model and RTL, kept for bit-exactness.
 
 ### Two things fixed point caught that float hid
 
@@ -126,7 +174,7 @@ locks it.
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point filter, its sizing sweep, and regression tests |
-| `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
+| `rtl-sketch/` | `ladder_dp.v`, a time-shared ladder datapath bit-exact against `model/fixed.py`, with its bench and negative controls. `modal_dp.v` and `touch_dp.v` are area sketches only — never simulated, never verified |
 | `spec/decision-records/` | Why things are the way they are |
 
 ## Playing it
@@ -141,5 +189,8 @@ a note on; `[` `]` sweep the cutoff, `-` `=` resonance, `;` `'` drive. A MIDI
 device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 
 ```bash
-.venv/bin/python -m pytest model/ -q
+.venv/bin/python -m pytest model/ rtl-sketch/ -q
 ```
+
+The `rtl-sketch/` tests need `iverilog`; without it they skip, and a skip is
+not a pass.
