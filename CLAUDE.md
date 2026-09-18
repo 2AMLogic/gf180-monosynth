@@ -41,15 +41,37 @@ Five of six agents on this repository burned a large fraction of their budget
 in polling loops after their work was already finished on disk. That is the
 single biggest avoidable cost here.
 
+### The measurement, so this is not an opinion
+
+One session was audited. **Eighty-nine agent wake-ups produced nothing but
+"still running" or "ending my turn"** — one agent alone did **twenty-four**.
+Each wake reprocesses the agent's entire context, so for a 200k-token agent
+that is 200k tokens spent to say "waiting". That is the largest single waste in
+this repository, by a wide margin, and it is not close.
+
+The cause is always the same: **serial jobs.** Fire one, wake, fire the next,
+wake. Four verifiers become four wakes and roughly a million tokens of nothing.
+
 ### Do this
 
-**Block in one command.** Exit when the condition is true, with
-`run_in_background: true`. One tool call, one notification, zero turns while
-waiting:
+**Run every job in ONE turn with `tools/run_all.sh`.** It runs them in
+parallel, blocks until all finish, and prints one combined summary:
+
+```bash
+tools/run_all.sh "python rtl-sketch/verify_ladder.py" \
+                 "python rtl-sketch/verify_modal.py" \
+                 "python rtl-sketch/verify_voice.py --set full"
+```
+
+One tool call. One notification. Its exit code is the number of failures, so
+`&& echo ok` still works, and `--serial` is there when jobs contend.
+
+**If you are waiting on something else**, block in one command and chain the
+follow-up into the same call, so the result is already analysed when you wake:
 
 ```bash
 until [ -f rtl-sketch/build/results.json ]; do sleep 2; done
-```
+grep -E "PASS|mismatch" rtl-sketch/build/results.json
 
 **Chain the follow-up work into the same command.** Do not return to the model
 between running a thing and reading its result:
@@ -75,6 +97,11 @@ including failures, not just the success marker.
   anything it depends on
 - report "waiting on the run" as a turn. If the work is done and only a report
   is missing, write the report
+- **wake up to say you are still waiting.** That turn costs a full context pass
+  and tells the coordinator nothing it did not already know. If you have
+  nothing to report, do not take a turn to say so
+- **start a second job after the first one finishes.** If you knew you needed
+  both, you should have launched both
 
 ### If you are stopping because you are blocked
 
