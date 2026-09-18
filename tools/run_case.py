@@ -879,6 +879,20 @@ def filt_corner(cut_hz: float):
     commanded at 250 Hz and its four cascaded poles put the -3 dB point at
     128 Hz, which is a property of a 4-pole low-pass and not a tuning error.
 
+    **What this number is, exactly**, because it is not the textbook -3 dB
+    corner and reporting it as one would be wrong. It is the -3 dB point
+    relative to that curve's OWN passband plateau (the median over 40-62.5 Hz),
+    linearly interpolated in dB between the two measured points that straddle
+    it on a log grid whose points are 20.2 % apart. Both departures are
+    measured: on a closed-form ideal 4-pole with a 250 Hz pole, whose true
+    -3 dB corner is 108.54 Hz, this reads 124.96 Hz -- 15 % high.
+
+    That bias is COMMON MODE. Both sides of every comparison are measured by
+    this function, on the same grid, so a difference between two corners is a
+    real difference; the absolute value is not a textbook corner and is
+    labelled as this estimator's. Pinned in
+    test_run_case.py::test_filt_corner_recovers_a_known_ratio_between_two_corners.
+
     Ground truth: audio_measure.corner_from_curve's own tests."""
     def f(freqs, g):
         return am.corner_from_curve(freqs, g, ref_band=_ref_band(freqs, cut_hz))
@@ -908,25 +922,40 @@ def filt_lowband_gain(cut_hz: float, open_plateau_db: float):
 
 
 def filt_rolloff(cut_hz: float):
-    """Stopband slope MINUS the slope an IDEAL analogue 4-pole gives over the
-    SAME band.
+    """Stopband slope in dB per octave, fitted between 2.2 and 7 times the
+    device's OWN measured corner -- `reference_compare.response_row`'s band,
+    so the two agree by construction.
 
-    The correction is not decoration. A slope is fitted between 2.2 and 7 times
-    each device's OWN measured corner, and those are different bands when the
-    corners differ -- Surge's is 282-897 Hz here, ours 259-825 Hz. An ideal
-    4-pole is not yet at its asymptotic -24 dB/oct in either, it is at about
-    -22.4, and by slightly different amounts. Quoting the raw slopes side by
-    side would charge each filter for where its own corner happened to land.
-    `reference_compare.ideal_4pole_slope` is the closed form, already in the
-    repository for exactly this.
+    **Each device is measured over its own band, not over a shared one, and
+    the raw slope is reported with no correction.** An earlier version of this
+    subtracted the slope an ideal analogue 4-pole gives over the same band
+    (`reference_compare.ideal_4pole_slope`), on the argument that two filters
+    with different corners are fitted over different bands. That correction was
+    measured before it was used and it was WORSE than the thing it corrected:
+    `ideal_4pole_slope`'s `fp` is a POLE frequency and what this has is a -3 dB
+    CORNER, which for a 4-pole are a factor of 2.3 apart, so the "ideal" it
+    subtracted was the wrong curve. On closed-form ideal 4-poles it read +3.77,
+    +4.09 and +4.99 dB/oct at pole frequencies of 250, 312 and 500 Hz -- three
+    different answers for three filters of identical shape.
+
+    THE SYSTEMATIC THAT REPLACES IT, MEASURED. The band is scale-invariant in
+    principle, so two filters of the same shape should read the same slope
+    wherever their corners are. They do not quite, because the measured corner
+    is interpolated on a log grid whose points are 20.2 % apart and that
+    interpolation's error depends on where the corner falls between two of
+    them. Over a 2:1 range of corners on closed-form ideal 4-poles the raw
+    slope moves from -18.68 to -17.46 dB/oct: **0.32 dB/oct per 25 % of corner
+    difference.** At F1A's 8 % corner difference that is about 0.1 dB/oct,
+    a fifteenth of the 1.5 dB/oct tolerance. It is pinned in
+    test_run_case.py::test_filt_rolloff_is_nearly_scale_invariant so it cannot
+    grow unnoticed.
 
     Refuses whenever `slope_db_oct` refuses -- a curve that is not a straight
     line over the band has no slope, and that refusal is what found the
     quantisation floor this profile's probe level is chosen inside.
 
-    Ground truth: test_run_case.py::test_filt_rolloff_of_an_ideal_4pole_is_zero."""
-    import reference_compare as rc
-
+    Ground truth: test_run_case.py::test_filt_rolloff_of_an_ideal_4pole,
+    test_filt_rolloff_sees_a_pole_that_is_not_there."""
     def f(freqs, g):
         rb = _ref_band(freqs, cut_hz)
         c = am.corner_from_curve(freqs, g, ref_band=rb)
@@ -944,14 +973,13 @@ def filt_rolloff(cut_hz: float):
         sl = am.slope_db_oct(freqs, g, band)
         if not sl.ok:
             return sl
-        ideal = rc.ideal_4pole_slope(band, c.value)
-        return am.Estimate(sl.value - ideal, True, "",
-                           dict(slope_db_oct=round(sl.value, 4),
-                                ideal_4pole_db_oct=round(ideal, 4),
-                                band_hz=[round(b, 2) for b in band],
+        return am.Estimate(sl.value, True, "",
+                           dict(band_hz=[round(b, 2) for b in band],
                                 corner_hz=round(c.value, 3),
+                                n_points=int(sl.detail.get("n", 0)),
                                 fit_residual_db=round(float(sl.detail.get("residual_db", 0.0)), 4),
-                                stopband_floor_db=STOPBAND_FLOOR_DB))
+                                stopband_floor_db=STOPBAND_FLOOR_DB,
+                                band_systematic_db_oct_per_25pct_corner=0.32))
     return f
 
 
