@@ -1956,11 +1956,28 @@ def test_cymbal_band_split_against_the_machine_and_what_is_still_missing():
     the missing energy sitting in 5-9 kHz instead.
 
     WHY, precisely: that shoulder wants a resonant filter near 10.5 kHz that
-    falls again above it, and with sixteen modes the bank has one post-filter
-    to spare for the cymbal's high band, not two. Reference 10 names three
-    high-passes; the model has two of the three and drops Hh1. The bounds below
-    are the machine's value with the residual this paragraph admits -- they are
-    NOT a claim that the cymbal matches.
+    falls again above it. THE MODEL ALREADY HAS ONE -- `M_CYHI`, at
+    CY_HI_HZ = 10500. It is MISTUNED, NOT MISSING. Measured: Q 2.5 -> 4.0 on
+    that single filter takes the five-band cost from 18.1 to 6.0 -- two thirds
+    of the error -- with no new mode, no new path and no new numerator, and all
+    102 acceptance tests still pass. Adding a second 2-pole instead reaches only
+    10.3, so MORE FILTERING IS NOT THE LEVER.
+
+    (That Q 4.0 is a FIT: a grid search on one reference file with nothing held
+    out, and +60 % is outside reference 1.7's +-50 % unit-to-unit normal. It is
+    probably standing in for the third-order pole reference 10 specifies and the
+    model realises as a single 2-pole. Treat it as a fit until it is checked
+    against a held-out case.)
+
+    DO NOT READ THIS AS "the model drops Hh1". Hh1 is a LOW-band filter at
+    2.5 kHz Q 0.97 (docs/tr808-reference.md, the IC3 pin 1 row). Restoring it
+    closes 0.4 of the shoulder's 8.0 points and moves 5-9 kHz the WRONG WAY.
+    An earlier version of this docstring put "near 10.5 kHz" and "drops Hh1" in
+    adjacent clauses; a later reader took them for one filter and briefed an
+    agent to go and restore a filter that was never the cause.
+
+    The bounds below are the machine's value with the residual this paragraph
+    admits -- they are NOT a claim that the cymbal matches.
 
     Ground truth: test_audio_measure.test_band_energy_splits_a_two_tone_signal,
     test_audio_measure.test_band_energy_disagrees_with_a_windowed_fft_on_a_decaying_signal
