@@ -2,28 +2,28 @@
   "engine": "fixed-model",
   "case_id": "E1A",
   "subject": "Bass and kit / sparse",
-  "source_commit": "4892fa4",
-  "analysis_run": "run_case@1c5e8c37d7c6 + audio_measure@7386f4a9297f at 2026-09-18T21:09:52Z",
+  "source_commit": "3645b26",
+  "analysis_run": "run_case@c5596a0ab944 + audio_measure@7386f4a9297f at 2026-09-18T21:21:08Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "4892fa4",
-      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
+      "commit": "3645b26",
+      "described": "node/D-drums-bitexact-40-g3645b26-dirty",
       "branch": "tools/case-runner",
       "dirty": true,
-      "uncommitted_sha256": "93b74aa6f8571adb",
+      "uncommitted_sha256": "fb44f27d2b141ad4",
       "untracked_files": 0
     },
     "base_check": {
       "checked": true,
-      "origin_main": "217bd4ead851",
-      "behind_commits": 3,
+      "origin_main": "3d8c1694a983",
+      "behind_commits": 1,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
       "allow_stale": false,
       "problems": [],
-      "note": "3 commit(s) behind origin/main, none of them touching an input this measurement depends on"
+      "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
     },
     "command": "tools/run_case.py E1A E1B E2A",
     "config": {
@@ -35,18 +35,18 @@
       "limiter": false
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T21:09:52Z",
+    "run_at": "2026-09-18T21:21:08Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
       "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
-      "tools/run_case.py": "sha256:1c5e8c37d7c6f065",
+      "tools/run_case.py": "sha256:c5596a0ab944ab8b",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
     },
     "artefacts": {
       "mix": "build/scorecard/E1A-mix.wav"
     },
-    "outcome_code": 2,
+    "outcome_code": 0,
     "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
   },
   "reference_profile": "our own per-bus stems and the written hit schedule; no external reference is involved in this case",
@@ -62,10 +62,14 @@
   },
   "metrics": {
     "Event timing": {
+      "value": 1.9583,
       "units": "ms",
-      "valid": false,
-      "why": "BD: detected onsets do not match the scheduled events {'detected': 11, 'scheduled': 10, 'min_gap_s': 0.121}",
-      "tolerance": 10.0
+      "reference": 0.0,
+      "error": 1.9583,
+      "tolerance": 10.0,
+      "valid": true,
+      "tolerance_basis": "event timing",
+      "worst_stop": "BD"
     },
     "bus balance": {
       "value": 0.0,
@@ -104,6 +108,7 @@
       "OH",
       "SD"
     ],
+    "onsets_outside_the_schedule": 1,
     "dc_offset_fs": 0.00154639,
     "patch": "01-bass-classic",
     "bpm": 124.0

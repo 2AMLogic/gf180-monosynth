@@ -363,15 +363,17 @@ def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) ->
             groups.append(float(t))
     gaps = [b - a for a, b in zip(groups, groups[1:])]
     min_gap = max(0.020, 0.5 * min(gaps)) if gaps else 0.020
-    found = [i / sr for i in am.onsets(x, sr, min_gap_s=min_gap)]
+    all_found = [i / sr for i in am.onsets(x, sr, min_gap_s=min_gap)]
+    lo, hi = groups[0] - 0.020, groups[-1] + min_gap
+    found = [t for t in all_found if lo <= t <= hi]
+    outside = len(all_found) - len(found)
+    detail = dict(scheduled=len(groups), detected_in_window=len(found),
+                  min_gap_s=round(min_gap, 4), onsets_outside_the_schedule=outside)
     if len(found) != len(groups):
         return am.Estimate(None, False,
-                           "detected onsets do not match the scheduled events",
-                           dict(detected=len(found), scheduled=len(groups),
-                                min_gap_s=round(min_gap, 4)))
+                           "detected onsets do not match the scheduled events", detail)
     worst = max(abs(f - g) for f, g in zip(found, groups)) * 1e3
-    return am.Estimate(worst, True, "", dict(events=len(groups),
-                                             min_gap_s=round(min_gap, 4)))
+    return am.Estimate(worst, True, "", detail)
 
 
 # ===========================================================================
@@ -1192,12 +1194,13 @@ def run_ensemble_case(case: dict, keep_audio: bool) -> dict:
     # needs no external reference at all -- and the worst stop is what is
     # reported, never an average over the stops that were on time.
     tol, basis = tol_fixed(10.0, "event timing")(0.0, {})
-    worst, worst_stop, refusal = None, "", ""
+    worst, worst_stop, refusal, outside_total = None, "", "", 0
     for stop_name, (sig, sched) in r["per_stop"].items():
         e = worst_event_offset_ms(sig / 32768.0, sr, sched)
+        outside_total += int((e.detail or {}).get("onsets_outside_the_schedule", 0))
         if not e.ok:
-            refusal = f"{stop_name}: {e.reason} {e.detail}"
-            break
+            refusal = refusal or f"{stop_name}: {e.reason} {e.detail}"
+            continue
         if worst is None or e.value > worst:
             worst, worst_stop = e.value, stop_name
     if refusal or worst is None:
@@ -1249,6 +1252,7 @@ def run_ensemble_case(case: dict, keep_audio: bool) -> dict:
                               for k, s in r["stems"].items()},
             "scheduled_events": len(r["hits_s"]),
             "stops_timed": sorted(r["per_stop"]),
+            "onsets_outside_the_schedule": outside_total,
             "dc_offset_fs": round(float(mix.mean()) / 32768.0, 8),
             "patch": r["patch"], "bpm": r["bpm"],
         },

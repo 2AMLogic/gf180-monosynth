@@ -101,10 +101,43 @@ and every metric names the class it used:
 |---|---|---|
 | frequency | 10 % of the reference value | the TR-808's own component tolerance on f0, `docs/tr808-reference.md` §1.7 |
 | time | 50 % of the reference value | §1.7's ±50 % on Q, and τ ∝ Q for these bridged-T resonators |
+
+Every decay is a **T20 off the backward-integrated energy curve**
+(`audio_measure.schroeder_t20`), never a single exponential's τ. It was a τ
+first, and `decay_tau` refused five of the eight references outright — *"not a
+single exponential"*, residuals of 4 to 23 dB. It was right to: the hats, the
+cowbell and the cymbal are sums of incommensurate squares whose envelope beats
+by 6–10 dB, and the clap is three bursts over a tail. **The response to a
+refused precondition is an estimator whose precondition holds, not a looser
+threshold on the first one.** The Schroeder curve is monotone by construction
+and equals ln(10)·τ exactly on a signal that really is one exponential. As an
+external check, the T20s it reads off the reference recordings agree with the
+τ values `docs/drum-verification.md` published from a different estimator:
+LT 202.7 ms measured against 202 predicted, BD 537 against 530.
 | energy ratio | 3 dB | the half-power convention: a stated convention, not a number derived from any error of ours |
 
 A tolerance chosen per case, after seeing the error, is fitting around the
 deficiency it was supposed to catch.
+
+## The premise of the batch, asserted before it runs
+
+`run_case.py` refuses a whole batch when an input it depends on differs from
+`origin/main`. That check exists because of one run: eight drum cases came back
+
+> REFUSED: the eight-stop kit does not implement LC / MT / MC / HC / CL / RS /
+> MA / CY
+
+which was exactly right about the worktree it had, and false about the project
+— the complete sixteen-sound kit had landed on `origin/main` two commits
+earlier. **Eight honest per-case refusals read as a permanent hole in the
+instrument.** A stale premise is a property of the checkout, not of the
+instrument, and the two must never come out looking alike.
+
+It refuses on the *dependencies* — `drums_fx.py`, `voice_fx.py`,
+`audio_measure.py`, `drum_verify.py`, `cases.csv` — and on the drum circuit
+count, not on the raw commit count. `main` moves several times an hour here;
+a gate that fires on commits which cannot change a measurement trains everyone
+to pass `--allow-stale`, and an ignored gate is worse than no gate.
 
 ## Provenance: what a result was measured against
 
