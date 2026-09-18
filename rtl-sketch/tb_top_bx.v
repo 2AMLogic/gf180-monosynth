@@ -17,7 +17,17 @@
 //   +cmd=<file>    one line per write: "wait_frames flag sec addr data"
 //   +i2s=<file>    one line per completed LRCLK period: "period left right nbits_l nbits_r"
 //   +samp=<file>   one line per frame: "frame sample"   (diagnostic)
-//   +wrs=<file>    one line per write that reached the register port: "frame flag sec addr data"
+//   +wrs=<file>    one line per write that reached the register port:
+//                  "frame flag sec addr data predicted_frame". `predicted_frame`
+//                  is derived from the CS_N PIN, not from the DUT: the frame the
+//                  acceptance cycle falls in (the pin edge plus DR 0007 section
+//                  5's three synchroniser cycles), plus one, because a write
+//                  received during frame f applies at the start of f+1. The
+//                  model is driven by the PREDICTION and the chip is separately
+//                  required to agree with it -- if the model were driven by the
+//                  frame the chip reported, a link that delayed a write by a
+//                  frame would move the model with it and the test could never
+//                  see it.
 //   +frames=N      run this many frames after the last write
 `timescale 1ns/1ps
 module tb_top_bx;
@@ -32,6 +42,36 @@ module tb_top_bx;
     integer fr = 0, ticks = 0;
     always @(posedge clk) if (!rst_n) begin fr <= 0; ticks <= 0; end
         else if (dut.cyc == 8'd255) begin fr <= fr + 1; ticks <= ticks + 1; end
+
+    // ---- when SHOULD each write land? Pin observation, no DUT internals ----------
+    // Pin to acceptance is three core cycles (two synchroniser stages and the
+    // edge detector, DR 0007 section 5, informative). A write accepted during
+    // frame f is applied at the start of frame f+1, whatever cycle of f it was
+    // accepted in -- the drain snapshots the queue at the tick, so a push in the
+    // tick cycle belongs to the frame that starts there and drains in the next.
+    localparam PIN_TO_ACCEPT = 3;
+    parameter  MAXQ = 4096;
+    integer pred [0:MAXQ-1];
+    integer pred_w = 0, pred_r = 0, pred_bad = 0;
+    reg  csn_d = 1;
+    integer csn_cd = 0;
+    always @(posedge clk) if (rst_n) begin
+        csn_d <= cs_n;
+        if (cs_n && !csn_d) csn_cd <= PIN_TO_ACCEPT;      // CS_N rose at the pin
+        else if (csn_cd > 0) begin
+            csn_cd <= csn_cd - 1;
+            // Count the edges, not the cycles. The pin rise is SAMPLED at edge 1
+            // (csn_q[0]); csn_s follows at edge 2; csn_rise is then true for the
+            // cycle between edges 2 and 3, so the push registers AT EDGE 3 --
+            // which is csn_cd == 2 here, because edge 1 loaded 3 without
+            // decrementing. Reading `fr` with a blocking read at that edge gives
+            // the frame the acceptance cycle belongs to, before any tick update.
+            if (csn_cd == 2) begin
+                if (pred_w < MAXQ) pred[pred_w] = fr + 1;
+                pred_w = pred_w + 1;
+            end
+        end
+    end
 
     // ---- the DUT's own sample stream: a DIAGNOSTIC, never the expectation ---------
     integer samp_fd = 0, wr_fd = 0, i2s_fd = 0;
@@ -49,8 +89,14 @@ module tb_top_bx;
             if (samp_fd) $fdisplay(samp_fd, "%0d %0d", fr, dut.sample_valid ? dut.sample : samp);
             got <= 1'b0;
         end
-        if (dut.wr_valid && wr_fd)
-            $fdisplay(wr_fd, "%0d %0d %0d %0d %0d", fr, dut.wr_flag, dut.wr_sec, dut.wr_addr, dut.wr_data);
+        if (dut.wr_valid) begin
+            if (wr_fd)
+                $fdisplay(wr_fd, "%0d %0d %0d %0d %0d %0d", fr, dut.wr_flag, dut.wr_sec,
+                          dut.wr_addr, dut.wr_data,
+                          (pred_r < pred_w && pred_r < MAXQ) ? pred[pred_r] : -1);
+            if (pred_r < pred_w && pred_r < MAXQ && pred[pred_r] != fr) pred_bad = pred_bad + 1;
+            pred_r = pred_r + 1;
+        end
     end
 
     // ---- I2S receiver: pins only, exactly what a DAC sees -------------------------
@@ -116,6 +162,8 @@ module tb_top_bx;
         $fclose(cmd_fd);
         wait_ticks(run_frames);
         $display("tb_top_bx: %0d writes sent, %0d frames, %0d I2S periods decoded", n_sent, fr, i2s_words);
+        $display("tb_top_bx: transactions accepted at the pin %0d, writes drained %0d, landing frame differs from the pin prediction %0d times (must be 0)",
+                 pred_w, pred_r, pred_bad);
         $display("tb_top_bx: sample strobed in %0d frames, MISSING in %0d, worst strobe cycle %0d of 256",
                  n_strobe, n_nostrobe, worst_cyc);
         $display("tb_top_bx: datapath busy at a tick: %0d (must be 0); overrun %0d; overflow %0d",

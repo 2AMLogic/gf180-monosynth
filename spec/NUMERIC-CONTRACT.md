@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 7 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 8 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
@@ -10,7 +10,7 @@ TR-808-shaped set of eight stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 7,
+through the two-key process this fleet uses; until then it is revision 8,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -1792,6 +1792,38 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 8 (2026-09-18)** — **the control frame, because it could not carry
+  the register image this contract specifies.** No pinned table moves, no
+  width, bus, clamp or formula of the audio path changes, and every rev-7
+  reference sequence is unchanged; what changes is 5.2 and 5.4, the transport,
+  and one addition to 12's registers.
+  - **The transaction is 48 bits, `{F, 6'b0, SEC, A[7:0], D[31:0]}`** (DR 0007
+    **revision 2**), where rev 3 to rev 7 all said 32 bits carrying a 7-bit
+    address and a 24-bit datum. 15.1 has specified the drum image as an 8-bit
+    address space with values up to 32 bits since rev 5, and DR 0007 reserved
+    64 addresses for a block that needs 117: the two were never compatible.
+    Measured on the two models' own writes — the voice patch image from
+    `voice_fx.patch_regs()` and Appendix G's kit — **118 of 155 writes are
+    corrupted** by the 32-bit frame: 118 drum writes have no page to land in,
+    67 addresses do not fit in 7 bits (`A_PATH` 0x80, `A_MODE` 0xC0,
+    `A_RESET` 0xFF) and 26 data do not fit in 24 (`ENV_CTL` is 27 bits,
+    `MODE_A1`/`A2` 26). `rtl-sketch/verify_ctl.py` is the bench that measures
+    it and `rtl-sketch/stubs/spi_ctl_dr7rev1.v` keeps the old receiver so the
+    number stays reproducible.
+  - **`SEC` selects the page**: 0 the voice and master map of 5.2, 1 the drum
+    map of 15.1. Both maps are byte-for-byte what they already were, so
+    **Appendix G's hash does not move for this** and its 100 writes are sent
+    unchanged. RESET is per page (0x23 and 0xFF).
+  - **`BVOL` gains an address, 0x2C.** The output stage of 12 has named two
+    drum gains since rev 5 (`dvol` for `dmix`, `bvol` for `body`); the
+    register map had one. The arithmetic of 12 is untouched.
+  - The status word's VERSION field reads 0x2 (it names DR 0007's map, and
+    the map changed).
+  Nothing here was reachable from a bench before: every bench in the
+  repository drove the register WRITE PORT, not the link, which is why both
+  sides could be bit-exact against their models and still not be connectable.
+  `rtl-sketch/verify_synth_top.py` now compares the I2S wire against
+  `model/synth_top_model.py` end to end. Not ratified.
 - **Rev 7 (2026-09-18)** — the snare, from the same recordings rev 6 used
   and by the same validated separator. **A PINNED TABLE CHANGES AGAIN:
   Appendix G (KIT808) moves, and only it.** No other hash moves; no width,

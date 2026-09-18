@@ -168,13 +168,49 @@ def test_dr7_revision1_frame_could_not_carry_the_drum_image(tmp_path):
     assert verify_ctl.main(["--link", "dr7rev1", "--outdir", str(tmp_path)]) == 1
 
 
+# Each control names the failure it is RECORDED to cause. A status of 1 alone
+# is not evidence: an expectation satisfied by the WRONG failure is how a
+# strict-xfail entry stayed red in this repository after the defect it tracked
+# had already been fixed. `field` must be non-zero and every other field zero.
+CTL_CONTROLS = [
+    ("SPI_ADDR7",  "bad_addr"),      # revision 1's 7-bit address field
+    ("SPI_DATA24", "bad_data"),      # revision 1's 24-bit data field
+    ("SPI_NOSEC",  "bad_sec"),       # no page bit: drum writes land on the voice
+]
+
+
 @needs_sim
-@pytest.mark.parametrize("bug", ["SPI_ADDR7", "SPI_DATA24", "SPI_NOSEC", "SPI_ANYLEN", "SPI_DRAIN_LATE"])
-def test_control_link_negative_control_is_caught(bug, tmp_path):
-    """Revision 1's address field, revision 1's data field, no page bit, a
-    mis-sized transaction applied instead of discarded, and a drain that runs
-    at `go` instead of before it -- each must produce a mismatch."""
+@pytest.mark.parametrize("bug,field", CTL_CONTROLS)
+def test_control_link_negative_control_fails_the_recorded_way(bug, field, tmp_path):
+    """Not just "it went red": the field that must be wrong is wrong and the
+    other three are clean, so the control cannot be satisfied by an unrelated
+    defect somewhere else in the link."""
     assert verify_ctl.main(["--inject", bug, "--outdir", str(tmp_path)]) == 1
+    got = verify_ctl.LAST
+    assert got[field] > 0, f"{bug} did not corrupt {field}: {got}"
+    for other in ("bad_flag", "bad_sec", "bad_addr", "bad_data"):
+        if other != field:
+            assert got[other] == 0, f"{bug} also corrupted {other}, which it does not model: {got}"
+
+
+@needs_sim
+def test_control_link_discards_a_missized_transaction(tmp_path):
+    """A transaction of any length but 48 bits is discarded (DR 0007 section
+    1). The control applies them instead, so MORE writes reach the port than
+    were sent -- a different failure from a corrupted one, and checked as such."""
+    assert verify_ctl.main(["--inject", "SPI_ANYLEN", "--outdir", str(tmp_path)]) == 1
+    got = verify_ctl.LAST
+    assert got["count_seen"] > got["count_sent"], got
+
+
+@needs_sim
+def test_control_link_drain_must_precede_go(tmp_path):
+    """The drain must apply every write before any datapath block reads a
+    control register. The control moves it to cycle 8, where `go` is; the
+    failure must be the late-write count, not a corrupted payload."""
+    assert verify_ctl.main(["--inject", "SPI_DRAIN_LATE", "--outdir", str(tmp_path)]) == 1
+    got = verify_ctl.LAST
+    assert got["late"] > 0, got
 
 
 # ---- the whole chip at its pins, against the model -------------------------
@@ -190,17 +226,57 @@ def test_chip_is_bit_exact_at_its_pins(tmp_path):
     assert verify_synth_top.main(["--short", "--outdir", str(tmp_path)]) == 0
 
 
+# Same discipline at the chip level, and here it earns its keep twice over: a
+# defect in the CORE and a defect in the SERIALISER both turn the wire red, and
+# only the core column tells them apart. "core" means the core's own stream is
+# already wrong; "wire" means the core is right and i2s_tx is not.
+CHIP_CONTROLS = [
+    ("VOICE_MASTER_PRESHIFT", "core"),   # two floors instead of contract 12's one
+    ("VOICE_DRUM_CLAMP16",    "core"),   # the drum buses clipped before their gains
+    ("VOICE_OUT_SAT",         "core"),   # no rail
+    ("MODAL_NUM_HOLD",        "core"),
+    ("MODAL_EXC_NOCLEAR",     "core"),
+    ("DRUM_LFSR_TAP",         "core"),
+    ("I2S_SHIFT",             "wire"),   # every bit one BCLK late
+    ("I2S_DELAY",             "wire"),   # the sample a period late (D = 2)
+]
+
+
 @needs_sim
-@pytest.mark.parametrize("bug", ["VOICE_MASTER_PRESHIFT", "VOICE_DRUM_CLAMP16", "VOICE_OUT_SAT",
-                                 "I2S_SHIFT", "I2S_SWAP", "I2S_DELAY",
-                                 "MODAL_NUM_HOLD", "MODAL_EXC_NOCLEAR", "DRUM_LFSR_TAP"])
-def test_chip_negative_control_is_caught(bug, tmp_path):
-    """Each product shifted before the sum instead of contract 12's single
-    shift; the drum buses clipped to 16 bits before their gains; no rail; the
-    wire one bit late; the channels swapped; the sample a period late -- and
-    three defects inside the drum engine, to show the chip-level bench sees
-    through to them. Status exactly 1."""
+@pytest.mark.parametrize("bug,where", CHIP_CONTROLS)
+def test_chip_negative_control_fails_the_recorded_way(bug, where, tmp_path):
+    """Status 1 is not enough. A `core` control must show the core's own
+    stream already wrong; a `wire` control must show the core CORRECT and the
+    decoded wire wrong, which is the only way this bench can tell a serialiser
+    defect from a datapath one."""
     assert verify_synth_top.main(["--short", "--inject", bug, "--outdir", str(tmp_path)]) == 1
+    got = verify_synth_top.LAST
+    assert got["wire_mismatch"] > 0, f"{bug} did not change the wire: {got}"
+    if where == "core":
+        assert got["core_bad"] > 0, f"{bug} is a datapath defect but the core's stream was clean: {got}"
+    else:
+        assert got["core_bad"] == 0, f"{bug} is a serialiser defect but the core's stream was wrong too: {got}"
+
+
+@needs_sim
+def test_chip_channel_swap_shows_as_a_channel_swap(tmp_path):
+    """I2S_SWAP must fail as L != R and NOT as a wrong sample value: the left
+    channel still carries the right word. A bench that only compared one
+    channel would call this green, and that is the bug that shipped in trial1."""
+    assert verify_synth_top.main(["--short", "--inject", "I2S_SWAP", "--outdir", str(tmp_path)]) == 1
+    got = verify_synth_top.LAST
+    assert got["swap"] > 0 and got["wire_mismatch"] == 0 and got["core_bad"] == 0, got
+
+
+@needs_sim
+def test_chip_write_landing_frame_matches_the_pin(tmp_path):
+    """The model is driven by the frame the CS_N PIN predicts, and the chip
+    must agree with it. If the model were driven by the frame the chip
+    reported, a link that delayed every write by a frame would move the model
+    with it and nothing could see it."""
+    assert verify_synth_top.main(["--short", "--outdir", str(tmp_path)]) == 0
+    got = verify_synth_top.LAST
+    assert got["frame_pred_bad"] == 0 and got["frame_no_pred"] == 0, got
 
 
 @needs_sim

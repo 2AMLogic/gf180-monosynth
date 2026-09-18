@@ -14,9 +14,20 @@ What it does:
      48-bit DR 0007 revision 2 frames, reports which frame each write landed
      in, and decodes the I2S wire the way a DAC does -- from BCLK, LRCLK and
      SDATA only, never from inside the DUT;
-  3. runs the model on the writes AT THE FRAMES THE CHIP SAYS THEY LANDED IN,
-     after checking each one arrived with its payload intact and in order;
+  3. runs the model on the writes at the frames PREDICTED FROM THE PIN, after
+     checking each one arrived with its payload intact, in order, and in the
+     frame the prediction named;
   4. compares THE DECODED I2S WORDS against the MODEL, with no tolerance.
+
+The model is driven by the frames PREDICTED FROM THE CS_N PIN (the acceptance
+cycle is the pin edge plus DR 0007 section 5's three synchroniser cycles, and
+a write received during frame f applies at the start of f+1), and the chip is
+separately required to agree with that prediction. Driving the model with the
+frame the CHIP reported would have been self-referential: a link that delayed
+every write by a frame would move the model with it and no comparison could
+see it. `LAST` records what any failure actually was, so a caller can check
+that a negative control failed for the reason it was recorded to fail for and
+not for some other one.
 
 Point 4 is the whole point. rtl-sketch/tb_synth_top.v compares the I2S stream
 against `dut.sample` -- the DUT's own output -- which is circular and cannot
@@ -181,6 +192,12 @@ def rows(path):
     return [ln.split() for ln in open(path).read().splitlines() if ln.strip()]
 
 
+# What the last run actually found. A negative control must be checked against
+# the failure it was RECORDED to cause, not merely against a non-zero status:
+# an expectation satisfied by the wrong failure is not evidence.
+LAST: dict = {}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inject", default=None); ap.add_argument("--expect-fail", action="store_true")
@@ -209,11 +226,21 @@ def main(argv=None) -> int:
     for (want, got) in zip(cmds, wr):
         if (int(got[1]), int(got[2]), int(got[3]), int(got[4])) != (want[1], want[2], want[3], want[4] & 0xFFFFFFFF):
             bad += 1
+    LAST.update(writes_bad=bad, writes_seen=len(wr), writes_sent=len(cmds))
     if bad:
         print(f"verify_synth_top: FAIL -- {bad} of {len(cmds)} writes arrived corrupted "
               f"(run verify_ctl.py: that is the link, not the datapath)")
         return 1
-    model_writes = [(int(g[0]), int(g[1]), int(g[2]), int(g[3]), int(g[4])) for g in wr]
+    # the landing frame the PIN predicts, and whether the chip agreed
+    pred_bad = sum(1 for g in wr if len(g) > 5 and int(g[5]) >= 0 and int(g[5]) != int(g[0]))
+    no_pred = sum(1 for g in wr if len(g) <= 5 or int(g[5]) < 0)
+    LAST.update(frame_pred_bad=pred_bad, frame_no_pred=no_pred)
+    if pred_bad or no_pred:
+        print(f"verify_synth_top: FAIL -- {pred_bad} write(s) landed in a frame the CS_N pin did not "
+              f"predict, {no_pred} with no prediction at all: the link's timing is not DR 0007 section 5's")
+        return 1
+    # drive the model from the PREDICTION, not from what the chip reported
+    model_writes = [(int(g[5]), int(g[1]), int(g[2]), int(g[3]), int(g[4])) for g in wr]
     last = max(f for f, *_ in model_writes)
     n = a.frames or (last + tail + 1)
     print(f"verify_synth_top: writes landed in frames {model_writes[0][0]}..{last}; modelling {n} frames")
@@ -250,6 +277,7 @@ def main(argv=None) -> int:
     print(f"verify_synth_top: model peak |sample| {peak} of 32768 ({clipped} frames at the rail); "
           f"drums |dmix| max {int(np.abs(m['dmix']).max())}, |body| max {int(np.abs(m['body']).max())}, "
           f"DFILT engaged in {int(m['route'].sum())} frames")
+    LAST.update(wire_mismatch=mism, swap=swap, width=width, core_bad=core_bad, periods=nper)
     if mism == 0 and swap == 0 and width == 0 and core_bad == 0:
         print(f"verify_synth_top: PASS -- {nper} I2S periods decoded from the wire, every one identical "
               f"to the model; both channels agree; every slot 32 BCLK; the core's own stream matches too")

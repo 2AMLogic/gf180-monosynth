@@ -142,6 +142,13 @@ def simulate(link: str, defines, outdir: str, bits: int, timeout_s: float = 900.
     return out_file
 
 
+# What the last run actually found, so a caller can check that a negative
+# control failed for the reason it was recorded to fail for. The "intended"
+# side of this comparison comes from model/voice_fx.py and model/drums_fx.py --
+# never from the RTL -- which is what keeps it from going self-referential.
+LAST: dict = {}
+
+
 def compare_writes(writes: list, rtl_out: str) -> int:
     """0 identical, 1 differed, 2 did not run. Reports per-field, because
     'the address was truncated' and 'the datum was truncated' are different
@@ -181,6 +188,8 @@ def compare_writes(writes: list, rtl_out: str) -> int:
         if hit and first is None: first = (i, (wf, ws, wa, wd), have)
     bad = sum(1 for want, have in zip(writes, got)
               if have != (int(want[0]), int(want[1]), int(want[2]) & 0xFF, int(want[3]) & 0xFFFFFFFF))
+    LAST.update(bad=bad, bad_flag=bad_f, bad_sec=bad_s, bad_addr=bad_a, bad_data=bad_d,
+                count_seen=len(got), count_sent=n, late=len(late), total=n)
     if bad == 0 and not count_bad and not late:
         print(f"verify_ctl: PASS -- all {n} writes reached the register port exactly as sent, "
               f"every one in the drain window (cycles {min(cycs)}..{max(cycs)}, before `go` at {GO_CYCLE})")
