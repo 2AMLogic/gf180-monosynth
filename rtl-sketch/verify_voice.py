@@ -58,6 +58,7 @@ exactly 1):
   --set full|quick  which scenario lengths (default full)
   --only a,b,c      run only these scenario keys
   --compare-only F  skip generation and simulation, compare F to the expected
+  --selftest-state  no simulation: prove the STATE field-count check can fail
 """
 from __future__ import annotations
 import argparse, os, subprocess, sys
@@ -409,6 +410,15 @@ def compare(expected, state, report, out_file, name="verify_voice") -> int:
                 per_scn[scn_of[i]][0 if f == "sample" else 1] += 1
                 if f not in first: first[f] = (i, expected[i][j], g, report[scn_of[i]]["key"])
     st_got = st[0][1:]
+    # The final-state claim is only as strong as the FIELD COUNT. zip() stops at
+    # the shortest sequence, so an RTL STATE line with fewer values than
+    # STATE_FIELDS lists would leave the missing fields silently uncompared and
+    # still report "final state identical". Require all three lengths to agree.
+    if len(state) != len(STATE_FIELDS) or len(st_got) != len(STATE_FIELDS):
+        print(f"{name}: FAIL -- STATE field count mismatch: {len(STATE_FIELDS)} fields declared "
+              f"({', '.join(STATE_FIELDS)}), model emitted {len(state)}, RTL emitted {len(st_got)}. "
+              f"The final-state comparison cannot be trusted and is not made.")
+        return 1
     st_mism = [(f, e, g) for f, e, g in zip(STATE_FIELDS, state, st_got) if str(e) != g]
     total = sum(mism.values())
     print(f"{name}: cycles from go to sample_valid: best {min(cycles)}, mean {sum(cycles) / len(cycles):.1f}, "
@@ -416,7 +426,9 @@ def compare(expected, state, report, out_file, name="verify_voice") -> int:
     for r, (s, t) in zip(report, per_scn):
         print(f"  [{r['key']}] {r['n']} frames: {s} sample mismatches, {t} tap mismatches")
     if total == 0 and not st_mism:
-        print(f"{name}: PASS -- {n} frames, every sample and every tap identical to the model; final state identical")
+        print(f"{name}: PASS -- {n} frames, every sample and every one of the {len(FIELDS) - 1} taps "
+              f"identical to the model; final state identical on all {len(STATE_FIELDS)} of "
+              f"{len(STATE_FIELDS)} declared fields")
         return 0
     print(f"{name}: FAIL -- {mism['sample']} of {n} samples differ; tap mismatches: "
           + ", ".join(f"{f} {c}" for f, c in mism.items() if c and f != "sample")
@@ -454,6 +466,31 @@ def simulate(outdir: str, defines: list, rtl: str = None, timeout_s: float = 360
     return out_file
 
 
+
+# ---- harness self-test: the field-count check has to be able to fire --------------
+def selftest_state(expected, state, report, outdir: str) -> int:
+    """compare() is fed a synthetic RTL output built from the model itself:
+    once complete (must give 0), once with the last two STATE values removed
+    (must give 1). Before the length check this second case passed -- zip()
+    stopped at the shorter sequence and seg_a/seg_f were never compared.
+    No simulator needed; this tests the comparison, not the RTL."""
+    rows = ["%d %s 0\n" % (i, " ".join(str(v) for v in row)) for i, row in enumerate(expected)]
+    full = os.path.join(outdir, "selftest_full.txt")
+    short = os.path.join(outdir, "selftest_short.txt")
+    with open(full, "w") as fh:
+        fh.writelines(rows); fh.write("STATE " + " ".join(str(x) for x in state) + "\n")
+    with open(short, "w") as fh:
+        fh.writelines(rows); fh.write("STATE " + " ".join(str(x) for x in state[:-2]) + "\n")
+    print(f"verify_voice: self-test A -- complete STATE line ({len(state)} values), expect status 0")
+    a = compare(expected, state, report, full, name="  selftest-full")
+    print(f"verify_voice: self-test B -- STATE line short by 2 ({len(state) - 2} values, "
+          f"{STATE_FIELDS[-2]} and {STATE_FIELDS[-1]} missing), expect status 1")
+    b = compare(expected, state, report, short, name="  selftest-short")
+    ok = (a == 0 and b == 1)
+    print(f"verify_voice: self-test {'PASS' if ok else 'FAIL'} -- full {a} (want 0), short {b} (want 1)")
+    return 0 if ok else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
@@ -463,12 +500,17 @@ def main(argv=None) -> int:
     ap.add_argument("--expect-fail", action="store_true")
     ap.add_argument("--rtl", default=None, metavar="FILE", help="simulate FILE in place of voice_dp.v")
     ap.add_argument("--compare-only", default=None, metavar="FILE")
+    ap.add_argument("--selftest-state", action="store_true",
+                    help="no simulation: feed compare() a synthetic RTL output with a complete and "
+                         "with a truncated STATE line and require status 0 then 1")
     a = ap.parse_args(argv)
     a.outdir = os.path.abspath(a.outdir)              # the bench runs with cwd = rtl-sketch
     only = set(a.only.split(",")) if a.only else None
     print(f"verify_voice: model VoiceFx() (contract rev 4), scenario set '{a.set}'"
           + (f", only {sorted(only)}" if only else ""))
     expected, state, writes, report = generate(a.outdir, a.set, only)
+    if a.selftest_state:
+        return selftest_state(expected, state, report, a.outdir)
     if a.compare_only:
         status = compare(expected, state, report, a.compare_only)
     else:

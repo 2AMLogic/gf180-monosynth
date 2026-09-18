@@ -41,9 +41,17 @@ module i2s_tx (
                     sdata <= 1'b0;
                     if (cyc[7]) begin                    // right slot ends: next period, fresh sample
                         cur     <= held;
-                        shifter <= {held, 16'd0};
-                    end else                             // left slot ends: right repeats the same sample
-                        shifter <= {cur, 16'd0};
+`ifdef INJECT_BUG_TOP_I2S_SHIFT
+                        shifter <= {held[14:0], 17'd0};  // NEGATIVE CONTROL: the word one bit early --
+`else                                                    //   a bit shift on the wire. The existing
+                        shifter <= {held, 16'd0};        //   top-level check compares SDATA against the
+`endif                                                   //   DUT's own sample stream, so it defines its
+                    end else                             //   expectation from the thing under test.
+`ifdef INJECT_BUG_TOP_I2S_SWAP
+                        shifter <= {held, 16'd0};        // NEGATIVE CONTROL: the right slot carries the
+`else                                                    //   NEWER sample -- the two channels no longer
+                        shifter <= {cur, 16'd0};         //   carry one word (contract 13)
+`endif
                 end else begin
                     sdata   <= shifter[31];
                     shifter <= {shifter[30:0], 1'b0};

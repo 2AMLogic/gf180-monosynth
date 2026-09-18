@@ -128,6 +128,62 @@ def generate(tanh_n: int, outdir: str, verbose=True, out_bits: int = OUT_BITS):
     return expected, cov
 
 
+
+def generate_n(tanh_n: int, outdir: str, nch: int, distinct: bool, verbose=True,
+               out_bits: int = OUT_BITS):
+    """Vectors for ladder_dp_n: NCH streams, INTERLEAVED one line per
+    channel-sample (channel = line index mod NCH), each line carrying that
+    channel's own x, g, k, gain, ogain and its own expected y_out.
+
+    `distinct` gives each channel an independent stimulus -- the same five
+    segments rotated by the channel index, so channel c starts in a different
+    segment, sees a different signal and runs on different coefficients from
+    channel 0 at every sample. Without it every channel gets the identical
+    stream, which is what this bench used to do and what makes state bleeding
+    between channels undetectable (INJECT_BUG_LADDER_XTALK is the control)."""
+    segs = stimulus()
+    streams, covs = [], []
+    for c in range(nch):
+        r = (c % len(segs)) if distinct else 0
+        order = segs[r:] + segs[:r]
+        f = fixed.LadderFx(state_bits=24, state_q=20, tanh_entries=tanh_n, interp=True, out_bits=out_bits)
+        cov = Coverage(f)
+        rows = []
+        for name, xq, fc, res, drive in order:
+            g_tab, k, gain, ogain = f.coefficients(fc, res, drive)
+            y = f.process(xq, fc, res, drive)
+            for i in range(len(xq)):
+                rows.append((int(xq[i]), int(g_tab[i]), int(k), int(gain), int(ogain), int(y[i])))
+        cov.restore()
+        streams.append(rows); covs.append(cov)
+    ns = min(len(s_) for s_ in streams)
+    lines, expected = [], []
+    for i in range(ns):
+        for c in range(nch):
+            xi, gi, k, gain, ogain, yi = streams[c][i]
+            lines.append(f"{xi & 0xffff:04x}{gi:04x}{k:06x}{gain:06x}{ogain:06x}{yi & 0xffffff:06x}\n")
+            expected.append(yi)
+    os.makedirs(outdir, exist_ok=True)
+    with open(os.path.join(outdir, "ladder_vectors.hex"), "w") as fh:
+        fh.writelines(lines)
+    with open(os.path.join(outdir, "ladder_expected.txt"), "w") as fh:
+        fh.writelines(f"{v}\n" for v in expected)
+    if verbose:
+        # how discriminating the stimulus is: samples at which the channels do
+        # NOT agree. With identical streams this is 0 and no channel-to-channel
+        # defect can change the output.
+        x_diff = sum(1 for i in range(ns) if len({streams[c][i][0] for c in range(nch)}) > 1)
+        y_diff = sum(1 for i in range(ns) if len({streams[c][i][5] for c in range(nch)}) > 1)
+        print(f"  NCH={nch} {'DISTINCT' if distinct else 'identical'} streams: {ns} samples x {nch} channels "
+              f"= {len(expected)} channel-samples")
+        print(f"  channels differ in x on {x_diff} of {ns} samples ({100.0*x_diff/ns:.1f} %), "
+              f"in expected y_out on {y_diff} ({100.0*y_diff/ns:.1f} %)")
+        for c, cov in enumerate(covs):
+            print(f"    ch{c}: u saturated {cov.u_sat}x, state saturated {cov.y_sat}x, "
+                  f"output saturated {cov.out_sat}x, tanh clamped {cov.tanh_clamp} of {cov.tanh_calls}")
+    return expected
+
+
 # ---- simulation -------------------------------------------------------------
 def tool(name: str) -> str | None:
     p = shutil.which(name)
@@ -226,26 +282,32 @@ def main(argv=None) -> int:
     ap.add_argument("--tb", default=os.path.join(HERE, "tb_ladder.v"))
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
     ap.add_argument("--nch", type=int, default=0,
-                    help="verify ladder_dp_n.v with this many channels (tb_ladder_n.v): every sample "
-                         "is driven to each channel in turn and every channel must match the model")
+                    help="verify ladder_dp_n.v with this many channels (tb_ladder_n.v): one line per "
+                         "channel-sample, every channel compared against its own model run")
+    ap.add_argument("--distinct", action="store_true",
+                    help="with --nch: give every channel an INDEPENDENT stimulus stream. Without it "
+                         "all channels see the same input, their states agree by construction and "
+                         "state bleeding between channels cannot be detected (INJECT_BUG_LADDER_XTALK)")
     ap.add_argument("--out-bits", type=int, default=OUT_BITS, choices=(16, 19),
                     help="ladder output width: 19 (Q4.15, the voice's) or 16 (Q1.15, rev 1)")
     a = ap.parse_args(argv)
+    a.outdir = os.path.abspath(a.outdir)          # the benches run with cwd = rtl-sketch
     log2n = {16: 4, 256: 8}[a.tanh_n]
     rom = {16: "tanh16.hex", 256: "tanh256.hex"}[a.tanh_n]
     print(f"verify_ladder: model LadderFx(24-bit state, 20 fraction, {a.tanh_n}-entry interpolated tanh, "
           f"{a.out_bits}-bit output)")
-    expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
-    if a.nch:                                    # ladder_dp_n: every sample to every channel, in turn
+    if a.nch:                                    # ladder_dp_n: one line per channel-sample
         a.rtl = os.path.join(HERE, "ladder_dp_n.v"); a.tb = os.path.join(HERE, "tb_ladder_n.v")
-        expected = [e for e in expected for _ in range(a.nch)]
+        expected = generate_n(a.tanh_n, a.outdir, a.nch, a.distinct, out_bits=a.out_bits)
+    else:
+        expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
     if a.compare_only:
         status = compare(expected, a.compare_only)
     else:
         defines = [f"INJECT_BUG_LADDER_{a.inject}"] if a.inject else []
         print(f"verify_ladder: simulating {os.path.relpath(a.rtl, HERE)} "
               f"(TANH_LOG2N={log2n}, {rom}{', ' + defines[0] if defines else ''}"
-              f"{', NCH=%d' % a.nch if a.nch else ''})")
+              f"{', NCH=%d%s' % (a.nch, ' DISTINCT' if a.distinct else '') if a.nch else ''})")
         out = simulate(a.rtl, a.tb, log2n, rom, defines, a.outdir, out_bits=a.out_bits, nch=a.nch)
         status = 2 if out is None else compare(expected, out)
     if a.expect_fail:

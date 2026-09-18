@@ -63,6 +63,12 @@ module modal_dp #(
     reg [1:0] mode;
     reg [1:0] step;
     reg busy;
+    // The strike is added once per MODE, three cycles apart, so the whole pass
+    // must see ONE excitation (ARCHITECTURE.md 4.4). Register it when the pass
+    // is accepted rather than trusting the caller to hold the port stable:
+    // nothing outside this module can enforce that, and no block-level bench
+    // that holds `exc` constant can see the difference (verify_modal_exc.py).
+    reg signed [15:0] exc_r;
 
     // ---- the one multiplier: SB-bit signed x CW-bit signed ------------------
     reg  signed [SB-1:0] ma;
@@ -96,7 +102,12 @@ module modal_dp #(
 `else                                                    //   shift, coefficients effectively /4
     wire signed [AW-1:0] ysh  = acc2[CF +: AW];          // >> CF, exact: value < 2^(SB+2)
 `endif
-    wire signed [SB-1:0] e_st = {{(SB - 16 - ESH){exc[15]}}, exc, {ESH{1'b0}}};
+`ifdef INJECT_BUG_MODAL_EXC_NOLATCH
+    wire signed [15:0] exc_u = exc;                      // NEGATIVE CONTROL: the per-mode
+`else                                                    //   combinational read -- mode m takes
+    wire signed [15:0] exc_u = exc_r;                    //   whatever `exc` holds at cycle 2+3m
+`endif
+    wire signed [SB-1:0] e_st = {{(SB - 16 - ESH){exc_u[15]}}, exc_u, {ESH{1'b0}}};
     wire signed [AW-1:0] ysum = ysh + e_st;
 `ifdef INJECT_BUG_MODAL_SAT
     wire signed [SB-1:0] ynew = ysum[SB-1:0];            // NEGATIVE CONTROL: wrap
@@ -110,13 +121,13 @@ module modal_dp #(
     always @(posedge clk) begin
         if (!rst_n) begin
             for (i = 0; i < MODES; i = i + 1) begin y1[i] <= 0; y2[i] <= 0; end
-            mode <= 0; step <= 0; busy <= 0; y_valid <= 0; mix <= 0; acc <= 0;
+            mode <= 0; step <= 0; busy <= 0; y_valid <= 0; mix <= 0; acc <= 0; exc_r <= 0;
             ma <= 0; mb <= 0; y_out <= 0;
         end else begin
             y_valid <= 1'b0;
             if (!busy) begin
                 if (sample_valid) begin
-                    busy <= 1'b1; mode <= 2'd0; step <= 2'd0; mix <= 0;
+                    busy <= 1'b1; mode <= 2'd0; step <= 2'd0; mix <= 0; exc_r <= exc;
                     ma <= y1[0]; mb <= sel_a1(2'd0);
                 end
             end else case (step)
@@ -146,5 +157,20 @@ module modal_dp #(
             endcase
         end
     end
+
+`ifdef MODAL_EXC_CHECK
+    // Simulation-only: the caller's obligation, checked. A block-level bench
+    // that holds `exc` constant never trips this; a caller that does not, does.
+    reg exc_warned;
+    always @(posedge clk) begin
+        if (!rst_n) exc_warned <= 1'b0;
+        else if (!busy) exc_warned <= 1'b0;
+        else if (busy && (exc !== exc_r) && !exc_warned) begin
+            exc_warned <= 1'b1;
+            $display("%m: EXC NOT HELD -- exc changed from %0d to %0d during the pass at time %0t",
+                     exc_r, exc, $time);
+        end
+    end
+`endif
 endmodule
 `default_nettype wire

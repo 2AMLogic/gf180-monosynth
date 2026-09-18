@@ -113,10 +113,27 @@ module ladder_dp_n #(
     wire [CHW+1:0]       ys     = {chr, s};                // y/w index of stage s
     wire [CHW+1:0]       ysm1   = {chr, sm1};
     wire [CHW+1:0]       y3i    = {chr, 2'd3};
-    wire signed [SW:0] dsum0 = d1[chr] + d2[chr];          // pass 0
-    wire signed [SW:0] dsum1 = y[y3i] + d1[chr];           // pass 1, before d1/d2 shift
+    // Two channel-crosstalk negative controls. Both are state bleeding; they
+    // differ in whether an IDENTICAL-stimulus bench can see them, which is the
+    // point (verify_ladder.py --nch N with and without --distinct):
+    //   XTALK_READ  every channel reads channel 0's delay line. The bench
+    //     drives the channels one after another inside a sample slot, so
+    //     channel 0 has already advanced when channel 1 reads it -- this one
+    //     is asymmetric in TIME and both benches catch it.
+    //   XTALK       every channel also writes its result into its NEIGHBOUR's
+    //     delay line. Under identical stimulus the neighbour's value is the
+    //     value it would have written itself, so nothing changes and the
+    //     identical-stimulus bench is blind. Only --distinct catches it.
+`ifdef INJECT_BUG_LADDER_XTALK_READ
+    wire [CHW-1:0] dch = {CHW{1'b0}};
+`else
+    wire [CHW-1:0] dch = chr;
+`endif
+    wire [CHW-1:0] nchr = (NCH > 1) ? (chr + {{(CHW-1){1'b0}}, 1'b1}) : chr;
+    wire signed [SW:0] dsum0 = d1[dch] + d2[dch];          // pass 0
+    wire signed [SW:0] dsum1 = y[y3i] + d1[dch];           // pass 1, before d1/d2 shift
 `ifdef INJECT_BUG_LADDER_FB
-    wire signed [SW-1:0] fb0 = d1[chr];          // NEGATIVE CONTROL: unit delay, no averaging
+    wire signed [SW-1:0] fb0 = d1[dch];          // NEGATIVE CONTROL: unit delay, no averaging
     wire signed [SW-1:0] fb1 = y[y3i];
 `else
     wire signed [SW-1:0] fb0 = dsum0 >>> 1;
@@ -204,6 +221,9 @@ module ladder_dp_n #(
                 end
                 4'd11: begin                             // w_3 = tanh result; shift the delay line
                     w[y3i] <= tr; d2[chr] <= d1[chr]; d1[chr] <= y[y3i];
+`ifdef INJECT_BUG_LADDER_XTALK
+                    d2[nchr] <= d1[nchr]; d1[nchr] <= y[y3i];   // NEGATIVE CONTROL: into the neighbour too
+`endif
                     if (!os) begin                       // pass 1: load k * fb from the new average
                         os <= 1'b1; mul_a <= fb1; mul_b <= {3'b0, k}; step <= 4'd2;
                     end else begin                       // output: load (y_3 >> 5) * ogain

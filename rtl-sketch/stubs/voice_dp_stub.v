@@ -42,7 +42,8 @@ module voice_dp #(
     reg signed [24:0] ma = 25'bx;
     reg signed [20:0] mb = 21'bx;
     reg [15:0] g = 16'bx;
-    reg signed [19:0] out_v = 20'bx;
+    reg signed [19:0] out_v = 20'bx, out_d = 20'bx;
+    reg signed [18:0] d19 = 19'bx;          // tb_top_bx.v taps these too
     reg [23:0] level_a = 24'bx, level_f = 24'bx;
     reg [1:0]  seg_a = 2'bx, seg_f = 2'bx;
     integer i;

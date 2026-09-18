@@ -135,7 +135,10 @@ module drum_section_placeholder (
     reg [15:0] env;
     reg [15:0] lfsr;
     reg signed [15:0] exc;
-    reg        m_sv;
+`ifdef INJECT_BUG_TOP_DRUM_ORDER
+    reg signed [15:0] exc_d;        // NEGATIVE CONTROL: the bodies run on the PREVIOUS frame's
+`endif                              //   strike -- ARCHITECTURE.md 4.4's "one-frame offset that
+    reg        m_sv;                //   works and is wrong". 20.8 us of drum latency, silently.
     reg [1:0]  st;
     wire signed [15:0] m_y;
     wire        m_yv;
@@ -146,6 +149,9 @@ module drum_section_placeholder (
     always @(posedge clk) begin
         if (!rst_n) begin
             trig <= 0; trig_q <= 0; preset <= 0; env <= 0; lfsr <= 16'hACE1; exc <= 0; m_sv <= 0; st <= 0;
+`ifdef INJECT_BUG_TOP_DRUM_ORDER
+            exc_d <= 0;
+`endif
             drum_bus <= 0; drum_done <= 0;
         end else begin
             m_sv <= 1'b0;
@@ -158,7 +164,11 @@ module drum_section_placeholder (
                     st <= 2'd1;
                 end
                 2'd1: begin                                          // 2. excite the bodies, this frame
+`ifdef INJECT_BUG_TOP_DRUM_ORDER
+                    exc <= exc_d; exc_d <= lfsr[0] ? $signed(env) : -$signed(env);
+`else
                     exc <= lfsr[0] ? $signed(env) : -$signed(env);
+`endif
                     m_sv <= 1'b1; st <= 2'd2;
                 end
                 default: if (m_yv) begin                             // 3. the drum bus is this frame's

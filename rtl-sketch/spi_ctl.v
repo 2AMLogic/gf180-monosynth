@@ -110,7 +110,15 @@ module spi_ctl (
 
             // ---- the drain: snapshot at the tick, pop one per cycle ----
             wr_valid <= 1'b0;
+`ifdef INJECT_BUG_TOP_SPI_TICK_RACE
+            // NEGATIVE CONTROL: the snapshot counts the write being accepted in
+            // the tick cycle itself, so a transaction whose CS_N edge lands in
+            // the last cycles of a frame is applied a frame EARLY. The queue
+            // pointer has not moved yet, so the drain also pops a stale word.
+            if (tick) drain <= q_count + (accept ? 3'd1 : 3'd0);
+`else
             if (tick) drain <= q_count;                      // writes accepted before this cycle
+`endif
             else if (pop) begin
                 drain    <= drain - 3'd1;
                 rp       <= rp + 3'd1;

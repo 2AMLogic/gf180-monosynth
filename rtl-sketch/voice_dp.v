@@ -131,8 +131,18 @@ module voice_dp #(
     wire        lad_ych;
     ladder_dp_n #(.NCH(2), .ROM_FILE(TANH_FILE), .OW(19)) u_ladder (
         .clk(clk), .rst_n(rst_n), .sample_valid(lad_sv), .ch(lad_ch),
+`ifdef INJECT_BUG_TOP_DFILT_COEF
+        // NEGATIVE CONTROL: the drum filter runs on the VOICE's coefficients --
+        // its own DCUT, DK, DGAIN and DOGAIN go nowhere, so closing the bass's
+        // cutoff muffles the drums. No ladder bench that drives the same g, k,
+        // gain and ogain to every channel can see this; it is a two-CONTEXT
+        // defect, not a two-channel one.
+        .x_in(lad_ch ? dx : mixed), .g(g), .k(k_eff),
+        .gain(gain), .ogain(ogain),
+`else
         .x_in(lad_ch ? dx : mixed), .g(lad_ch ? g2 : g), .k(lad_ch ? k_eff2 : k_eff),
         .gain(lad_ch ? dgain : gain), .ogain(lad_ch ? dogain : ogain),
+`endif
         .y_out(lad_y), .y_valid(lad_yv), .y_ch(lad_ych));
 
     // ---- sequencer state -------------------------------------------------------------
@@ -260,6 +270,14 @@ module voice_dp #(
     // ---- output (9, 12; ARCHITECTURE.md 4) ---------------------------------------------
     wire signed [19:0] msh = mixacc[34:15];
     wire signed [20:0] osum = {out_v[19], out_v} + {out_d[19], out_d};
+    // The chip has ONE rail and it is at the END: both busses arrive at 20
+    // bits and the clamp is taken on the SUM (ARCHITECTURE.md 4.3). Clamping
+    // each bus to 16 bits first is a different circuit -- two rails, and a
+    // loud voice can no longer be pulled back under the rail by a drum bus of
+    // the opposite sign. This control is that circuit.
+    wire signed [15:0] ov16 = (out_v > 20'sd32767) ? 16'sd32767 : (out_v < -20'sd32768) ? -16'sd32768 : out_v[15:0];
+    wire signed [15:0] od16 = (out_d > 20'sd32767) ? 16'sd32767 : (out_d < -20'sd32768) ? -16'sd32768 : out_d[15:0];
+    wire signed [20:0] osum_cf = {{5{ov16[15]}}, ov16} + {{5{od16[15]}}, od16};
     function signed [15:0] sat16(input signed [20:0] v);
         sat16 = (v > 21'sd32767) ? 16'sd32767 : (v < -21'sd32768) ? -16'sd32768 : v[15:0];
     endfunction
@@ -429,8 +447,10 @@ module voice_dp #(
                 default: begin                                                // S_OUT2
 `ifdef INJECT_BUG_VOICE_OUT_SAT
                     sample <= osum[15:0];                                     // NEGATIVE CONTROL: no rail
-`else
-                    sample <= sat16(osum);
+`elsif INJECT_BUG_TOP_MIX_CLAMP_FIRST
+                    sample <= sat16(osum_cf);                                 // NEGATIVE CONTROL: each bus
+`else                                                                         //   clamped to 16 bits BEFORE
+                    sample <= sat16(osum);                                    //   the sum -- clamp then sum
 `endif
                     sample_valid <= 1'b1; state <= S_IDLE;
                 end
