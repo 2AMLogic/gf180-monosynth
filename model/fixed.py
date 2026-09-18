@@ -101,15 +101,25 @@ class LadderFx:
         return -r if neg else r
 
     def process(self, x_q15: np.ndarray, cutoff_hz: np.ndarray, res: float,
-                drive: float = 1.0):
-        """x_q15: int16 samples. Returns int16. Everything between is integer."""
+                drive: float = 1.0, *, g_q16: np.ndarray = None):
+        """x_q15: int16 samples. Returns int16. Everything between is integer.
+
+        The coefficient comes either from `cutoff_hz` (float Hz, converted here
+        with a float exp -- the parameter path a real design would ROM) or,
+        when `g_q16` is given, directly as per-sample Q0.16 integers. The voice
+        model (`voice_fx.py`) supplies the latter from its own integer ROM, so
+        that the cutoff-modulation path is integer too."""
         os_, SQ, SB = self.os, self.SQ, self.SB
         fs = SR * os_
         n = len(x_q15)
-        # coefficient per sample, Q0.16 -- a real design would ROM this
-        g_tab = np.clip(
-            np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
-                     * (1 << COEF_Q)), 1, (1 << COEF_Q) - 1).astype(np.int64)
+        if g_q16 is not None:
+            g_tab = np.asarray(g_q16, dtype=np.int64)
+            assert len(g_tab) == n
+        else:
+            # coefficient per sample, Q0.16 -- a real design would ROM this
+            g_tab = np.clip(
+                np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
+                         * (1 << COEF_Q)), 1, (1 << COEF_Q) - 1).astype(np.int64)
         k = int(round(4.0 * res * (1 << 14)))          # Q2.14
         # Q1.15 audio -> state units (2*Vt). One constant: drive*vpu/(2*Vt).
         gain = int(round(drive * self.vpu / VT2 * (1 << COEF_Q)))
