@@ -201,7 +201,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true",
-                    help="exit 1 if any node is STALE, or if README is out of date")
+                    help="exit 1 if README does not match the evidence")
+    ap.add_argument("--strict", action="store_true",
+                    help="with --check, ALSO exit 1 if any node is RED or STALE")
     ap.add_argument("--print", action="store_true", help="write to stdout, not README")
     ap.add_argument("--run", action="store_true",
                     help="execute each node's evidence and record the result")
@@ -241,9 +243,14 @@ def main() -> int:
     body = [mermaid(nodes, status), "", table(nodes, status)]
     if warn:
         body += ["", "> **Unvalidated subsystems.** " + "  \n> ".join(warn)]
-    body += ["", f"<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py` at "
-                 f"`{git('rev-parse', '--short', 'HEAD') or 'unknown'}`. "
-                 f"Status is derived from evidence, not asserted.</sub>"]
+    # NB: no commit SHA here, deliberately. An earlier version embedded
+    # `git rev-parse HEAD`, which made the README stale the instant anything
+    # merged -- so --check could never pass on main. That is the third gate in
+    # this project that demanded something the job could not satisfy, and an
+    # unsatisfiable gate trains people to ignore it. Per-node commits live in
+    # docs/dag-results.json, which is where they belong.
+    body += ["", "<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py`. "
+                 "Status is derived from evidence, not asserted.</sub>"]
     block = "\n".join(body)
 
     if args.print:
@@ -260,12 +267,18 @@ def main() -> int:
             return 1
         README.write_text(new)
 
-    stale = [i for i in nodes if status[i][0] in ("STALE", "RED")]
-    for i in stale:
+    # --check asserts that THE DOCUMENT IS TRUE, not that the project is
+    # healthy. A RED node accurately reported is this tool working; blocking
+    # every merge until the drums are fixed and the slow verifiers re-run --
+    # which the per-push job cannot do -- would be a gate demanding something
+    # the job cannot satisfy, and this project has built three of those
+    # already. The nightly, which CAN refresh the slow evidence, uses --strict.
+    bad = [i for i in nodes if status[i][0] in ("STALE", "RED")]
+    for i in bad:
         print(f"{status[i][0]}: {i} -- {status[i][1]}", file=sys.stderr)
     for w in warn:
         print(f"note: {w}", file=sys.stderr)
-    return 1 if (args.check and stale) else 0
+    return 1 if (args.check and args.strict and bad) else 0
 
 
 if __name__ == "__main__":

@@ -45,6 +45,11 @@ jobs:
       # README show an honest status for evidence that takes hours.
       - name: record the slow evidence for the roadmap
         run: python tools/compile_dag.py --run --slow
+      # The nightly CAN refresh the slow evidence, so it is the job entitled to
+      # demand that nothing is RED or STALE. The per-push job only asserts the
+      # README is accurate.
+      - name: nothing is red or stale
+        run: python tools/compile_dag.py --check --strict
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: dag-results, path: docs/dag-results.json, if-no-files-found: ignore }

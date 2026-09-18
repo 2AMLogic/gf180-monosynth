@@ -112,7 +112,7 @@ graph LR
 | `S2` | Fits a real shuttle padframe | **BLOCKED** | routed die has padcells: 0 -- LibreLane half-slot in progress |
 | `S3` | FPGA build of the real engine | **GREEN** | fpga/reports/ecp5_25f.txt |
 
-<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py` at `cbb1fee`. Status is derived from evidence, not asserted.</sub>
+<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py`. Status is derived from evidence, not asserted.</sub>
 <!-- DAG:END -->
 
 ## Why this block exists
