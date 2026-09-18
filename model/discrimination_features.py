@@ -83,6 +83,31 @@ MS_WINDOWS_S = (4.0e-3, 10.0e-3, 25.0e-3)
 MS_BANDS_HZ = ((20.0, 200.0), (200.0, 700.0), (700.0, 2000.0),
                (2000.0, 5000.0), (5000.0, 9000.0), (9000.0, 18000.0))
 
+# What the rate-independence test is allowed to call "the same number" at
+# 44.1 kHz and 48 kHz: a relative tolerance, floored by an ABSOLUTE one in the
+# column's own units, because a relative test on a column whose correct value
+# is zero can never pass. Each floor is stated against what the column has to
+# be able to see, and `test_the_rate_tolerance_is_far_below_the_effect` holds
+# the two apart so the tolerance can never quietly grow into the signal:
+#   ppm  20     -- measured: 0.1 % per-period jitter reads 14 534 ppm, and the
+#                  44.1 k -> 48 k artefact on the same clip reads 0.78 ppm.
+#   dB   0.5    -- under the 1 dB the graded controls move.
+#   ratio 0.02  -- correlations and normalised RMS, on 0..1-ish scales.
+RATE_TOL_REL = 0.12
+RATE_TOL_ABS = {"ppm": 20.0, "db": 0.5, "ratio": 0.02, "ms": 0.05, "count": 1.0}
+
+
+def _unit_of(name: str) -> str:
+    if "ppm" in name:
+        return "ppm"
+    if name.startswith(("cqt", "ms")) or "_db" in name or "enstd" in name:
+        return "db"
+    if "period_ms" in name:
+        return "ms"
+    if "ncycles" in name:
+        return "count"
+    return "ratio"
+
 _EPS = 1e-20
 
 
@@ -159,51 +184,101 @@ def dominant_period(x: np.ndarray, sr: int, band=JIT_BAND_HZ) -> int:
     return int(lo + np.argmax(r[lo:hi + 1]))
 
 
+def refine_frequency(x: np.ndarray, sr: int, f0: float,
+                     span: float = 0.03, n: int = 241) -> float:
+    """The frequency inside +-`span` of `f0` with the largest coherent
+    projection. A grid argmax, so it is deterministic and has no threshold;
+    `n` is odd so `f0` itself is always on the grid."""
+    x = np.asarray(x, float)
+    t = np.arange(len(x)) / sr
+    fs = f0 * np.linspace(1.0 - span, 1.0 + span, n)
+    m = np.abs(np.exp(-2j * np.pi * np.outer(fs, t)) @ x)
+    return float(fs[int(np.argmax(m))])
+
+
 def jitter_features(x: np.ndarray, sr: int) -> tuple:
     """Fold at the signal's OWN dominant period and ask whether consecutive
     cycles repeat. This is #56 as a number.
 
     `cyclecorr` is 1.0 for a waveform that repeats exactly at that period --
     which is what a fixed phase increment produces and what an analogue
-    oscillator does not. `lagdrift` is the least-squares slope of the
-    per-cycle lag of best match, in parts per million per cycle, and is the
-    "drift of period length" the multi-period view is for. Both are refused
-    (NaN -> 0.0 with a `valid` column at 0) when the window is too short."""
+    oscillator does not.
+
+    THE FIRST VERSION OF THIS FUNCTION WAS A SAMPLE-RATE DETECTOR, and the
+    record is worth more than the fix. It timed each cycle by the peak of a
+    cross-correlation against the first cycle, refined with a parabola. That
+    estimator's bias depends on where the true period falls between two
+    samples, so the identical signal at 44.1 kHz and 48 kHz reported 0 and
+    -1025 ppm of "drift" -- a difference of the sample grid, reported in the
+    place where an oscillator's instability belongs. It was caught by
+    `test_extra_features_are_rate_independent` before any number was quoted.
+
+    What replaces it: the frequency is refined by coherent projection, then
+    each cycle-length block is projected onto that frequency and the PHASE of
+    the projection is read. A single-bin projection's phase is unbiased
+    whatever the sample alignment. `phasejit_ppm` is the scatter of that
+    phase about a straight line, as parts per million of a period;
+    `phasecurv_ppm` is its quadratic term, which is an oscillator whose pitch
+    moves over the note rather than one that is noisy about a fixed pitch.
+
+    Every column is refused -- zeroed, with `jit.valid` at 0 -- when the
+    window does not hold JIT_MIN_CYCLES of the winning period."""
     x = np.asarray(x, float)
-    p = dominant_period(x, sr)
-    names = ["jit.cyclecorr.seg0", "jit.cycledshape.seg0", "jit.lagdrift_ppm.seg0",
-             "jit.lagspread_ppm.seg0", "jit.enstd_db.seg0", "jit.period_ms.seg0",
+    names = ["jit.cyclecorr.seg0", "jit.cycledshape.seg0", "jit.phasejit_ppm.seg0",
+             "jit.phasecurv_ppm.seg0", "jit.enstd_db.seg0", "jit.period_ms.seg0",
              "jit.ncycles.seg0", "jit.valid.seg0"]
+    p = dominant_period(x, sr)
     if p < 4:
         return np.zeros(len(names)), names
     F = _fold(x, p)
     if F.shape[0] < JIT_MIN_CYCLES:
         return np.zeros(len(names)), names
     st = _fold_stats(F)
-    # per-cycle lag of best match against the FIRST cycle, to +-1 sample by a
-    # parabolic fit on the cross-correlation peak. Slope over cycle index is
-    # the period error; spread is the jitter that is not a steady drift.
-    ref = F[0] - F[0].mean()
-    lags = []
-    for i in range(1, F.shape[0]):
-        seg = x[i * p - p // 2: i * p + p + p // 2]
-        if len(seg) < p + 2:
-            break
-        c = np.correlate(seg - seg.mean(), ref, mode="valid")
-        j = int(np.argmax(c))
-        if 0 < j < len(c) - 1:
-            a0, a1, a2 = c[j - 1], c[j], c[j + 1]
-            den = a0 - 2 * a1 + a2
-            j = j + (0.5 * (a0 - a2) / den if abs(den) > _EPS else 0.0)
-        lags.append(j - p // 2)
-    if len(lags) < JIT_MIN_CYCLES - 1:
+    f = refine_frequency(x, sr, sr / p)
+    pr = sr / f
+    ncyc = int(len(x) / pr)
+    if ncyc < JIT_MIN_CYCLES:
         return np.zeros(len(names)), names
-    lags = np.asarray(lags, float)
-    idx = np.arange(1, len(lags) + 1, dtype=float)
-    slope = float(np.polyfit(idx, lags, 1)[0])          # samples of lag per cycle
-    resid = lags - np.polyval(np.polyfit(idx, lags, 1), idx)
-    vals = [st["rowcorr"], st["dshape"], 1e6 * slope / p, 1e6 * float(resid.std()) / p,
-            st["enstd"], 1e3 * p / sr, float(F.shape[0]), 1.0]
+    # A CONSTANT-LENGTH, WINDOWED projection, hopping one period at a time.
+    # Both properties are load-bearing and the second version of this function
+    # got the first one wrong: cutting each block at `round(i*pr)` makes the
+    # blocks 145 and 146 samples long by turns, each spanning a different
+    # fraction of a cycle, and the leakage that varies with it reported
+    # 293 ppm of "jitter" on a signal that has none. A fixed window length
+    # removes it, and a Hann window keeps the square's own harmonics out of
+    # the bin. The exponent uses the ABSOLUTE sample index, so the phase is
+    # referenced to one clock across the whole clip and a one-sample shift of
+    # a window over a stationary tone does not move it.
+    L = max(8, int(round(4.0 * pr)))
+    if len(x) < L + int(round(pr)) * (JIT_MIN_CYCLES - 1):
+        return np.zeros(len(names)), names
+    w = np.hanning(L)
+    ncyc = 1 + (len(x) - L) // max(1, int(round(pr)))
+    if ncyc < JIT_MIN_CYCLES:
+        return np.zeros(len(names)), names
+    ph, amp = [], []
+    for i in range(ncyc):
+        a = int(round(i * pr))
+        b = a + L
+        if b > len(x):
+            break
+        n = np.arange(a, b)
+        z = complex(np.sum(w * x[a:b] * np.exp(-2j * np.pi * f * n / sr)))
+        ph.append(np.angle(z))
+        amp.append(abs(z))
+    ncyc = len(ph)
+    if ncyc < JIT_MIN_CYCLES:
+        return np.zeros(len(names)), names
+    amp = np.asarray(amp)
+    if amp.max() <= _EPS:
+        return np.zeros(len(names)), names
+    ph = np.unwrap(np.asarray(ph))
+    idx = np.arange(ncyc, dtype=float)
+    lin = ph - np.polyval(np.polyfit(idx, ph, 1), idx)
+    quad = np.polyfit(idx, ph, 2)[0] if ncyc >= 4 else 0.0
+    k = 1e6 / (2.0 * np.pi)
+    vals = [st["rowcorr"], st["dshape"], k * float(lin.std()), k * float(quad),
+            st["enstd"], 1e3 * pr / sr, float(ncyc), 1.0]
     return np.asarray(vals, float), names
 
 
@@ -332,9 +407,15 @@ def _square(f0, sr, dur=0.24, jitter=0.0, seed=0):
     return np.asarray(out[:n], float)
 
 
-def _resample_linear(x, sr_in, sr_out):
-    n = int(round(len(x) * sr_out / sr_in))
-    return np.interp(np.arange(n) / sr_out, np.arange(len(x)) / sr_in, x)
+def _resample(x, sr_in, sr_out):
+    """Band-limited, because the test must measure the FEATURE and not the
+    resampler. A linear interpolation was used here first and its own
+    high-frequency roll-off moved the 9-18 kHz multi-scale columns by 2.8 dB,
+    which looked exactly like a rate-dependent feature and was not one."""
+    from math import gcd
+    from scipy.signal import resample_poly
+    g = gcd(int(sr_in), int(sr_out))
+    return resample_poly(x, int(sr_out) // g, int(sr_in) // g)
 
 
 def test_extra_features_are_rate_independent():
@@ -342,23 +423,43 @@ def test_extra_features_are_rate_independent():
     48 kHz, so a feature that moves with the rate is a sample-rate detector
     wearing a measurement's name."""
     a = _square(330.0, 44100) * np.exp(-np.arange(int(0.24 * 44100)) / (0.08 * 44100))
-    b = _resample_linear(a, 44100, 48000)
+    b = _resample(a, 44100, 48000)
     va, names = extra_features(a, 44100)
     vb, _ = extra_features(b, 48000)
     bad = []
     for nm, x, y in zip(names, va, vb):
-        scale = max(abs(x), abs(y), 1.0)
-        if abs(x - y) / scale > 0.12:
+        tol = max(RATE_TOL_REL * max(abs(x), abs(y)), RATE_TOL_ABS[_unit_of(nm)])
+        if abs(x - y) > tol:
             bad.append((nm, x, y))
     assert not bad, f"rate-dependent columns: {bad[:8]}"
+
+
+def test_the_rate_tolerance_is_far_below_the_effect():
+    """A tolerance is only honest next to the effect it must not hide. The
+    phase-jitter column's rate artefact is ~0.8 ppm and its floor is 20 ppm;
+    the smallest oscillator instability it exists to see is three orders of
+    magnitude above that, and this test fails if that gap ever closes."""
+    sr = 44100
+    stable = jitter_features(_square(410.0, sr, jitter=0.0), sr)
+    drift = jitter_features(_square(410.0, sr, jitter=0.001, seed=3), sr)
+    d = dict(zip(stable[1], stable[0]))
+    j = dict(zip(drift[1], drift[0]))
+    assert d["jit.phasejit_ppm.seg0"] < RATE_TOL_ABS["ppm"]
+    assert j["jit.phasejit_ppm.seg0"] > 50.0 * RATE_TOL_ABS["ppm"], j["jit.phasejit_ppm.seg0"]
 
 
 def test_mpd_would_have_caught_a_sample_indexed_fold():
     """The red control for the test above: a LITERAL HiFi-GAN fold at 2, 3,
     5, 7, 11 samples is carried here purely to show the rate-independence
-    check can fail. If this ever passes, the check above is vacuous."""
-    a = _square(330.0, 44100) * np.exp(-np.arange(int(0.24 * 44100)) / (0.08 * 44100))
-    b = _resample_linear(a, 44100, 48000)
+    check can fail. If this ever passes, the check above is vacuous.
+
+    The signal is a tone at 14700 Hz, which is exactly 44100/3: folded at
+    three samples it is perfectly stationary at 44.1 kHz and is not at
+    48 kHz, so a sample-indexed fold reads a difference of nine dozen ppm of
+    sample clock as a difference of instrument."""
+    t = np.arange(int(0.24 * 44100)) / 44100.0
+    a = np.sin(2 * np.pi * 14700.0 * t)
+    b = _resample(a, 44100, 48000)
     moved = 0
     for p in (2, 3, 5, 7, 11):
         sa = _fold_stats(_fold(a, p))
@@ -366,7 +467,7 @@ def test_mpd_would_have_caught_a_sample_indexed_fold():
         for k in sa:
             if abs(sa[k] - sb[k]) / max(abs(sa[k]), abs(sb[k]), 1e-6) > 0.12:
                 moved += 1
-    assert moved >= 3, ("a sample-indexed fold did NOT move between 44.1 k and "
+    assert moved >= 6, ("a sample-indexed fold did NOT move between 44.1 k and "
                         "48 k, so the rate-independence test proves nothing")
 
 
@@ -398,16 +499,20 @@ def test_jitter_separates_a_stable_oscillator_from_a_drifting_one():
     assert d["jit.cyclecorr.seg0"] > 0.99, d["jit.cyclecorr.seg0"]
     assert j["jit.cyclecorr.seg0"] < d["jit.cyclecorr.seg0"] - 0.02, (
         d["jit.cyclecorr.seg0"], j["jit.cyclecorr.seg0"])
-    assert j["jit.lagspread_ppm.seg0"] > 10.0 * max(d["jit.lagspread_ppm.seg0"], 1.0)
+    assert j["jit.phasejit_ppm.seg0"] > 3.0 * max(d["jit.phasejit_ppm.seg0"], 1.0), (
+        d["jit.phasejit_ppm.seg0"], j["jit.phasejit_ppm.seg0"])
 
 
 def test_jitter_refuses_rather_than_reports_on_too_few_cycles():
     """REFUSED is a first-class outcome. A drift slope over three cycles is
     not a measurement and must come back flagged invalid, not plausible."""
     sr = 44100
-    x = _square(150.0, sr, dur=0.012)            # ~1.8 cycles
+    # 4 ms: shorter than JIT_MIN_CYCLES of even the fastest lag the search is
+    # allowed to return, so there is no period it could honestly report.
+    x = _square(150.0, sr, dur=0.004)
     v, names = jitter_features(x, sr)
     assert dict(zip(names, v))["jit.valid.seg0"] == 0.0
+    assert dominant_period(x, sr) == 0
 
 
 def test_cqt_resolves_two_partials_a_fifth_apart_that_mel_smears():
