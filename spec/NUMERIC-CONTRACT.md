@@ -1800,15 +1800,30 @@ record that extends this document; none may be resolved by picking a reading.
     match the closed form within 0.1 dB) with poor aliasing is the signature
     of a correct implementation of an insufficient method.
 
-    **One option has been measured and is ruled out.** Oversampling the
-    oscillators to join the rate the ladder already runs at, and letting the
-    ladder's existing naive decimation do the rest, makes it **worse, not
-    better**: sawtooth at 82 Hz goes −42.7 → **−33.1** at 2× and **−29.8** at
-    4×. Decimating by dropping samples folds the whole 24–48 kHz band straight
-    back, and PolyBLEP at the oversampled rate suppresses images near the
-    oversampled Nyquist, not near 24 kHz. Oversampling the oscillators is
-    therefore **not** the cheap option; it needs a real decimation filter
-    before it is even neutral.
+    **One option has been measured and is ruled out IN THAT FORM**, and since
+    instrumented and explained (#80, `docs/oversampling-paradox.md`,
+    `model/alias_probe.py`). Oversampling the oscillators and letting a
+    last-sub-step decimation do the rest makes it **worse, not better**:
+    sawtooth at 82 Hz goes −42.7 → **−33.1** at 2× and **−29.8** at 4×.
+
+    The mechanism is now measured rather than inferred, and it is narrower than
+    the sentence that used to stand here. **The oversampling itself works**: at
+    96 kHz the corrected sawtooth reads −55.5 dB, the estimator's floor, 12.8 dB
+    better than the base rate. The whole loss enters at the rate reduction, and
+    it equals the share of the oversampled signal's power held in **harmonics
+    above 24 kHz** — −33.1 dB predicted, −33.1 dB read, within 0.3 dB at every
+    register. Those harmonics do not exist at 48 kHz; oversampling created them
+    and dropping samples folded them down. PolyBLEP is not rate-mismatched (peak
+    ratio 1.0000, window one sample per side at both rates), fixed point is not
+    involved (float64 regresses identically), and an exact additive band-limited
+    sawtooth through the same decimator reads −29.8 dB, **3.3 dB worse than
+    ours**.
+
+    Oversampling the oscillators is therefore **not** the cheap option; it is a
+    decimation-filter decision. A float64 bound puts an 11-tap half-band at
+    break-even with the shipped base-rate PolyBLEP and a 63-tap one at 6.9 dB
+    better at 82 Hz and **18.2 dB better at 2.6 kHz** — the shape of this defect.
+    No area number is attached; that belongs with an implementation.
 
     A sizing study of longer band-limited-step residuals (2, 4, 8, 16, 32
     correction samples) was built and **withdrawn**: it failed its own sanity

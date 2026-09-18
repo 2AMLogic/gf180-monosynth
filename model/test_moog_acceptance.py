@@ -71,6 +71,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import dsp                                                          # noqa: E402
 import voice_fx as vf                                               # noqa: E402
 import audio_measure as am                                          # noqa: E402
+import alias_probe as ap                                            # noqa: E402
 from audio_measure import InsufficientEvidence      # noqa: E402,F401  (the stub controls below rely on it being an AssertionError)
 from dsp import SR                                                  # noqa: E402
 
@@ -1812,29 +1813,160 @@ def test_the_sawtooths_aliasing_floor_degrades_with_pitch_and_is_locked():
     assert got[100] > -35.0, "if the top of the range has improved this much, the fix landed"
 
 
-def test_control_oversampling_the_oscillators_without_a_decimator_is_worse():
-    """**A measured NEGATIVE result, kept as a test so it is not re-proposed.**
+def test_oversampling_the_oscillators_regresses_only_through_the_drop_decimator():
+    """**Issue #80, explained and locked. `docs/oversampling-paradox.md`,
+    `model/alias_probe.py`.**
 
-    The obvious cheap fix is to run the oscillators at the 96 kHz the ladder is
-    already using and let the ladder's existing decimation — which takes the
-    last sub-step, exactly as Surge's Huovilainen does — absorb the rest. No
-    new decimator, no new filter.
+    Running the oscillator at 2x and reducing it to the base rate by KEEPING
+    THE LAST SUB-STEP measures 9.6 dB worse than the base-rate oscillator:
+    -42.7 -> -33.1 at note 40. This test locks that number and locks WHERE it
+    enters, so the negative result cannot be re-proposed and cannot be
+    mis-attributed:
 
-    It makes aliasing **worse**: sawtooth at 82 Hz goes −42.7 → −33.1 at 2×
-    and −29.8 at 4×. Dropping every other sample folds the whole 24–48 kHz
-    band back into the baseband, and PolyBLEP at the oversampled rate
-    suppresses images near the *oversampled* Nyquist, not near 24 kHz.
-
-    Oversampling the oscillators is therefore not a cheap option; it is a
-    decimation-filter decision wearing a cheap option's clothes."""
+      * at the oversampled rate the correction is BETTER, not worse
+        (-42.7 -> -55.5, which is that estimator's floor). The whole regression
+        enters at the rate reduction and nowhere else;
+      * the reading after dropping equals the share of the oversampled
+        signal's power that sits in HARMONICS ABOVE 24 kHz -- energy that
+        exists only because the oscillator runs at 96 kHz -- to within a few
+        tenths of a dB. That is the mechanism, as an energy budget;
+      * a decimation filter removes it. This is the assertion that keeps the
+        test honest about scope: it guards the DROP-DECIMATOR, not the
+        technique. Oversampling with a real decimator beats what we ship."""
     n = int(0.5 * SR)
-    base, f0 = _osc("saw", 40, n, blep=True)
-    a = am.inharmonic_fraction_db(base, f0).require("saw at 48 kHz")
-    for os_ in (2, 4):
-        inc = int(round(dsp.phase_inc(dsp.note_hz(40)) / os_))
-        y = vf.OscFx("saw", blep=True).render(n * os_, inc).astype(np.float64)[os_ - 1::os_]
-        b = am.inharmonic_fraction_db(y, inc * os_ * SR / (1 << 24)).require(f"saw at {os_}x")
-        assert b > a + 5.0, f"{os_}x oversampling measured {b:.1f} dB against {a:.1f}: it helped, re-open this"
+    inc = ap.base_inc(40)
+    f0 = inc * SR / (1 << 24)
+    p2 = ap.render_osc("saw", inc, n, blep=True)
+    p3 = ap.render_osc("saw", inc // 2, n * 2, blep=True)
+    p4 = ap.decimate_drop(p3, 2)
+
+    a = am.inharmonic_fraction_db(p2, f0, SR).require("saw at 48 kHz")
+    b = am.inharmonic_fraction_db(p4, f0, SR).require("saw at 2x, dropped")
+    c = am.inharmonic_fraction_db(p3, f0, 2 * SR).require("saw at 2x, before decimation")
+    assert abs(a - (-42.7)) < 1.0, f"base rate {a:.1f}, locked at -42.7"
+    assert abs(b - (-33.1)) < 1.0, f"2x dropped {b:.1f}, locked at -33.1"
+    assert b > a + 5.0, f"the regression is {b - a:.1f} dB; it was +9.6"
+
+    # it is NOT the correction, and NOT the oversampling
+    assert c < a - 10.0, f"at 96 kHz the corrected saw reads {c:.1f} against {a:.1f} at 48 kHz"
+
+    # the mechanism, as an energy budget: what folds down IS the reading
+    above = ap.band_split(p3, f0, 2 * SR, SR / 2.0)["above_db"]
+    assert abs(above - b) < 1.0, \
+        f"above-Nyquist harmonics carry {above:.1f} dB, the dropped reading is {b:.1f}"
+
+    # and a decimator removes it -- the technique is fine, this decimator is not
+    fir = am.inharmonic_fraction_db(ap.decimate_fir(p3, 2), f0, SR).require("2x, FIR-decimated")
+    assert fir < a - 10.0, f"FIR-decimated reads {fir:.1f}, base rate reads {a:.1f}"
+
+
+def test_the_oversampling_regression_is_not_the_fixed_point_and_not_our_oscillator():
+    """**Issue #80 hypotheses 3 and 4, both ruled out by substitution.**
+
+    Hypothesis 3 (more samples, more quantisation events): the SAME PolyBLEP in
+    float64, with no Q1.15, no reciprocal approximation and no saturation,
+    regresses identically. Fixed point is not the mechanism.
+
+    Hypothesis 4 (something in how we implemented it): a mathematically exact
+    band-limited sawtooth, summed from its Fourier series at 96 kHz, put
+    through the same drop-decimator, comes out WORSE than ours -- because
+    PolyBLEP's two-sample residual attenuates the top of the oversampled band,
+    so there is less there to fold. A perfect oscillator would regress more."""
+    n = int(0.5 * SR)
+    for note in (40, 64, 100):
+        inc = ap.base_inc(note)
+        f0 = inc * SR / (1 << 24)
+        ours = ap.decimate_drop(ap.render_osc("saw", inc // 2, n * 2, blep=True), 2)
+        flt = ap.decimate_drop(ap.float_blep("saw", inc // 2, n * 2), 2)
+        exact = ap.decimate_drop(ap.bl_saw(f0, n * 2, 2 * SR), 2)
+        b = am.inharmonic_fraction_db(ours, f0, SR).require(f"note {note} fixed point")
+        f = am.inharmonic_fraction_db(flt, f0, SR).require(f"note {note} float")
+        e = am.inharmonic_fraction_db(exact, f0, SR).require(f"note {note} analytic")
+        assert abs(b - f) < 0.5, f"note {note}: fixed {b:.1f} vs float {f:.1f}"
+        assert e > b - 0.5, \
+            f"note {note}: the EXACT band-limited saw reads {e:.1f}, ours {b:.1f}"
+
+
+def test_the_polyblep_correction_is_the_same_at_both_rates():
+    """**Issue #80 hypothesis 1, ruled out by construction and by
+    measurement.** The leading guess was that the correction was computed for
+    one rate and applied at another.
+
+    It cannot have been: `blep_fx` decides the window with `ph < inc` and
+    scales it by the reciprocal of `inc`, so the window is one sample on each
+    side AT WHATEVER RATE, with the same peak. Halving the increment halves it
+    in phase and leaves it unchanged in samples. Measured at six registers."""
+    for note in (40, 52, 64, 76, 88, 100):
+        d = ap.blep_normalisation(note, 2)
+        lo, hi = d["base"], d["2x"]
+        assert hi["inc"] * 2 == lo["inc"], f"note {note}: increments are not exactly 2:1"
+        assert abs(d["peak_ratio"] - 1.0) < 1e-6, \
+            f"note {note}: the correction's peak changed by {d['peak_ratio']:.6f}"
+        for r in (lo, hi):
+            assert abs(r["lead_samples"] - 1.0) < 0.02 and abs(r["trail_samples"] - 1.0) < 0.02, \
+                f"note {note}: window is {r['lead_samples']:.3f}/{r['trail_samples']:.3f} samples"
+            assert abs(r["hits_per_wrap"] - 2.0) < 0.1, \
+                f"note {note}: {r['hits_per_wrap']:.2f} corrected samples per wrap, expected 2"
+
+
+def test_the_shipped_ladder_loses_nothing_to_its_last_sub_step_decimation():
+    """**The contrast that makes #80's mechanism a mechanism rather than a
+    rule about decimators.** The voice already reduces a 2x rate to the output
+    rate by keeping the last sub-step, in `LadderFx.process`, and it costs
+    nothing there. Surge's Huovilainen does the same and is likewise fine.
+
+    The difference is not the decimator. It is what is sitting above 24 kHz
+    when the decimator runs. After a 4-pole lowpass there is essentially
+    nothing there; after an oscillator there is the waveform's own harmonic
+    series. Measured below 24 kHz apart in the two cases."""
+    n = int(0.25 * SR)
+    inc = ap.base_inc(64)
+    f0 = inc * SR / (1 << 24)
+    t = np.arange(n, dtype=np.float64) * (f0 / SR)
+    x = np.round(0.8 * np.sin(2 * math.pi * t) * 32767).astype(np.int16)
+    sub, out, _ = ap.ladder_substeps(x, 2)          # REFUSES if this is not the shipping ladder
+    b3, b4 = sub / FS, out / FS
+    i3 = am.inharmonic_fraction_db(b3, f0, 2 * SR).require("ladder sub-steps")
+    i4 = am.inharmonic_fraction_db(b4, f0, SR).require("ladder output")
+    assert abs(i4 - i3) < 1.0, f"the rate reduction cost {i4 - i3:.2f} dB inside the ladder"
+
+    lad_above = ap.band_split(b3, f0, 2 * SR, SR / 2.0)["above_db"]
+    osc_above = ap.band_split(ap.render_osc("saw", inc // 2, n * 2, blep=True),
+                              f0, 2 * SR, SR / 2.0)["above_db"]
+    assert lad_above < osc_above - 20.0, \
+        f"fold-down budget: ladder {lad_above:.1f} dB, oscillator {osc_above:.1f} dB"
+
+    # and the sample-and-hold the ladder upsamples with is EXACTLY invertible by
+    # the same decimator, which is why its large images cost nothing.
+    assert np.array_equal(ap.decimate_drop(np.repeat(b4, 2), 2), b4)
+
+
+def test_the_aliasing_estimator_reproduces_a_known_alias_content():
+    """**The estimator's own ground truth, in the regime this section uses it**
+    -- hundreds of harmonics, not the eleven `test_audio_measure` checks.
+
+    Drop-decimating an analytic band-limited sawtooth produces an alias content
+    that is computable in closed form from the Fourier coefficients and the
+    guard rule, with no FFT anywhere. `inharmonic_fraction_db` must agree.
+    Six estimator bugs were found the day `audio_measure`'s ground truth was
+    written and eight-plus measurements have been withdrawn here; nothing in
+    the two tests above is worth reading unless this passes."""
+    n = int(0.5 * SR)
+    for note in (40, 64, 100):
+        f0 = ap.base_inc(note) * SR / (1 << 24)
+        clean = ap.bl_saw(f0, n, SR)
+        floor = am.inharmonic_fraction_db(clean, f0, SR).require(f"note {note} clean")
+        assert floor < -50.0, f"note {note}: the floor is {floor:.1f} dB, too high to measure at"
+        for share_db in (-20.0, -30.0, -40.0):
+            share = 10 ** (share_db / 10.0)
+            got = am.inharmonic_fraction_db(
+                ap.plant_inharmonics(clean, f0, SR, share), f0, SR).require()
+            want = 10 * math.log10(share + 10 ** (floor / 10.0) * (1 - share))
+            assert abs(got - want) < 0.5, f"note {note}: planted {want:.1f}, read {got:.1f}"
+        cf = ap.alias_fraction_closed_form(f0, 2 * SR, 2, n)["db"]
+        got = am.inharmonic_fraction_db(
+            ap.decimate_drop(ap.bl_saw(f0, 2 * n, 2 * SR), 2), f0, SR).require()
+        assert abs(got - cf) < 1.0, f"note {note}: closed form {cf:.1f}, estimator {got:.1f}"
 
 
 # =============================================================================
