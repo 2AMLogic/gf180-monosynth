@@ -79,11 +79,19 @@ def test_timeout_kills_the_grandchild_not_just_the_shell(tmp_path):
 
 
 def test_one_failure_among_successes_fails_overall_and_keeps_every_result():
+    # Exit 3, not 2: under this repo's convention 2 means "did not run", which
+    # is NO-VERDICT rather than FAIL. Using it here would have tested the
+    # wrong thing -- and did, until the convention was added.
     res = ra.run_all([f'{PY} -c "pass"',
-                      f'{PY} -c "raise SystemExit(2)"',
+                      f'{PY} -c "raise SystemExit(3)"',
                       f'{PY} -c "pass"'])
     assert [r["state"] for r in res] == [ra.PASS, ra.FAIL, ra.PASS]
-    assert res[1]["rc"] == 2
+    assert res[1]["rc"] == 3
+    assert ra.main([f'{PY} -c "pass"', f'{PY} -c "raise SystemExit(3)"']) == 1
+
+
+def test_no_verdict_still_fails_the_overall_run():
+    """It is not a pass. Missing evidence must not look like success."""
     assert ra.main([f'{PY} -c "pass"', f'{PY} -c "raise SystemExit(2)"']) == 1
 
 
@@ -138,3 +146,26 @@ def test_summary_marks_a_timeout_distinctly_from_a_failure():
     res = [ra.run_one(f'{PY} -c "import time; time.sleep(9)"', timeout=0.8)]
     assert ra.NO_VERDICT in ra.summarise(res)
     assert "FAIL" not in ra.summarise(res)
+
+
+# --- the exit-code convention ------------------------------------------------
+
+def test_verifier_exit_two_is_no_evidence_not_failure():
+    """This repo's verifiers use 2 for "did not run" -- simulator missing,
+    compile failed. Flattening that into FAIL hides the difference between a
+    negative control that worked and one that never ran."""
+    r = ra.run_one(f'{PY} -c "raise SystemExit(2)"')
+    assert r["state"] == ra.NO_VERDICT
+    assert r["rc"] == 2, "the original status must still be recorded"
+
+
+def test_exit_two_is_an_ordinary_failure_for_a_non_verifier():
+    r = ra.run_one(f'{PY} -c "raise SystemExit(2)"', verifier=False)
+    assert r["state"] == ra.FAIL and r["rc"] == 2
+
+
+def test_mismatch_and_did_not_run_are_distinguishable_in_the_summary():
+    res = [ra.run_one(f'{PY} -c "raise SystemExit(1)"'),
+           ra.run_one(f'{PY} -c "raise SystemExit(2)"')]
+    s = ra.summarise(res)
+    assert "FAIL(1)" in s and ra.NO_VERDICT in s

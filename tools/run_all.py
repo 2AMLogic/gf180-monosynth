@@ -41,9 +41,29 @@ import argparse, concurrent.futures as cf, json, os, signal, subprocess, sys, ti
 
 PASS, FAIL, NO_VERDICT, LAUNCH_ERROR = "PASS", "FAIL", "NO-VERDICT", "LAUNCH-ERROR"
 
+# This repository's verifiers already distinguish "it ran and disagreed" from
+# "it did not run", and the runner must not flatten that into one FAIL.
+#
+#   0  match          the comparison ran and agreed
+#   1  mismatch       the comparison ran and disagreed  -- a RESULT
+#   2  did not run    simulator missing, compile failed -- NO EVIDENCE
+#
+# The distinction is load-bearing for negative controls: `--expect-fail` exits
+# 0 only on status 1, so a missing simulator can never be mistaken for a
+# successfully caught defect. Reporting exit 2 as "FAIL" would hide the
+# difference between a control that worked and a control that never ran, which
+# is the difference between evidence and its absence.
+VERIFIER_NO_EVIDENCE = 2
 
-def run_one(cmd: str, timeout: float | None = None, env: dict | None = None) -> dict:
-    """Run one command. Never infers status from output."""
+
+def run_one(cmd: str, timeout: float | None = None, env: dict | None = None,
+            verifier: bool = True) -> dict:
+    """Run one command. Never infers status from output.
+
+    `verifier=True` applies this repo's exit-code convention, under which 2
+    means "did not run" and is reported NO-VERDICT rather than FAIL. Pass
+    False for a command that uses 2 to mean an ordinary error.
+    """
     t0 = time.time()
     try:
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
@@ -55,7 +75,12 @@ def run_one(cmd: str, timeout: float | None = None, env: dict | None = None) -> 
     try:
         out, _ = p.communicate(timeout=timeout)
         rc = p.returncode
-        state = PASS if rc == 0 else FAIL
+        if rc == 0:
+            state = PASS
+        elif rc == VERIFIER_NO_EVIDENCE and verifier:
+            state = NO_VERDICT          # it did not run; that is not a failure
+        else:
+            state = FAIL
     except subprocess.TimeoutExpired:
         # Kill the GROUP: shell=True means a shell is the direct child, and
         # killing it leaves the real work orphaned and still running.
