@@ -176,8 +176,7 @@ def main(argv=None) -> int:
           f"contract 15.7.1, the part a trigger bridge does not reproduce")
 
     # ---- the schedule the MODEL is told about, computed before any simulation --
-    ws = sorted(host.w, key=lambda w: w.frame)
-    laid = sh.feasible(sh.spread(ws, link), link)
+    laid = sh.lay_out(host.w, link)
     truth = sh.place(laid, link)
     st = sh.check(truth)
     if st["conflicts"]:

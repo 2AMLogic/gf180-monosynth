@@ -294,6 +294,21 @@ def spread(writes: list, link: LinkTiming) -> list:
     return out
 
 
+def lay_out(writes: list, link: LinkTiming) -> list:
+    """The whole scheduling decision, in the order it has to happen.
+
+    The sort is load-bearing: within one frame the SETUP goes before the
+    INSTANTS. Two hosts writing into the same frame -- a drum hit from the
+    sequencer and a key down from the keyboard -- otherwise interleave by
+    whichever was appended first, and the backward pass then tries to put the
+    keyboard's pitch writes in front of a strike that is already behind them in
+    the queue. Measured, not argued: without `w.anchor` in the sort key, a key
+    down landing on a bass-drum beat moved 10 frames (208 us); with it, 2
+    frames (42 us), which is one transaction, which is the floor."""
+    ws = sorted(writes, key=lambda w: (w.frame, w.anchor))
+    return feasible(spread(ws, link), link)
+
+
 def place(writes: list, link: LinkTiming) -> list:
     """Turn wanted frames into tb_top_bx `wait_frames` commands.
 
@@ -537,8 +552,7 @@ class MusicHost:
         back the image writes up in front of them, then lay the transactions on
         the wire. Returns `Placed` -- what to send, and the frame the host
         PREDICTS each one lands in."""
-        ws = sorted(self.w, key=lambda w: w.frame)
-        return place(feasible(spread(ws, link), link), link)
+        return place(lay_out(self.w, link), link)
 
 
 def knob_cost() -> dict:
