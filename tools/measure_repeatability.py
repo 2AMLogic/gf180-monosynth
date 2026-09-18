@@ -203,15 +203,20 @@ def metrics() -> dict:
 def _split_db_padded(sound: str, t1: float):
     """`_split_db` with 10 ms of silence in front of the strike.
 
-    The #101 control. `band_energy` filters with `sosfiltfilt`, whose odd
-    extension manufactures an edge when the window opens ON the strike -- worth
-    up to 6.07 dB against a 3.0 dB tolerance, and every file in this corpus
-    opens on the strike (its first sample above 2 % of peak is sample 5 to 9).
-    Prepending silence cannot change what the machine did, so any difference
-    between this and `body spectrum` is the apparatus. Reported side by side:
-    what matters for #111 is not the bias, which is common to both sides of a
-    comparison, but whether the bias *varies* between recordings and so inflates
-    the spread."""
+    The #101 control, and **it has since become a cross-check rather than a
+    correction.** When this was written, `run_case.prepare` clamped a short
+    lead to zero, so `body spectrum` opened its window 0.16 ms before the
+    strike -- inside `sosfiltfilt`'s 27-sample pad -- and the odd extension
+    manufactured an edge worth up to 6.07 dB against a 3.0 dB tolerance. Every
+    file in this corpus opens on the strike, so every one of them had it.
+    `prepare` now guarantees 20 padlens of TRUE silence on both sides of every
+    comparison, which is what this control was doing by hand.
+
+    So the two now agree, and the pair is kept for that reason: prepending
+    silence cannot change what the machine did, so `body spectrum` and `body
+    spectrum (padded)` disagreeing again is the apparatus coming back.
+    `test_the_shipped_band_split_does_not_move_when_the_head_trim_moves`
+    asserts it, and shows the pre-repair path still moving."""
     inner = rc._split_db(sound, 0.0, t1 + 0.010)
 
     def f(y, sr):
@@ -257,12 +262,22 @@ def truncation_sensitivity(y: np.ndarray, sr: int) -> float | None:
     A LENGTH criterion, measured rather than asserted: cut 10 % more off and
     re-read. A record with enough decay after the fitting range does not care;
     a truncation-limited one moves. Returned in percent, so a caller can refuse
-    on it. `model/audio_measure.py` is owned by another agent for #118, so this
-    lives here and does not touch it."""
-    full = am.schroeder_t20(rc.window(y, sr, 0.005, None), sr)
+    on it.
+
+    **#118 has since landed in `audio_measure.schroeder_t20` itself** -- the
+    guard there is now a length criterion, `MIN_TAIL_T20` times the fitted T20
+    after the -25 dB point, and it REFUSES. This probe therefore disables that
+    guard on both reads (`min_tail_t20=0.0`): it is not trying to find out
+    whether the record is long enough, it is trying to MEASURE how much the
+    length is worth, and a refusal is not a measurement. The two now
+    cross-check each other -- a record the guard refuses should be one this
+    probe finds sensitive, and the corpus reads -0.00 % for every decay
+    position while the guard passes every one of them."""
+    seg = rc.window(y, sr, 0.005, None)
+    full = am.schroeder_t20(seg, sr, min_tail_t20=0.0)
     if not full.ok:
         return None
-    short = am.schroeder_t20(rc.window(y, sr, 0.005, None)[: int(0.90 * (len(y) - int(0.005 * sr)))], sr)
+    short = am.schroeder_t20(seg[: int(0.90 * len(seg))], sr, min_tail_t20=0.0)
     if not short.ok:
         return math.inf
     return 100.0 * (short.value - full.value) / full.value
@@ -398,21 +413,31 @@ def audit(report=print) -> tuple[bool, dict]:
 # ===========================================================================
 def synthetic_bd(sr: int = 44100, f0: float = 50.0, tau: float = 0.120,
                  seconds: float = 3.0, click: float = 0.25,
-                 seed: int | None = None) -> np.ndarray:
+                 seed: int | None = None, lead: int = 8) -> np.ndarray:
     """A bass drum with a closed-form answer: one damped sinusoid at `f0` with
     amplitude time constant `tau`, plus a short click so the band split and the
     attack have something to measure.
 
     T20 of a single exponential is ln(10)*tau exactly, and that identity is
     `audio_measure`'s own ground truth for `schroeder_t20`, so an estimator
-    that is STABLE but WRONG is still caught here."""
-    n = int(seconds * sr)
+    that is STABLE but WRONG is still caught here.
+
+    `lead` is 8 samples of silence in front of the strike, which is what this
+    corpus has -- its onsets land on sample 5 to 9. It is not cosmetic: since
+    #101's repair, `run_case.prepare` REFUSES a record that begins at or above
+    2 % of its own peak, because such a record was cut into the strike and
+    there is no pre-onset region to build a filter lead out of. Without a lead
+    this fixture is exactly that record. Prepending silence cannot change any
+    number here -- T20, f0 and every band ratio are invariant to it, which
+    `test_run_case.py`'s invariance tests assert directly."""
+    n = int(seconds * sr) - lead
     t = np.arange(n) / sr
     y = np.exp(-t / tau) * np.sin(2 * np.pi * f0 * t)
     k = int(0.002 * sr)
     y[:k] += click * np.exp(-np.arange(k) / (0.0004 * sr))
     if seed is not None:
         y = y + np.random.default_rng(seed).normal(0.0, 1e-5, n)
+    y = np.concatenate([np.zeros(lead), y])
     return y / np.abs(y).max()
 
 

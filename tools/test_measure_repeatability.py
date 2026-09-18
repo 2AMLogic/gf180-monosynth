@@ -104,15 +104,32 @@ def test_truncation_probe_is_quiet_on_a_record_with_enough_tail():
 
 
 def test_truncation_probe_fires_on_a_record_cut_while_it_is_still_sounding():
-    """The case #118 is about: schroeder_t20's tail_db guard passes, and the
-    answer is badly wrong. A probe that never fires is not a probe."""
+    """The case #118 is about. **This test asserted the defect until #118 was
+    fixed**: `schroeder_t20` guarded truncation on `tail_db`, the last value of
+    the backward-integrated curve, and that curve falls towards -inf at the last
+    sample of ANY finite record -- so it passed this cut and returned a badly
+    wrong answer. The guard is now a LENGTH criterion and refuses.
+
+    Both halves are asserted. The level criterion is recomputed from the
+    estimator's own `tail_db`, so if anyone reinstates it as the truncation test
+    this record goes green again and this test goes red -- and the local probe
+    must still fire either way, because a probe that never fires is not a
+    probe."""
     import audio_measure as am
     import run_case as rc
     x = mr.synthetic_bd(SR, tau=0.40, seconds=4.0)
     cut = x[: int(0.5 * SR)]
-    guard = am.schroeder_t20(rc.window(cut, SR, 0.005, None), SR)
-    assert guard.ok, "the level guard must PASS here; that is the defect"
-    assert abs(guard.value * 1e3 - am.t20_from_tau(0.40) * 1e3) > 100.0
+    seg = rc.window(cut, SR, 0.005, None)
+    guard = am.schroeder_t20(seg, SR)
+    assert not guard.ok, \
+        f"the length guard must refuse a cut record; it returned {guard.value*1e3:.0f} ms"
+    assert "ends before" in guard.reason
+    assert guard.detail["tail_db"] < -35.0, \
+        ("the LEVEL criterion passes this record comfortably (tail_db "
+         f"{guard.detail['tail_db']:.1f} dB) -- which is why the guard is a length")
+    # what it would have reported, had it reported
+    unguarded = am.schroeder_t20(seg, SR, min_tail_t20=0.0)
+    assert abs(unguarded.value * 1e3 - am.t20_from_tau(0.40) * 1e3) > 100.0
     assert abs(mr.truncation_sensitivity(cut, SR)) > 5.0
 
 
@@ -140,20 +157,52 @@ def test_measure_all_keeps_a_refusal_as_a_refusal():
 # ---------------------------------------------------------------------------
 # the windowing defect, #101, on a synthetic signal
 # ---------------------------------------------------------------------------
-def test_the_shipped_band_split_moves_when_the_head_trim_moves():
-    """Four samples of head trim cannot change what the machine did. The
-    shipped split moves anyway; the padded one does not. This is the control
-    that says the 0.57 dB measured on the corpus is the apparatus."""
+def _prepare_with_the_clamp(x, sr):
+    """`run_case.prepare` EXACTLY as it stood before #101 was fixed, so the
+    defect this test was written for stays reproducible after the repair. The
+    `max(0, ...)` is the whole of it: an onset closer to the start than 1 ms
+    could not be given a 1 ms lead, so it silently got whatever was there --
+    0.16 ms on every file in this corpus, inside `sosfiltfilt`'s 27-sample
+    pad."""
+    import audio_measure as am
+    x = np.asarray(x, dtype=np.float64)
+    pk = float(np.abs(x).max())
+    i = int(np.argmax(np.abs(x) > 0.02 * pk))
+    lead = max(0, i - int(1e-3 * sr))
+    if lead >= int(5e-3 * sr):
+        x = x - float(x[:lead].mean())
+    y = x[lead:]
+    p = float(np.abs(y).max())
+    return y / p if p > 0 else y
+
+
+def test_the_shipped_band_split_does_not_move_when_the_head_trim_moves():
+    """Four samples of head trim cannot change what the machine did.
+
+    **This test asserted the opposite until #101 was fixed** -- that the shipped
+    split moved and only the padded control held still, which is what made the
+    0.57 dB measured on the corpus the apparatus rather than the machine.
+    `prepare` now gives both sides 20 padlens of true silence, so the shipped
+    path holds still too, and the two must agree.
+
+    The pre-repair path is reimplemented above and asserted to STILL move, so
+    this is a control and not merely an absence."""
     import run_case as rc
     plan = mr.metrics()
-    # Eight samples of leading silence, as the corpus has: its onsets land on
-    # sample 5 to 9. Every trim below is taken out of that silence, so the
-    # EVENT is bit-identical in all four and any movement is the apparatus.
+    # Eight more samples of leading silence on top of the fixture's own, so
+    # every trim below comes out of silence and the EVENT is bit-identical in
+    # all four: any movement at all is the apparatus.
     x = np.concatenate([np.zeros(8),
                         mr.synthetic_bd(SR, tau=0.12, seconds=1.0, click=0.4)])
     shipped = [plan["body spectrum"][1](rc.prepare(x[h:], SR), SR).require()
                for h in (0, 2, 4, 6)]
     padded = [plan["body spectrum (padded)"][1](rc.prepare(x[h:], SR), SR).require()
               for h in (0, 2, 4, 6)]
-    assert max(padded) - min(padded) < 0.01
-    assert max(shipped) - min(shipped) > 10 * (max(padded) - min(padded))
+    before = [rc.band_ratio_db(_prepare_with_the_clamp(x[h:], SR)[:int(0.150 * SR)],
+                               SR, rc.SPLIT_HZ["BD"], *rc.BAND["BD"]).require()
+              for h in (0, 2, 4, 6)]
+    assert max(padded) - min(padded) < 0.01, padded
+    assert max(shipped) - min(shipped) < 0.01, shipped
+    assert abs(shipped[0] - padded[0]) < 0.01, (shipped[0], padded[0])
+    assert max(before) - min(before) > 0.1, \
+        f"the pre-repair path must still move, or this is not a control: {before}"

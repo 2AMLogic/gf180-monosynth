@@ -250,7 +250,7 @@ def band_pair_db(x, sr: int, band_a, band_b, *, floor_db: float = -80.0) -> am.E
 
 
 def pitch_drop_hz(x, sr: int, band, *, early=(0.004, 0.018), late=(0.060, 0.150),
-                  smooth_ms: float = 3.0) -> am.Estimate:
+                  smooth_ms: float = 3.0, origin: int = 0) -> am.Estimate:
     """How far the voice's pitch falls between an early and a late window, in
     Hz, from the analytic phase derivative (`audio_measure.instantaneous_
     frequency`, ground-truthed against a known glide) of the band-limited body.
@@ -276,13 +276,17 @@ def pitch_drop_hz(x, sr: int, band, *, early=(0.004, 0.018), late=(0.060, 0.150)
     from scipy.signal import butter as _butter, sosfiltfilt as _sos
     sos = _butter(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
                   btype="band", output="sos")
+    # The whole record, lead included: this is the one estimator here that
+    # filters everything it is given, so the segment it hands `sosfiltfilt`
+    # already begins in `prepare()`'s guaranteed silence. `origin` is where
+    # t = 0 sits in it, so `early` and `late` mean what they meant before.
     y = _sos(sos, x)
     env = am.analytic_envelope(y)
     fi = am.instantaneous_frequency(y, sr, smooth_ms=smooth_ms)
     pk = float(env.max())
     out = []
     for name, (t0, t1) in (("early", early), ("late", late)):
-        a, b = int(t0 * sr), min(len(fi), int(t1 * sr))
+        a, b = origin + int(t0 * sr), min(len(fi), origin + int(t1 * sr))
         if b - a < 16:
             return am.Estimate(None, False, f"{name} window too short", dict(n=b - a))
         if float(env[a:b].max()) < pk * 10 ** (-30.0 / 20.0):
@@ -328,22 +332,164 @@ def attack_ms(x, sr: int, *, window_ms: float = 4.0,
     return am.Estimate(ms, True, "", dict(peak_index=pk, window_ms=window_ms))
 
 
-def tone_ratio_db(x, sr: int, hz_num: float, hz_den: float) -> am.Estimate:
-    """Level of the line at `hz_num` over the line at `hz_den`, in dB, by
-    coherent projection (`audio_measure.tone_amplitude`) at both frequencies.
+#: How far either side of a NOMINAL partial frequency a real one is looked for.
+#: 10 % is the TR-808's own component tolerance on an oscillator's f0
+#: (docs/tr808-reference.md 1.7) and the same figure `tol_frequency` uses, so
+#: the search covers exactly the range a unit is allowed to sit in.
+LINE_SEARCH_FRAC = 0.10
 
-    Ground truth: test_tone_ratio_db_of_two_known_sines."""
-    a = am.tone_amplitude(x, hz_num, sr)
-    b = am.tone_amplitude(x, hz_den, sr)
+#: How far above its own measured floor a reading has to sit before it is a
+#: measurement rather than the estimator. 6 dB, which is the margin
+#: `audio_measure.harmonic_signature` already uses for the same decision.
+FLOOR_MARGIN_DB = 6.0
+
+
+def find_line(x, sr: int, hz_nominal: float, *,
+              search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """The frequency of the real partial nearest `hz_nominal`, not
+    `hz_nominal`.
+
+    #108: `tone_ratio_db` probed the cowbell at 800 and 540 Hz. **The
+    machine's lines are 558.35 and 823.70 Hz.** Probing the same recording at
+    trims inside Roland's own +-10 % swings the reference value from 8.79 to
+    15.91 dB -- 7.1 dB against a 3.0 dB tolerance, and non-monotonically. The
+    unit we have happens to sit where nominal probing reads 15.15 against
+    15.21 on its true lines, which is luck and not method: a different 808, or
+    this one after a trim adjustment, moves the reference by twice the
+    tolerance with the instrument unchanged.
+
+    This is the same failure as `refine_f0` before #87 -- a rig ASSUMING a
+    frequency instead of measuring one. There, assuming pitch took a
+    per-period residual from 0.6 % to 25 % because Mini V3 played 0.14 cents
+    sharp.
+
+    Refuses when the band holds no line, rather than returning the nominal:
+    "there is no partial here" and "the partial is exactly where the chart
+    says" are opposite findings and must not share a return value."""
+    e = am.dominant_frequency(x, hz_nominal * (1 - search), hz_nominal * (1 + search), sr)
+    if not e.ok:
+        return am.Estimate(None, False,
+                           f"no line within +-{search*100:.0f} % of {hz_nominal:.1f} Hz: "
+                           f"{e.reason}", dict(nominal_hz=hz_nominal, **(e.detail or {})))
+    return am.Estimate(e.value, True, "",
+                       dict(nominal_hz=hz_nominal, found_hz=e.value,
+                            offset_pct=100.0 * (e.value / hz_nominal - 1.0),
+                            **(e.detail or {})))
+
+
+def _amplitude_at(x, sr: int, hz: float, label: str) -> am.Estimate:
+    """A WINDOWED coherent projection, which is the right primitive for a free
+    ring: `tone_amplitude`'s rectangular projection is exact only over a whole
+    number of periods, and a partial found by measurement never lands on one.
+    The window's coherent gain is divided out, so a ratio of two of these is
+    exact for partials further apart than its 8-bin main lobe."""
+    e = am.windowed_tone_amplitude(x, hz, sr)
+    if not e.ok:
+        return am.Estimate(None, False, f"{label} {hz:.2f} Hz: {e.reason}", e.detail)
+    return e
+
+
+def tone_ratio_db(x, sr: int, hz_num: float, hz_den: float, *,
+                  search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """Level of the partial NEAR `hz_num` over the partial NEAR `hz_den`, in
+    dB: both lines are found in the record and then measured between (#108).
+
+    The nominal frequencies are search centres, not probe points. On this unit
+    it changes the answer by 0.06 dB, which is exactly why it is worth doing
+    now, while it is a no-op, rather than after a reference swap makes it a
+    mystery.
+
+    Ground truth: test_tone_ratio_db_of_two_known_sines,
+    test_tone_ratio_db_finds_a_detuned_line_the_nominal_probe_misses."""
+    fn, fd = find_line(x, sr, hz_num, search=search), find_line(x, sr, hz_den, search=search)
+    if not fn.ok:
+        return am.Estimate(None, False, f"numerator: {fn.reason}", fn.detail)
+    if not fd.ok:
+        return am.Estimate(None, False, f"denominator: {fd.reason}", fd.detail)
+    a = _amplitude_at(x, sr, fn.value, "numerator")
+    b = _amplitude_at(x, sr, fd.value, "denominator")
     if not a.ok:
-        return am.Estimate(None, False, f"numerator {hz_num:.0f} Hz: {a.reason}", a.detail)
+        return a
     if not b.ok:
-        return am.Estimate(None, False, f"denominator {hz_den:.0f} Hz: {b.reason}", b.detail)
+        return b
     if a.value <= 0 or b.value <= 0:
         return am.Estimate(None, False, "a line measured at zero amplitude",
                            dict(num=a.value, den=b.value))
     return am.Estimate(20.0 * math.log10(a.value / b.value), True, "",
-                       dict(num=a.value, den=b.value))
+                       dict(num=a.value, den=b.value,
+                            num_hz=fn.value, den_hz=fd.value,
+                            num_nominal_hz=hz_num, den_nominal_hz=hz_den,
+                            num_offset_pct=fn.detail["offset_pct"],
+                            den_offset_pct=fd.detail["offset_pct"]))
+
+
+def difference_tone_db(x, sr: int, hz_hi: float, hz_lo: float, *,
+                       search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """Level at the DIFFERENCE of the two real partials, over the upper one,
+    in dB.
+
+    The difference tone is not a line to be searched for -- the whole point of
+    the metric is that it should not be there -- so its frequency is DERIVED
+    from the two lines that were found rather than looked for as a peak. That
+    is still #108's fix: the frequency probed comes from measurement and not
+    from a chart. Searching for a peak here would be the opposite error,
+    because "no peak at the difference frequency" is the PASSING case and must
+    not come back as a refusal.
+
+    Ground truth: test_difference_tone_db_probes_the_measured_difference."""
+    fh, fl = find_line(x, sr, hz_hi, search=search), find_line(x, sr, hz_lo, search=search)
+    if not fh.ok:
+        return am.Estimate(None, False, f"upper partial: {fh.reason}", fh.detail)
+    if not fl.ok:
+        return am.Estimate(None, False, f"lower partial: {fl.reason}", fl.detail)
+    f_diff = fh.value - fl.value
+    if f_diff <= 0 or f_diff >= sr / 2:
+        return am.Estimate(None, False, "the difference frequency is outside (0, Nyquist)",
+                           dict(hi_hz=fh.value, lo_hz=fl.value, diff_hz=f_diff))
+    a = _amplitude_at(x, sr, f_diff, "difference tone")
+    b = _amplitude_at(x, sr, fh.value, "upper partial")
+    lo_a = _amplitude_at(x, sr, fl.value, "lower partial")
+    if not a.ok:
+        return a
+    if not b.ok:
+        return b
+    if not lo_a.ok:
+        return lo_a
+    if a.value <= 0 or b.value <= 0:
+        return am.Estimate(None, False, "a line measured at zero amplitude",
+                           dict(num=a.value, den=b.value))
+
+    # THE FLOOR, MEASURED (#92). Two partials 60 dB above the thing being
+    # looked for leak into its bin, and a projection that reports that leakage
+    # as a difference tone is the "25 dB of separation" failure again -- the
+    # rectangular projection this replaced read our render's difference tone at
+    # -41 dB where the windowed one reads -102. So the same two partials are
+    # resynthesised alone, at the amplitudes measured here, and projected at
+    # the same difference frequency: whatever that reads is leakage, because
+    # the synthetic signal has no difference tone in it at all.
+    n = len(x)
+    t = np.arange(n) / sr
+    leak = (b.value * np.sin(2 * math.pi * fh.value * t)
+            + lo_a.value * np.sin(2 * math.pi * fl.value * t))
+    fl_e = am.windowed_tone_amplitude(leak, f_diff, sr)
+    floor = float(fl_e.value) if fl_e.ok else 0.0
+    floor_db = 20.0 * math.log10(floor / b.value) if floor > 0 else float("-inf")
+    value = 20.0 * math.log10(a.value / b.value)
+    detail = dict(num=a.value, den=b.value, diff_hz=f_diff,
+                  hi_hz=fh.value, lo_hz=fl.value,
+                  hi_nominal_hz=hz_hi, lo_nominal_hz=hz_lo,
+                  floor_db=floor_db, headroom_db=value - floor_db,
+                  floor_margin_db=FLOOR_MARGIN_DB)
+    if value < floor_db + FLOOR_MARGIN_DB:
+        # `harmonic_signature` already does exactly this -- it returns None for
+        # any harmonic within 6 dB of its measured floor -- and that pattern is
+        # right. A row at the floor reports the estimator, not the signal.
+        return am.Estimate(None, False,
+                           f"the difference tone at {f_diff:.1f} Hz reads {value:.1f} dB, "
+                           f"within {FLOOR_MARGIN_DB:.0f} dB of the {floor_db:.1f} dB the "
+                           f"two partials leak into that bin by themselves: there is no "
+                           f"difference tone here to measure, only the window", detail)
+    return am.Estimate(value, True, "", detail)
 
 
 def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) -> am.Estimate:
@@ -388,21 +534,110 @@ def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) ->
 # 3. Signal preparation, identical on both sides. Nothing is resampled: the
 #    references are 44.1 kHz and our renders 48 kHz, and every metric here is
 #    rate-independent.
+#
+#    THE PRE-ONSET LEAD (#101, #103, docs/analysis-conventions.md sections 0-2)
+#    --------------------------------------------------------------------------
+#    `scipy.signal.sosfiltfilt` defaults to `padtype='odd'` and pads by
+#    `3*(2*len(sos)+1 - ...)` samples, extended ODDLY through the first sample.
+#    Hand it a segment that begins at full amplitude and it manufactures an
+#    edge; hand it one that begins in silence and the extension is exactly
+#    zero. So the lead a segment carries before the strike is not cosmetic --
+#    it decides whether a band split is the sound or the filter.
+#
+#    `prepare()` used to trim to `max(0, onset - 1 ms)`, and **the `max(0, ...)`
+#    was the whole bug**: every one of the sixteen Fischer references crosses
+#    2 % of peak within 5-52 samples, so the clamp fired on all sixteen and the
+#    reference side got 0.11-1.18 ms of lead while our renders -- which begin
+#    with 10 ms of digital silence -- got exactly 1.00 ms. Two sides of every
+#    comparison, filtered under different boundary conditions, and nothing in
+#    the record said so. #101 measured 6.07 dB of it against a 3.0 dB
+#    tolerance on the congas.
+#
+#    Both numbers are inside or barely outside the pad, which is why neither is
+#    enough. The pad is COMPUTED here rather than quoted, because both issues
+#    quoted 12-15 samples: that is the figure for a 4th-order LOW-pass. The
+#    band-pass this code builds is 8th order overall -- 4 sections, 27 samples,
+#    0.562 ms at 48 kHz and 0.612 ms at 44.1 kHz.
 # ===========================================================================
-def prepare(x, sr: int) -> np.ndarray:
-    """DC out from the PRE-ONSET region, trimmed to 1 ms before the onset,
+def _sosfiltfilt_padlen(sos) -> int:
+    """`scipy.signal.sosfiltfilt`'s own default pad length, from its own
+    formula. Computed and not quoted: see above."""
+    sos = np.asarray(sos)
+    return int(3 * (2 * len(sos) + 1
+                    - min((sos[:, 2] == 0).sum(), (sos[:, 5] == 0).sum())))
+
+
+def _bandpass_sos(sr: int, lo: float, hi: float, order: int = 4):
+    return butter(order, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
+                  btype="band", output="sos")
+
+
+#: 27 samples, for every 4th-order band-pass in this file and in
+#: `audio_measure.band_energy`. Independent of the rate and of the band edges:
+#: it is a function of the section count alone.
+BANDPASS_PADLEN = _sosfiltfilt_padlen(_bandpass_sos(48000, 20.0, 400.0))
+
+#: The lead every analysed segment gets before the strike, on BOTH sides.
+#: `docs/analysis-conventions.md` section 1: at least 10 ms, or 20x the
+#: filter's `padlen`, whichever is larger. 20 x 27 = 540 samples wins at both
+#: our rates -- 11.25 ms at 48 kHz, 12.24 ms at 44.1 kHz. Measured there: the
+#: band split is settled to 0.12 dB by 2 ms of lead and to 0.001 dB by 10 ms.
+LEAD_MS = 10.0
+LEAD_PADLENS = 20
+
+#: Where t = 0 sits for every window in section 6: 1 ms before the onset, which
+#: is where it has always sat. The lead is added BEFORE it rather than shifting
+#: it, so that this change moves numbers for one reason and not two.
+TRIM_MS = 1.0
+
+#: The crossing that marks the onset, and the level below which a record counts
+#: as not yet sounding.
+ONSET_FRAC = 0.02
+
+
+def required_lead_samples(sr: int) -> int:
+    """True silence before t = 0, in samples. Stated in SAMPLES because
+    `padlen` is a sample count: the same millisecond figure is a different
+    number of pads at 44.1 and 48 kHz."""
+    return max(int(round(LEAD_MS * 1e-3 * sr)), LEAD_PADLENS * BANDPASS_PADLEN)
+
+
+def _onset_index(x, pk: float | None = None) -> int:
+    x = np.asarray(x)
+    pk = float(np.abs(x).max()) if pk is None else pk
+    return int(np.argmax(np.abs(x) > ONSET_FRAC * pk))
+
+
+def prepare(x, sr: int, *, side: str = "the recording") -> np.ndarray:
+    """DC out from the PRE-ONSET region, trimmed so that exactly
+    `required_lead_samples(sr) + 1 ms` of TRUE silence precedes the strike,
     peak-normalised.
+
+    **The lead is guaranteed, not attempted.** When the record cannot supply
+    it, the missing part is made of digital silence -- an operation that cannot
+    change what the machine did, and the one `test_prepare_is_unchanged_by_
+    prepended_silence` asserts is free. When the record cannot support even
+    that, because it begins at or above the onset threshold and so was cut
+    INTO the strike, this REFUSES. A clamp was what produced #101: it turned a
+    missing precondition into a number.
 
     **Not by subtracting the mean of the whole buffer, and that is not a style
     choice.** These are single strikes in a buffer seconds long, so the mean of
     the whole thing is a constant offset left across every silent sample after
-    the voice has gone. A
-    constant has constant energy density and never decays, so it dominates a
-    backward-integrated energy curve: it put 0.19 % of the rimshot's energy in
-    a floor that never ended and `schroeder_t20` duly reported a **4.5-second**
-    T20 for a 15 ms sound. The raw render has no energy at all in its last
-    second; the preparation put it there. A 20 Hz zero-phase high-pass removes
-    the references' converter DC without adding anything.
+    the voice has gone. A constant has constant energy density and never
+    decays, so it dominates a backward-integrated energy curve: it put 0.19 %
+    of the rimshot's energy in a floor that never ended and `schroeder_t20`
+    duly reported a **4.5-second** T20 for a 15 ms sound. A 20 Hz zero-phase
+    high-pass removes the references' converter DC without adding anything.
+
+    The DC estimate needs a pre-onset region to estimate FROM, so it is only
+    taken when the record itself supplies 5 ms of one. **None of the sixteen
+    Fischer references does** -- they carry 5 to 52 pre-onset samples and a
+    converter offset of 0.1-0.4 % of peak, which is therefore left in place,
+    exactly as it was before this change. `lead_report()` records that per
+    side so it is visible rather than assumed. It is not corrected here
+    because it is a separate defect from the one this function is fixing, and
+    fixing two things at once makes neither attributable.
 
     The level-matched copy is what every metric below is taken on, and that is
     not a convenience: the Fischer set states that LEVEL was pinned at maximum
@@ -414,26 +649,89 @@ def prepare(x, sr: int) -> np.ndarray:
     if am.is_silent(x):
         return x
     pk = float(np.abs(x).max())
-    i = int(np.argmax(np.abs(x) > 0.02 * pk))
-    lead = max(0, i - int(1e-3 * sr))
-    # DC from the PRE-ONSET region, where there is no voice to bias it. Our
-    # renders lead with exact digital silence, so this subtracts nothing from
-    # them; the references lead with a 1994 converter's offset, so it subtracts
-    # that. A zero-phase high-pass would do the job too and was tried, but
-    # filtfilt is not causal: a 20 Hz first-order high-pass puts a precursor
-    # tens of ms AHEAD of a sharp strike, which moved the trim point back and
-    # read the rimshot's 2 ms attack as 11 ms.
-    if lead >= int(5e-3 * sr):
-        x = x - float(x[:lead].mean())
-    y = x[lead:]
+    i = _onset_index(x, pk)
+    need = required_lead_samples(sr) + int(round(TRIM_MS * 1e-3 * sr))
+    # DC from the PRE-ONSET region, where there is no voice to bias it, and
+    # only when the record supplies enough of one to estimate from. A
+    # zero-phase high-pass would do the job too and was tried, but filtfilt is
+    # not causal: a 20 Hz first-order high-pass puts a precursor tens of ms
+    # AHEAD of a sharp strike, which moved the trim point back and read the
+    # rimshot's 2 ms attack as 11 ms.
+    dc = float(x[:i].mean()) if i >= int(5e-3 * sr) else 0.0
+    if i >= need:
+        y = x[i - need:] - dc
+    else:
+        if i == 0:
+            raise Refused(
+                f"{side} begins at or above {ONSET_FRAC*100:.0f} % of its own peak: it was "
+                f"cut into the strike, so there is no pre-onset region and prepending "
+                f"silence would manufacture the very edge the lead exists to avoid. "
+                f"{required_lead_samples(sr)} samples of true lead are required and 0 "
+                f"are available")
+        y = np.concatenate([np.zeros(need - i, dtype=np.float64), x - dc])
     p = float(np.abs(y).max())
     return y / p if p > 0 else y
 
 
+def lead_report(x, sr: int) -> dict:
+    """What `prepare()` did to one side, for the result record.
+
+    Section 8 row 12 and #103: nothing in a result used to state the windowing
+    convention, and a number that cannot be re-derived can only be re-trusted.
+    `dc_removed` is here because the answer for every Fischer reference is
+    `false` and that should be readable rather than inferred from the code."""
+    x = np.asarray(x, dtype=np.float64)
+    if am.is_silent(x):
+        return {"silent": True}
+    pk = float(np.abs(x).max())
+    i = _onset_index(x, pk)
+    lead = required_lead_samples(sr)
+    need = lead + int(round(TRIM_MS * 1e-3 * sr))
+    from_record = min(i, need)
+    return {
+        "onset_index": i,
+        "onset_ms_into_the_record": round(i / sr * 1e3, 4),
+        "lead_samples": lead,
+        "lead_ms": round(lead / sr * 1e3, 4),
+        "trim_ms": TRIM_MS,
+        "lead_from_the_record_samples": int(from_record),
+        "lead_manufactured_samples": int(max(0, need - i)),
+        "junction_level_frac_of_peak": round(float(abs(x[0])) / pk, 6),
+        "dc_removed": bool(i >= int(5e-3 * sr)),
+        "dc_frac_of_peak": round(float(x[:max(i, 1)].mean()) / pk, 8),
+        "padtype": "odd (scipy default)",
+        "bandpass_padlen_samples": BANDPASS_PADLEN,
+        "lead_in_padlens": round(lead / BANDPASS_PADLEN, 2),
+        "convention": ("both sides are trimmed so that exactly lead_samples + trim_ms "
+                       "of TRUE silence precede the strike; t = 0 for every window is "
+                       "trim_ms before the onset, and the lead sits before it"),
+    }
+
+
 def window(y, sr: int, t0: float, t1: float | None) -> np.ndarray:
-    a = int(t0 * sr)
-    b = len(y) if t1 is None else min(len(y), int(t1 * sr))
+    """The analysis window [t0, t1), measured from `TRIM_MS` before the onset.
+
+    `prepare()` puts `required_lead_samples(sr)` samples of silence in front of
+    that origin, so the indices here are offset by it. The times in section 6's
+    plans therefore mean exactly what they meant before this change."""
+    o = required_lead_samples(sr)
+    a = o + int(t0 * sr)
+    b = len(y) if t1 is None else min(len(y), o + int(t1 * sr))
     return y[a:b]
+
+
+def window_with_lead(y, sr: int, t0: float, t1: float | None) -> tuple:
+    """The same window, but starting at the front of `prepare()`'s guaranteed
+    lead instead of at `t0`, and how many samples of it precede `t0`.
+
+    **Everything that zero-phase filters goes through this**, so the filter
+    always meets the segment's edge in silence rather than mid-strike. The
+    caller either drops the returned prefix afterwards (`_bandpass`) or is
+    summing energy, which leading silence cannot change (`band_energy`)."""
+    o = required_lead_samples(sr)
+    a = o + int(t0 * sr)
+    b = len(y) if t1 is None else min(len(y), o + int(t1 * sr))
+    return y[:b], min(a, b)
 
 
 def highpass(y, sr: int, hz: float, order: int = 4) -> np.ndarray:
@@ -658,11 +956,36 @@ def _t20_ms(t0: float = 0.0, t1: float | None = None, band=None):
 
 
 def _bandpass(y, sr, band, t0, t1):
-    from scipy.signal import butter as _b, sosfiltfilt as _s
+    """The band-limited analysis window -- FILTERED from the front of the
+    guaranteed lead and sliced afterwards, never filtered from `t0`.
+
+    The difference is the whole of #101. `sosfiltfilt` extends oddly through
+    the first sample of whatever it is given: from `t0` that first sample is
+    mid-strike and the extension manufactures an edge; from the lead it is
+    silence and the extension is exactly zero. The samples between the two
+    points are dropped after filtering, so the window analysed is the same one
+    as before -- the filter simply saw how the sound started."""
     lo, hi = band
-    sos = _b(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
-             btype="band", output="sos")
-    return _s(sos, window(y, sr, t0, t1))
+    seg, drop = window_with_lead(y, sr, t0, t1)
+    return sosfiltfilt(_bandpass_sos(sr, lo, hi), seg)[drop:]
+
+
+def _energy_window(y, sr, t0, t1):
+    """The window a BAND-ENERGY metric is taken over, extended back through the
+    guaranteed lead so that `band_energy`'s own `sosfiltfilt` meets silence at
+    the edge. Leading silence adds no energy, so a fraction-of-total cannot
+    move -- `test_split_db_is_unchanged_by_prepended_silence` asserts exactly
+    that -- which is why this one does not have to be sliced off again.
+
+    Only legal for a window that opens at or before the onset. Extending one
+    that opens mid-strike would sum sound from outside the window, so that
+    REFUSES rather than quietly reporting a different quantity."""
+    seg, drop = window_with_lead(y, sr, t0, t1)
+    if drop != required_lead_samples(sr):
+        raise Refused(
+            f"a band-energy window that opens {t0*1e3:.1f} ms after t = 0 cannot be "
+            f"extended back through the lead without summing sound from outside it")
+    return seg
 
 
 def _f0(sound: str, t0: float, t1: float):
@@ -677,7 +1000,7 @@ def _pitch_drop(sound: str):
     band = (BAND[sound][0], SPLIT_HZ[sound])
 
     def f(y, sr):
-        return pitch_drop_hz(y, sr, band)
+        return pitch_drop_hz(y, sr, band, origin=required_lead_samples(sr))
     return f
 
 
@@ -687,7 +1010,7 @@ def _split_db(sound: str, t0: float, t1: float | None, lo: float | None = None,
     split = SPLIT_HZ[sound]
 
     def f(y, sr):
-        return band_ratio_db(window(y, sr, t0, t1), sr, split,
+        return band_ratio_db(_energy_window(y, sr, t0, t1), sr, split,
                              b_lo if lo is None else lo, b_hi if hi is None else hi)
     return f
 
@@ -739,9 +1062,15 @@ def _line_ratio(hz_num: float, hz_den: float, t1: float = 0.100):
     return f
 
 
+def _difference_tone(hz_hi: float, hz_lo: float, t1: float = 0.100):
+    def f(y, sr):
+        return difference_tone_db(window(y, sr, 0.0, t1), sr, hz_hi, hz_lo)
+    return f
+
+
 def _band_pair(band_a, band_b, t1: float | None = None):
     def f(y, sr):
-        return band_pair_db(window(y, sr, 0.0, t1), sr, band_a, band_b)
+        return band_pair_db(_energy_window(y, sr, 0.0, t1), sr, band_a, band_b)
     return f
 
 
@@ -815,8 +1144,12 @@ DRUM_PLAN = {
         ("decay", "ms", _t20_ms(0.002), tol_time),
     ],
     "CB": [
+        # Nominal frequencies, used as SEARCH CENTRES and not as probe points
+        # (#108). This machine's lines are 558.35 and 823.70 Hz; the difference
+        # tone is at their measured difference, not at the 260 Hz the chart
+        # implies.
         ("Partial balance", "dB", _line_ratio(800.0, 540.0), tol_db),
-        ("unwanted difference tone", "dB", _line_ratio(260.0, 800.0), tol_db),
+        ("unwanted difference tone", "dB", _difference_tone(800.0, 540.0), tol_db),
         ("decay", "ms", _t20_ms(0.005), tol_time),
     ],
     "CY": [
@@ -1226,10 +1559,19 @@ for _c in ("M1A", "M2A", "M3A", "M4A", "M5A", "M6A", "M7A", "M8A"):
         "no qualified Mono reference, and the two candidates failed for different "
         "reasons that are MEASURED and recorded in refprofile/profile.json rather "
         "than inherited. Model D -- the cross-check these cases name -- renders "
-        "EXACT silence headlessly: peak 0.0 with oscillator 1 on at full level and "
-        "the filter wide open, and peak 0.0 with the filter self-oscillating. The "
-        "rig builds and its pins hold; it simply makes no sound, so nothing "
-        "downstream of it can be a reference. Mini V3 does make sound, and every "
+        "EXACT silence UNDER DAWDREAMER: peak 0.0 with oscillator 1 on at full "
+        "level and the filter wide open, and peak 0.0 with the filter "
+        "self-oscillating. That is a property of (plugin, HOST), not of the "
+        "plugin: under pedalboard the same Model D renders at full level -- peak "
+        "1.000, 8.57 % of samples at the rail, strongest partial 131.00 Hz for "
+        "MIDI 60, an octave down and the same default trap as Mini V3 -- and Mini "
+        "V3 is the exact reverse, sounding under dawdreamer and silent under "
+        "pedalboard. See #123; naming the tool and not the pair is the fifth "
+        "instance of it here and the first already written into a file that "
+        "presents itself as a reference. So the rig builds and its pins hold, and "
+        "under dawdreamer it makes no sound, so nothing downstream of THAT "
+        "combination can be a reference until the pair is qualified. Mini V3 does "
+        "make sound under dawdreamer, and every "
         "one of its parameters is a bare 0..1 with no units and no readback: its "
         "cutoff can be calibrated against its own self-oscillation "
         "(reference_compare.calibrate_knob) and its ENVELOPE knobs cannot, because "
@@ -1368,7 +1710,26 @@ def base_check(allow_stale: bool = False) -> dict:
     `--allow-stale`, and an ignored gate is worse than no gate. So: any of
     `DEPENDENCIES` differing from `origin/main`, or a drum circuit count that
     differs, refuses. Being behind on anything else is recorded and warned
-    about, because it is still worth knowing when reading the record."""
+    about, because it is still worth knowing when reading the record.
+
+    **AHEAD IS NOT BEHIND.** A content difference against `origin/main` was
+    enough to refuse, and that made the gate unsatisfiable on exactly the
+    branches that have most reason to run it: a branch whose whole subject is
+    repairing `model/audio_measure.py` differs from `origin/main` BECAUSE of
+    the repair, and the only way to measure the repair was `--allow-stale`,
+    which then stamped every record with a staleness warning that was false.
+    An ignored gate and a lying record are both worse than no gate.
+
+    So the refusal now needs BOTH a differing dependency and `HEAD` actually
+    being behind `origin/main`. When `behind_commits` is 0, `origin/main` is an
+    ancestor of `HEAD`: every difference is this branch's own work, the tree
+    cannot be missing anything `origin/main` has, and the failure this guard
+    was written for -- a worktree two commits behind, reporting a landed kit as
+    a capability gap -- cannot occur. A branch that is ahead AND behind is
+    still refused, because then it IS missing something. The differing files
+    are recorded either way, under `stale_dependencies` when behind and
+    `ahead_dependencies` when not, so the record never loses the fact that
+    these inputs are not `origin/main`'s."""
     ref = "origin/main"
     have = _git("rev-parse", "--verify", f"{ref}^{{commit}}").strip()
     if not have:
@@ -1398,15 +1759,25 @@ def base_check(allow_stale: bool = False) -> dict:
                 theirs_stops = None
             break
 
+    ahead = int(_git("rev-list", "--count", f"{ref}..HEAD").strip() or 0)
+    is_ahead_only = behind == 0
     state = {"checked": True, "origin_main": have[:12], "behind_commits": behind,
+             "ahead_commits": ahead,
              "n_stops_here": dx.N_STOPS, "n_stops_origin_main": theirs_stops,
-             "stale_dependencies": stale_deps, "allow_stale": allow_stale}
+             "stale_dependencies": {} if is_ahead_only else stale_deps,
+             "ahead_dependencies": stale_deps if is_ahead_only else {},
+             "allow_stale": allow_stale}
     problems = []
-    if stale_deps:
+    if stale_deps and not is_ahead_only:
         problems.append("these inputs differ from origin/main: " + ", ".join(sorted(stale_deps)))
-    if theirs_stops is not None and theirs_stops != dx.N_STOPS:
+    if theirs_stops is not None and theirs_stops != dx.N_STOPS and not is_ahead_only:
         problems.append(f"the kit here has {dx.N_STOPS} drum circuits, {ref} has {theirs_stops}")
     state["problems"] = problems
+    if is_ahead_only and stale_deps:
+        state["ahead_note"] = (
+            f"{ahead} commit(s) ahead of {ref} and 0 behind, so these inputs differ "
+            f"because this branch changed them: {', '.join(sorted(stale_deps))}. That is "
+            f"not a stale premise -- the tree contains everything {ref} has.")
     if problems and not allow_stale:
         raise StaleBase("; ".join(problems) +
                         f" -- rebase onto {ref} and re-run. Refusing the whole batch: "
@@ -1533,8 +1904,14 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
     ref_x, ref_sr, rel, setting = load_reference(voice, refdir, inject)
     ours_x, ours_sr = render_drum_solo(voice)
 
-    ref_y, ours_y = prepare(ref_x, ref_sr), prepare(ours_x, ours_sr)
+    # Each side names itself, so a refused lead says WHICH recording could not
+    # supply one. A reference that was cut into the strike and a render that
+    # was need opposite responses.
+    ref_y = prepare(ref_x, ref_sr, side=f"the reference recording {rel}")
+    ours_y = prepare(ours_x, ours_sr, side=f"our {voice} render")
     ref, ours = (ref_y, ref_sr), (ours_y, ours_sr)
+    windowing = {"ours": lead_report(ours_x, ours_sr),
+                 "reference": lead_report(ref_x, ref_sr)}
 
     ctx = {}
     f0 = _f0(voice, 0.010, 0.200)(*ref)
@@ -1571,6 +1948,11 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
                        f"{dx.SR} Hz, circuit {dx.SOUND_STOP[voice]} of {dx.N_STOPS}"),
         "audio": audio,
         "tolerance_policy": TOLERANCE_POLICY,
+        # #103 and section 8 row 12: a number that cannot be re-derived can
+        # only be re-trusted. This is the convention both sides were windowed
+        # under, per side, so a reader can check the thing #101 turned out to
+        # be rather than assume it.
+        "windowing": windowing,
         "metrics": metrics,
         "diagnostics": {
             "ours_peak_fs": round(float(np.abs(ours_x).max()), 6),

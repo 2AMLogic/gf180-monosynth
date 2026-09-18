@@ -424,21 +424,41 @@ def test_a_case_with_no_measurement_plan_is_a_stated_no_verdict(monkeypatch):
 @have_refs
 def test_a_missing_reference_is_a_no_verdict_with_a_reason():
     """The control: point the reference at a file that is not there. The board
-    must say no verdict and the reason must name the missing recording."""
-    row = _cases_row("D01A")
+    must say no verdict and the reason must name the missing recording.
+
+    On D09A, not D01A, and the second assertion is why: D01A is a no-verdict
+    on its own now (#118's length guard refuses the bass drum reference's
+    decay), so this control would have gone on passing with the injection
+    removed -- a control that fires without its defect is a false green. The
+    uninjected run of D09A is asserted to be a PASS, so the no-verdict here
+    can only be the injection."""
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, inject="REF_MISSING", keep_audio=False)
     r = sb.evaluate(row, res)
     assert r["state"] == sb.NO_VERDICT
     assert "missing" in res["note"].lower()
     assert all("error" not in m for m in res["metrics"].values())
+    clean = sb.evaluate(row, rc.run_case(row, REFS, keep_audio=False))
+    assert clean["state"] == sb.PASS, \
+        "the control must be the injection, not a case that had no verdict anyway"
 
 
 @have_refs
 def test_a_reference_shifted_by_twice_the_tolerance_fails():
     """The other control: the reference pitch moved 20 %, which is twice the
     frequency tolerance. A runner that reported this as a pass would be
-    reporting a false green, which is the only failure mode that matters."""
-    row = _cases_row("D01A")
+    reporting a false green, which is the only failure mode that matters.
+
+    **This control ran on D01A until #118's length guard landed**, which
+    refuses the bass drum reference's decay -- 1.57 T20s of record past the
+    -25 dB point against a requirement of 2 -- so D01A is now a no-verdict
+    whatever is injected into it and no injection can turn it red. A control
+    that cannot fire is not a control. Nor is one that fails when CLEAN: D06A
+    was the first replacement and the re-run then made it a genuine fail, its
+    body spectrum having been flattered by the very #101 artefact this branch
+    removed. D09A (claves) passes clean at 0.61, has a direct `Pitch` metric at
+    the 10 % frequency tolerance, and fails injected at 2.39."""
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, inject="REF_F0_20PCT", keep_audio=False)
     r = sb.evaluate(row, res)
     assert r["state"] == sb.FAIL, res["metrics"]
@@ -450,9 +470,9 @@ def test_the_same_case_without_the_injection_does_not_fail_on_pitch():
     """A control only means something if the uninjected run differs. Without
     the shift, the pitch metric is inside its own tolerance -- so the failure
     above is the injection and not the case."""
-    row = _cases_row("D01A")
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, keep_audio=False)
-    m = res["metrics"]["Pitch trajectory"]
+    m = res["metrics"]["Pitch"]
     assert m["valid"] and abs(m["error"]) <= m["tolerance"]
 
 
@@ -767,3 +787,235 @@ def test_every_not_run_reason_says_something():
     sentence is the second one wearing the first one's label."""
     for cid, why in rc.NOT_RUN.items():
         assert len(why) > 80, (cid, why)
+
+
+# ===========================================================================
+# INVARIANCE (#103). Not expected-value tests: each of these asserts something
+# that must hold WHATEVER the right answer is, which is exactly what an
+# expected-value test cannot do -- and what would have caught #101 without
+# anyone knowing the right answer in advance.
+#
+#   "#101 found a 6 dB measurement error caused by PREPENDING DIGITAL SILENCE,
+#    an operation that cannot possibly change what the machine did. Nothing in
+#    the suite could have caught it, because every audio test here compares a
+#    number to an expected number. None asserts a PROPERTY."
+# ===========================================================================
+def _strike(seconds=0.60, lead_ms=10.0, f=220.0, tau=0.040, sr=SR, gain=1.0):
+    """A drum-shaped signal: a click on a decaying body, after a lead of true
+    digital silence. Long enough that `schroeder_t20`'s length guard is
+    satisfied, so the decay metric is a measurement here and not a refusal."""
+    n = int(seconds * sr)
+    a = int(lead_ms * 1e-3 * sr)
+    t = np.arange(n - a) / sr
+    x = np.zeros(n)
+    x[a:] = (np.exp(-t / tau) * np.sin(2 * math.pi * f * t)
+             + 0.05 * np.exp(-t / 0.002) * np.sin(2 * math.pi * 3000.0 * t))
+    return gain * x
+
+
+def _measure_plan(voice, x, sr=SR):
+    """Every metric in one voice's plan, through the real path: prepare, then
+    the plan's own estimators. What a drum case actually computes."""
+    y = rc.prepare(x, sr, side="a synthetic strike")
+    out = {}
+    for name, _units, est, _tol in rc.DRUM_PLAN[voice]:
+        e = est(y, sr)
+        out[name] = e.value if e.ok else None
+    return out
+
+
+@pytest.mark.parametrize("pad_ms", [0.5, 5.0, 50.0, 500.0])
+def test_every_drum_metric_is_unchanged_by_prepended_silence(pad_ms):
+    """**The one that would have caught #101.** Prepending digital silence
+    cannot change what the machine did, so it must not change any number.
+
+    Before the lead was guaranteed, `prepare`'s `max(0, onset - 1 ms)` clamp
+    made this false by up to 10 dB on the band split: a record whose onset was
+    inside the clamp got a 0.16 ms lead and one with silence in front of it got
+    1.00 ms, and `sosfiltfilt`'s odd extension reads those two boundaries
+    completely differently."""
+    base = _strike()
+    padded = np.concatenate([np.zeros(int(pad_ms * 1e-3 * SR)), base])
+    for voice in ("LC", "SD", "CH"):
+        a, b = _measure_plan(voice, base), _measure_plan(voice, padded)
+        for k in a:
+            assert (a[k] is None) == (b[k] is None), f"{voice} {k}: refusal changed"
+            if a[k] is None:
+                continue
+            scale = max(abs(a[k]), 1.0)
+            assert abs(a[k] - b[k]) / scale < 1e-3, \
+                f"{voice} {k}: {pad_ms} ms of silence moved it {a[k]:.4f} -> {b[k]:.4f}"
+
+
+@pytest.mark.parametrize("pad_ms", [5.0, 200.0])
+def test_every_drum_metric_is_unchanged_by_appended_silence(pad_ms):
+    """The other end. These signals already end in near-silence, so this was
+    never the failure -- but a window that ran off the end of the array would
+    make it one, and nothing asserted it."""
+    base = _strike()
+    padded = np.concatenate([base, np.zeros(int(pad_ms * 1e-3 * SR))])
+    for voice in ("LC", "SD", "CH"):
+        a, b = _measure_plan(voice, base), _measure_plan(voice, padded)
+        for k in a:
+            if a[k] is None or b[k] is None:
+                assert (a[k] is None) == (b[k] is None), f"{voice} {k}: refusal changed"
+                continue
+            scale = max(abs(a[k]), 1.0)
+            assert abs(a[k] - b[k]) / scale < 1e-3, \
+                f"{voice} {k}: {pad_ms} ms appended moved it {a[k]:.4f} -> {b[k]:.4f}"
+
+
+@pytest.mark.parametrize("gain", [1e-3, 0.5, 4.0])
+def test_every_ratio_metric_is_unchanged_by_scaling(gain):
+    """#103: "scale by a constant -> unchanged, for every ratio metric. A
+    level-sensitive ratio is a bug." Every metric in these plans is a dB
+    ratio, a time or a frequency, and not one of them may depend on the gain
+    the take was recorded at -- which is also the premise of `prepare`'s
+    peak normalisation."""
+    base = _strike()
+    for voice in ("LC", "SD", "CH", "CB", "RS"):
+        a, b = _measure_plan(voice, base), _measure_plan(voice, base * gain)
+        for k in a:
+            if a[k] is None or b[k] is None:
+                assert (a[k] is None) == (b[k] is None), f"{voice} {k}: refusal changed"
+                continue
+            scale = max(abs(a[k]), 1.0)
+            assert abs(a[k] - b[k]) / scale < 1e-6, \
+                f"{voice} {k}: gain {gain} moved it {a[k]:.6f} -> {b[k]:.6f}"
+
+
+def test_a_shifted_onset_does_not_move_an_onset_relative_measure():
+    """#103: "shift the whole signal by N samples -> unchanged, for any
+    onset-relative measure." Every window in section 6 is measured from the
+    onset, so moving the strike inside its buffer must be free."""
+    a = _measure_plan("LC", _strike(lead_ms=10.0))
+    b = _measure_plan("LC", _strike(lead_ms=137.0))
+    for k in a:
+        assert (a[k] is None) == (b[k] is None), k
+        if a[k] is not None:
+            assert abs(a[k] - b[k]) / max(abs(a[k]), 1.0) < 1e-3, \
+                f"{k}: moving the strike moved it {a[k]:.4f} -> {b[k]:.4f}"
+
+
+# ===========================================================================
+# The lead itself: the thing #101 turned out to be.
+# ===========================================================================
+def test_the_pad_is_the_bandpass_figure_and_not_the_lowpass_one():
+    """#101 and #103 both quote "~12-15 samples, 0.25-0.3 ms at 48 kHz". That
+    is a 4th-order LOW-pass: two sections, `padlen` 15. The filter this code
+    actually builds is a 4th-order BAND-pass, which is 8th order overall --
+    four sections, `padlen` 27. Every lead budget derived from 0.3 ms was half
+    what it should have been, and this asserts the number is computed from the
+    filter rather than quoted from an issue."""
+    lp = rc._sosfiltfilt_padlen(
+        __import__("scipy.signal", fromlist=["butter"]).butter(
+            4, 400 / (SR / 2), btype="lowpass", output="sos"))
+    assert lp == 15, lp
+    assert rc.BANDPASS_PADLEN == 27, rc.BANDPASS_PADLEN
+    for sr in (44100, 48000):
+        assert rc.required_lead_samples(sr) >= 20 * rc.BANDPASS_PADLEN
+        assert rc.required_lead_samples(sr) >= 0.010 * sr
+
+
+@pytest.mark.parametrize("lead_ms", [0.0, 0.16, 1.0, 10.0, 200.0])
+def test_prepare_gives_every_record_the_same_lead_whatever_it_arrived_with(lead_ms):
+    """The asymmetry itself. A reference that begins at the strike and a render
+    that begins with 10 ms of silence must come out of `prepare` with the SAME
+    amount of true silence in front of the onset -- that is the whole fix, and
+    before it the two sides differed by a factor of six."""
+    need = rc.required_lead_samples(SR) + int(round(rc.TRIM_MS * 1e-3 * SR))
+    y = rc.prepare(_strike(lead_ms=lead_ms), SR)
+    i = rc._onset_index(y)
+    assert i == need, f"lead {lead_ms} ms: onset landed at {i}, wanted {need}"
+    assert float(np.abs(y[:rc.required_lead_samples(SR)]).max()) < 1e-9, \
+        "the lead must be TRUE silence, not merely quiet"
+
+
+def test_prepare_refuses_a_record_cut_into_the_strike():
+    """REFUSE rather than clamp. A record that begins at full amplitude has no
+    pre-onset region, and prepending silence to it would manufacture exactly
+    the edge the lead exists to avoid -- so this is the one case where the lead
+    cannot be supplied and the apparatus has to say so.
+
+    The clamp is what produced #101: it turned a missing precondition into a
+    number that looked like every other number."""
+    cut = _strike(lead_ms=0.0)[int(0.004 * SR):]        # editor-trimmed into the attack
+    with pytest.raises(rc.Refused) as got:
+        rc.prepare(cut, SR, side="a clipped reference")
+    assert "cut into the strike" in str(got.value)
+    assert "a clipped reference" in str(got.value)
+
+
+def test_the_lead_is_on_the_record_of_every_drum_result():
+    """#103 and section 8 row 12: the windowing convention has to be IN the
+    result. A number that cannot be re-derived can only be re-trusted."""
+    r = rc.lead_report(_strike(lead_ms=0.16), SR)
+    assert r["lead_samples"] == rc.required_lead_samples(SR)
+    assert r["bandpass_padlen_samples"] == rc.BANDPASS_PADLEN
+    assert r["lead_in_padlens"] >= 20.0
+    assert r["lead_manufactured_samples"] > 0          # this record could not supply it
+    assert rc.lead_report(_strike(lead_ms=200.0), SR)["lead_manufactured_samples"] == 0
+
+
+# ===========================================================================
+# #108: probe measured lines, not nominal ones.
+# ===========================================================================
+def _two_partials(hz_lo, hz_hi, amp_lo, amp_hi, seconds=0.100, sr=SR, extra=None):
+    n = int(seconds * sr)
+    t = np.arange(n) / sr
+    x = amp_hi * np.sin(2 * math.pi * hz_hi * t) + amp_lo * np.sin(2 * math.pi * hz_lo * t)
+    if extra:
+        hz, amp = extra
+        x = x + amp * np.sin(2 * math.pi * hz * t)
+    return x
+
+
+def test_tone_ratio_db_finds_a_detuned_line_the_nominal_probe_misses():
+    """The cowbell's real lines are 558.35 and 823.70 Hz, not the 540 and 800
+    the chart gives. Two partials at the REAL frequencies with a known 6 dB
+    ratio: probing the nominal frequencies gets it wrong, finding the lines
+    gets it right.
+
+    The second assertion is the point -- it records how wrong the nominal probe
+    is on this signal, so reinstating it turns this test red."""
+    x = _two_partials(558.35, 823.70, amp_lo=0.5, amp_hi=1.0)
+    got = rc.tone_ratio_db(x, SR, 800.0, 540.0)
+    assert got.ok, got.reason
+    assert got.value == pytest.approx(20 * math.log10(1.0 / 0.5), abs=0.2), got.value
+    assert abs(got.detail["num_hz"] - 823.70) < 1.0 and abs(got.detail["den_hz"] - 558.35) < 1.0
+    nominal = 20 * math.log10(am.tone_amplitude(x, 800.0, SR).require()
+                              / am.tone_amplitude(x, 540.0, SR).require())
+    assert abs(nominal - got.value) > 1.0, \
+        f"the nominal probe read {nominal:.2f} dB against a true {got.value:.2f}"
+
+
+def test_tone_ratio_db_refuses_rather_than_falling_back_to_nominal():
+    """"There is no partial here" and "the partial is exactly where the chart
+    says" are opposite findings and must not share a return value."""
+    x = _two_partials(558.35, 823.70, 0.5, 1.0)
+    assert not rc.tone_ratio_db(x, SR, 3000.0, 540.0).ok
+
+
+def test_difference_tone_db_probes_the_measured_difference():
+    """The difference tone is at f_hi - f_lo of the REAL partials -- 265.35 Hz
+    here, not the 260 the nominal pair implies. Plant one 40 dB under the upper
+    partial and it must be found at its own level."""
+    x = _two_partials(558.35, 823.70, 0.5, 1.0, extra=(823.70 - 558.35, 0.01))
+    got = rc.difference_tone_db(x, SR, 800.0, 540.0)
+    assert got.ok, got.reason
+    assert got.detail["diff_hz"] == pytest.approx(265.35, abs=1.0)
+    assert got.value == pytest.approx(20 * math.log10(0.01 / 1.0), abs=0.5), got.value
+
+
+def test_difference_tone_db_refuses_a_reading_at_its_own_leakage_floor():
+    """Two partials 60 dB above the thing being looked for leak into its bin.
+    With NO difference tone present the projection still returns a number, and
+    reporting that number is the "25 dB of separation that was window leakage"
+    failure. The floor is measured from the two partials alone and a reading
+    inside 6 dB of it is refused -- the margin `harmonic_signature` already
+    uses for the same decision."""
+    x = _two_partials(558.35, 823.70, 0.5, 1.0)          # nothing at the difference
+    got = rc.difference_tone_db(x, SR, 800.0, 540.0)
+    assert not got.ok, f"reported {got.value:.1f} dB of a difference tone that is not there"
+    assert "only the window" in got.reason
+    assert got.detail["headroom_db"] < rc.FLOOR_MARGIN_DB

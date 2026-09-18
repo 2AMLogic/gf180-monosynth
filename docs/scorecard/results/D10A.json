@@ -2,30 +2,37 @@
   "engine": "fixed-model",
   "case_id": "D10A",
   "subject": "Rimshot / anchor",
-  "source_commit": "4892fa4",
-  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:49:17Z",
+  "source_commit": "698d700",
+  "analysis_run": "run_case@58f0b2ee3767 + audio_measure@692a766470b2 at 2026-09-18T22:48:22Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "4892fa4",
-      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
-      "branch": "tools/case-runner",
+      "commit": "698d700",
+      "described": "node/D-drums-bitexact-62-g698d700-dirty",
+      "branch": "fix-estimator-defects",
       "dirty": true,
-      "uncommitted_sha256": "904fd1761ed4daa2",
+      "uncommitted_sha256": "7cdd669f1886217c",
       "untracked_files": 0
     },
     "base_check": {
       "checked": true,
-      "origin_main": "edfcd4b3d761",
-      "behind_commits": 1,
+      "origin_main": "c752145adcca",
+      "behind_commits": 0,
+      "ahead_commits": 5,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
+      "ahead_dependencies": {
+        "model/audio_measure.py": {
+          "origin_main": "7386f4a9297f",
+          "here": "692a766470b2"
+        }
+      },
       "allow_stale": false,
       "problems": [],
-      "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
+      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: model/audio_measure.py. That is not a stale premise -- the tree contains everything origin/main has."
     },
-    "command": "tools/run_case.py --batch First 32",
+    "command": "tools/run_case.py D01A D02A D03A D04A D05A D06A D07A D08A D09A D10A D11A D12A D13A D14A D15A D16A",
     "config": {
       "voice": "RS",
       "refs": "/tmp/tr808-ref",
@@ -36,12 +43,15 @@
       "level_matched": true
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T20:49:26Z",
+    "run_at": "2026-09-18T22:48:28Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
-      "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
-      "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
+      "model/audio_measure.py": "sha256:692a766470b2cad1",
+      "model/reference_rigs.py": "sha256:99b1c862857a34a8",
+      "tools/run_case.py": "sha256:58f0b2ee3767fe4c",
+      "tools/refprofile.py": "sha256:454becc06bce5e03",
+      "refprofile/profile.json": "sha256:93e1b954b1db9ef3",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
       "reference:rs8/RS.WAV": "sha256:20d5cd385c0f8c3a"
     },
@@ -62,14 +72,49 @@
     "energy ratio": "3 dB, the half-power convention. A stated convention, not a number derived from any error of ours",
     "event timing": "10 ms -- the positional accuracy audio_measure.onsets states for itself; a failure is larger than the estimator's own resolution",
     "bus sum": "0.5 dB -- the final output must be the sum of the per-bus stems",
-    "rail": "0.01 % of samples at the rail, a stated budget for a render with no limiter in the path"
+    "rail": "0.01 % of samples at the rail, a stated budget for a render with no limiter in the path",
+    "rolloff": "1.5 dB per octave -- audio_measure.slope_db_oct's own max_residual_db. That estimator REFUSES a straight-line fit whose RMS residual exceeds it, so a difference smaller than it is inside the fit's own scatter and is not a difference. A number the estimator states about itself, not one derived from any error of ours"
+  },
+  "windowing": {
+    "ours": {
+      "onset_index": 481,
+      "onset_ms_into_the_record": 10.0208,
+      "lead_samples": 540,
+      "lead_ms": 11.25,
+      "trim_ms": 1.0,
+      "lead_from_the_record_samples": 481,
+      "lead_manufactured_samples": 107,
+      "junction_level_frac_of_peak": 0.0,
+      "dc_removed": true,
+      "dc_frac_of_peak": 0.0,
+      "padtype": "odd (scipy default)",
+      "bandpass_padlen_samples": 27,
+      "lead_in_padlens": 20.0,
+      "convention": "both sides are trimmed so that exactly lead_samples + trim_ms of TRUE silence precede the strike; t = 0 for every window is trim_ms before the onset, and the lead sits before it"
+    },
+    "reference": {
+      "onset_index": 6,
+      "onset_ms_into_the_record": 0.1361,
+      "lead_samples": 540,
+      "lead_ms": 12.2449,
+      "trim_ms": 1.0,
+      "lead_from_the_record_samples": 6,
+      "lead_manufactured_samples": 578,
+      "junction_level_frac_of_peak": 0.001909,
+      "dc_removed": false,
+      "dc_frac_of_peak": -0.00157016,
+      "padtype": "odd (scipy default)",
+      "bandpass_padlen_samples": 27,
+      "lead_in_padlens": 20.0,
+      "convention": "both sides are trimmed so that exactly lead_samples + trim_ms of TRUE silence precede the strike; t = 0 for every window is trim_ms before the onset, and the lead sits before it"
+    }
   },
   "metrics": {
     "Partial balance": {
-      "value": -11.3648,
+      "value": -11.5643,
       "units": "dB",
-      "reference": 5.7507,
-      "error": -17.1155,
+      "reference": 5.7061,
+      "error": -17.2705,
       "tolerance": 3.0,
       "valid": true,
       "tolerance_basis": "energy ratio"
@@ -77,18 +122,18 @@
     "attack": {
       "value": 1.9583,
       "units": "ms",
-      "reference": 1.6327,
-      "error": 0.3257,
-      "tolerance": 0.8163,
+      "reference": 2.4263,
+      "error": -0.468,
+      "tolerance": 1.2132,
       "valid": true,
       "tolerance_basis": "time"
     },
     "tail decay": {
       "value": 9.2803,
       "units": "ms",
-      "reference": 6.5986,
-      "error": 2.6817,
-      "tolerance": 3.2993,
+      "reference": 7.2369,
+      "error": 2.0434,
+      "tolerance": 3.6185,
       "valid": true,
       "tolerance_basis": "time"
     }

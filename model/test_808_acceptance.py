@@ -1909,11 +1909,28 @@ def test_cymbal_decay_matches_a_real_machine():
     same render reads 899 ms over 2.0 s and 904 ms over 2.6 s, and a shorter one
     reads shorter still.
 
+    **#118's length guard refuses this window, and the refusal is answered
+    rather than overridden.** The guard wants 2x the fitted T20 after the
+    -25 dB point; a 2.0 s record of a ~900 ms T20 has 1.21. The window cannot
+    be lengthened without unmatching it from the reference, which is the worse
+    error -- so the truncation bias is BOUNDED BY MEASUREMENT instead, the way
+    `tools/measure_repeatability.truncation_sensitivity` does it: read the same
+    render over a longer span and check the answer does not move. The docstring
+    above already recorded that pair (899 ms over 2.0 s, 904 ms over 2.6 s);
+    it is now asserted rather than remembered, so `min_tail_t20=0.0` below is
+    a measured claim and not an opt-out.
+
     Ground truth: test_audio_measure.test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
     test_audio_measure.test_schroeder_t20_reads_a_two_exponential_decay_between_its_parts
     """
     x = sound("CY", 1.0, HW_CY_SECONDS).after_hit(0, HW_CY_SECONDS, "mix")
-    t20 = am.schroeder_t20(x, SR).require("CY T20")
+    longer = sound("CY", 1.0, 2.6).after_hit(0, 2.6, "mix")
+    t20 = am.schroeder_t20(x, SR, min_tail_t20=0.0).require("CY T20")
+    t20_long = am.schroeder_t20(longer, SR, min_tail_t20=0.0).require("CY T20 over 2.6 s")
+    assert abs(t20 / t20_long - 1) <= 0.02, \
+        (f"truncation is not bounded here: {t20*1e3:.0f} ms over {HW_CY_SECONDS:.1f} s "
+         f"against {t20_long*1e3:.0f} ms over 2.6 s -- the window is too short to "
+         f"read this decay off and the 20 % comparison below would be measuring the cut")
     assert abs(t20 / HW_CY_T20 - 1) <= 0.20, \
         f"CY T20 {t20*1e3:.0f} ms against a real TR-808's {HW_CY_T20*1e3:.0f} ms"
 

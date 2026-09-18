@@ -29,13 +29,13 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 ### The board
 
 <!-- BOARD:BEGIN -->
-**19 of 100 acceptance cases have a valid measurement.** 9 pass · 10 fail · 1 no verdict · 80 not run.
+**15 of 100 acceptance cases have a valid measurement.** 7 pass · 8 fail · 5 no verdict · 80 not run.
 
 > **No case has been measured on the integrated RTL yet**, so these describe a model rather than the instrument.
 
 | | cases | valid | pass | fail | no verdict | not run |
 |---|---:|---:|---:|---:|---:|---:|
-| Drums | 32 | 16 | 6 | 10 | 0 | 16 |
+| Drums | 32 | 12 | 4 | 8 | 4 | 16 |
 | Mono | 32 | 0 | 0 | 0 | 0 | 32 |
 | Filters | 24 | 1 | 1 | 0 | 0 | 23 |
 | Ensemble | 12 | 2 | 2 | 0 | 1 | 9 |

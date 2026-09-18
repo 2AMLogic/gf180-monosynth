@@ -147,9 +147,12 @@ def bl_saw(f0: float, n: int, sr: int) -> np.ndarray:
 
     By construction this has NO inharmonic content. What the estimator reads on
     it is the estimator's floor at this f0, rate and record length and nothing
-    else -- a floor that is NOT the constant -54 dB quoted in `audio_measure`'s
-    docstring, because it depends on how many harmonics are present and where
-    they fall relative to the bins. That is why it is measured per row."""
+    else -- a floor that is NOT a constant, because it depends on how many
+    harmonics are present and where they fall relative to the bins. That is
+    why it is measured per row. (`audio_measure.inharmonic_fraction_db` used
+    to quote -54 dB in its docstring; since #119 it windows with `_bh4` and
+    measures its own floor per call, and this probe and that estimator now
+    agree on the principle as well as the number.)"""
     t = np.arange(n, dtype=np.float64) * (f0 / sr)
     out = np.zeros(n, dtype=np.float64)
     for k in saw_harmonics(f0, sr):

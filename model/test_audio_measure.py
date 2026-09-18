@@ -730,10 +730,20 @@ def test_inharmonic_fraction_recovers_a_planted_inharmonic_tone(share):
 
 def test_inharmonic_fraction_reads_a_clean_series_at_the_window_floor():
     """With nothing inharmonic present the measure returns its own leakage
-    floor, about -54 dB for +-5 Hann bins -- a refusal in all but name, and
-    the reason the aliasing assertions are set 10 dB above it."""
-    got = am.inharmonic_fraction_db(_series(500.0, 1 << 15, 11), 500.0).require()
-    assert -58.0 < got < -50.0, got
+    floor -- a refusal in all but name.
+
+    **This test used to assert `-58 < got < -50`, the Hann figure the docstring
+    quoted.** That is #92 in a test: it pinned a floor that is not a constant,
+    and it would have had to be re-pinned by hand for any window or guard
+    change. What is asserted now is the PROPERTY -- the reading is the floor,
+    whatever the floor is -- against the floor the estimator measured for this
+    exact call. Blackman-Harris puts it near -88 dB rather than -54."""
+    e = am.inharmonic_fraction_db(_series(500.0, 1 << 15, 11), 500.0)
+    assert e.ok, e.reason
+    assert abs(e.detail["headroom_db"]) < 1.0, \
+        f"value {e.value:.2f} dB, measured floor {e.detail['floor_db']:.2f} dB"
+    assert e.value < -70.0, \
+        f"the Blackman-Harris floor should be far below the Hann -54 dB, got {e.value:.2f}"
 
 
 def test_inharmonic_fraction_refuses_silence_and_a_spectrum_full_of_guards():
@@ -1023,3 +1033,138 @@ def test_poles_to_freq_tau_inverts_the_pole_placement():
         assert abs(got_f / f0 - 1) < 0.001, f"{f0} Hz Q {q}: read back {got_f:.3f} Hz"
         assert abs(got_tau / (q / (math.pi * f0)) - 1) < 0.01, \
             f"{f0} Hz Q {q}: read back tau {got_tau*1e3:.3f} ms"
+
+
+# ---------------------------------------------------------------------------
+# #118 -- the truncation guard is a LENGTH, not a level.
+#
+# These exist because the old guard, `tail_db > -35 dB`, was nearly vacuous:
+# the backward integral of ANY finite record falls towards -inf at its last
+# sample, so a level criterion cannot see where the record was cut. The first
+# test below is the exact case that passed it at -18.4 % error.
+# ---------------------------------------------------------------------------
+def _exp_decay(tau, seconds, f=220.0, sr=SR):
+    t = np.arange(int(seconds * sr)) / sr
+    return np.exp(-t / tau) * np.sin(2 * math.pi * f * t)
+
+
+def test_schroeder_t20_refuses_a_mild_truncation_a_level_guard_cannot_see():
+    """The measured case from `docs/analysis-conventions.md` section 4: a
+    100 ms cut of a decay whose true T20 is 92.10 ms reads **-18.4 %**, and the
+    old level guard saw **-79 dB against a -35 dB requirement** and passed it.
+
+    The second assertion is the point of the test -- it asserts that the LEVEL
+    criterion is still comfortably satisfied, so if anyone reinstates it as the
+    truncation test this case goes green again and the test goes red."""
+    x = _exp_decay(0.040, 0.100)
+    e = am.schroeder_t20(x, SR)
+    assert not e.ok, f"accepted a 100 ms cut of a 92 ms T20 and returned {e.value*1e3:.1f} ms"
+    assert "ends before" in e.reason
+    assert e.detail["tail_db"] < -35.0 - 10.0, \
+        ("the old LEVEL guard passes this record comfortably (tail_db "
+         f"{e.detail['tail_db']:.1f} dB) -- which is why the guard is a length")
+    assert e.detail["tail_in_t20s"] < am.MIN_TAIL_T20
+
+
+def test_schroeder_t20_accepts_a_record_that_does_contain_its_decay():
+    """The other half: the guard must not refuse a record that is long enough.
+    300 ms of the same decay reads the closed-form answer to 0.0 %."""
+    e = am.schroeder_t20(_exp_decay(0.040, 0.300), SR)
+    assert e.ok, e.reason
+    assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.01, e.value
+
+
+@pytest.mark.parametrize("pad_ms", [0.0, 2.0, 100.0])
+def test_schroeder_t20_is_unchanged_by_leading_silence(pad_ms):
+    """Invariance (#103): prepending digital silence cannot change how long a
+    decay took. The backward integral shifts by exactly the pad, so both the
+    -5 dB and the -25 dB index shift by it and the fitted slope cannot move."""
+    x = _exp_decay(0.040, 0.500)
+    base = am.schroeder_t20(x, SR).require("no pad")
+    got = am.schroeder_t20(np.concatenate([np.zeros(int(pad_ms * 1e-3 * SR)), x]), SR)
+    assert got.ok, got.reason
+    assert abs(got.value - base) < 1e-9, f"{pad_ms} ms of silence moved T20 by {(got.value-base)*1e3:.6f} ms"
+
+
+def test_schroeder_t20_is_unchanged_by_scaling():
+    """Invariance (#103): a decay TIME cannot depend on the gain it was
+    recorded at. The curve is normalised to its own first sample."""
+    x = _exp_decay(0.040, 0.500)
+    assert abs(am.schroeder_t20(x * 1e-4, SR).require() - am.schroeder_t20(x, SR).require()) < 1e-12
+
+
+# ---------------------------------------------------------------------------
+# #119 / #92 -- the aliasing floor is measured per call, never quoted.
+# ---------------------------------------------------------------------------
+def _additive_saw(f0, seconds=0.5, sr=SR):
+    """Alias-free by construction: every partial is below Nyquist, so the
+    reading of an aliasing estimator on it IS that estimator's floor."""
+    n = int(seconds * sr)
+    t = np.arange(n) / sr
+    y = np.zeros(n)
+    for k in range(1, int(sr / 2 / f0)):
+        y += np.sin(2 * math.pi * k * f0 * t) / k
+    return y / np.abs(y).max()
+
+
+def _naive_saw(f0, seconds=0.5, sr=SR):
+    t = np.arange(int(seconds * sr)) / sr
+    y = 2 * ((f0 * t) % 1.0) - 1.0
+    return y / np.abs(y).max()
+
+
+@pytest.mark.parametrize("f0", [111.0, 261.626, 441.0])
+def test_inharmonic_fraction_db_reading_of_an_alias_free_signal_is_its_floor(f0):
+    """The property that makes the floor believable: on a signal with nothing
+    inharmonic in it, the value and the measured floor must be the same
+    number, because the value is entirely leakage. If the floor estimator were
+    wrong this is where it shows."""
+    e = am.inharmonic_fraction_db(_additive_saw(f0), f0, SR)
+    assert e.ok, e.reason
+    assert abs(e.detail["headroom_db"]) < 1.0, \
+        f"f0 {f0}: value {e.value:.2f} dB but floor read {e.detail['floor_db']:.2f} dB"
+
+
+def test_inharmonic_fraction_db_floor_is_not_a_constant():
+    """#92's failure, in the estimator it was found in. The floor swings ~60 dB
+    with f0 -- between an f0 that lands on a bin centre and one that does not --
+    so a floor quoted in a docstring is wrong for almost every call. It must
+    come back in `detail`, measured."""
+    on_bin = am.inharmonic_fraction_db(_additive_saw(440.0), 440.0, SR)
+    off_bin = am.inharmonic_fraction_db(_additive_saw(441.0), 441.0, SR)
+    assert on_bin.ok and off_bin.ok
+    assert "floor_db" in on_bin.detail and "floor_db" in off_bin.detail
+    assert on_bin.detail["floor_db"] < off_bin.detail["floor_db"] - 50.0, \
+        (f"on-bin floor {on_bin.detail['floor_db']:.1f} dB, off-bin "
+         f"{off_bin.detail['floor_db']:.1f} dB -- a constant would be a lie")
+
+
+def test_inharmonic_fraction_db_window_is_blackman_harris_not_hann():
+    """#119: the swap is free. It buys 35 dB of floor at the same guard width
+    and moves the answer on a genuinely aliased signal by ~0 dB.
+
+    Both halves are asserted, because a window change that moved the ANSWER
+    would invalidate every aliasing number already on record."""
+    f0, n = 441.0, int(0.5 * SR)
+
+    def hann_reading(x):
+        p = np.abs(np.fft.rfft(x * np.hanning(n))) ** 2
+        harm = am._harmonic_mask(n, f0, SR, 5)
+        return 10.0 * math.log10(p[~harm].sum() / p.sum())
+
+    free, naive = _additive_saw(f0), _naive_saw(f0)
+    got_floor = am.inharmonic_fraction_db(free, f0, SR).require("floor")
+    assert got_floor < hann_reading(free) - 30.0, \
+        f"Blackman-Harris floor {got_floor:.2f} dB vs Hann {hann_reading(free):.2f} dB"
+    got_answer = am.inharmonic_fraction_db(naive, f0, SR).require("answer")
+    assert abs(got_answer - hann_reading(naive)) < 0.5, \
+        f"the window moved the ANSWER: {got_answer:.2f} vs {hann_reading(naive):.2f} dB"
+
+
+def test_inharmonic_fraction_db_is_unchanged_by_scaling():
+    """Invariance (#103): it is a FRACTION of total energy, so a gain change
+    cannot move it. A level-sensitive ratio is a bug."""
+    x = _naive_saw(441.0)
+    a = am.inharmonic_fraction_db(x, 441.0, SR).require()
+    b = am.inharmonic_fraction_db(x * 1e-3, 441.0, SR).require()
+    assert abs(a - b) < 1e-9, f"{a:.6f} vs {b:.6f} dB"

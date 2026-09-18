@@ -50,6 +50,23 @@ verify-full:
 ## Every injected control that must turn something red, together.
 ## A run where these do not fire is a broken run, not a quiet one.
 ##
+## THE TWO CASE CONTROLS MOVED FROM D01A TO D09A, and the reason is a control
+## design point rather than a convenience. #118's length guard refuses the bass
+## drum REFERENCE's decay -- its record holds 1.57 T20s past the -25 dB point
+## and the guard wants 2 -- so D01A now comes back `no verdict` whatever is
+## injected into it. REF_F0_20PCT could then never turn it red, and worse,
+## REF_MISSING would have gone on "passing" against a case that was already a
+## no-verdict for an unrelated reason: a control that would fire with the
+## injection removed is a false green, which is the only failure mode a control
+## exists to catch.
+##
+## The replacement has to PASS when clean, for the same reason. D06A was the
+## first choice and the re-run then turned it into a genuine fail -- its body
+## spectrum had been flattered by the very #101 artefact this branch removed --
+## which would have made `--expect fail` fire whatever happened. So D09A
+## (claves): clean pass at 0.61, a direct `Pitch` metric at the 10 % frequency
+## tolerance so a 20 % shift is twice it, injected fail at worst 2.39.
+##
 ## THE THREE FILTER CONTROLS need the frozen reference cache, which most hosts
 ## do not have -- and on those they REFUSE rather than fail, which `--expect`
 ## reads as a control that did not fire. That is the correct reading: a control
@@ -109,8 +126,8 @@ controls:
 	  "$(PY) fpga/verify_fixture.py --wrong no-tom-bend --expect-fail --outdir build/fx-notom" \
 	  "$(PY) fpga/verify_fixture.py --wrong drop-tom-step --expect-fail --outdir build/fx-tomstep" \
 	  "$(PY) fpga/verify_fixture.py --wrong burst --expect-fail --outdir build/fx-burst" \
-	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D01A --results build/case-detune --expect fail" \
-	  "$(PY) tools/run_case.py --inject REF_MISSING D01A --results build/case-noref --expect 'no verdict'" \
+	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D09A --results build/case-detune --expect fail" \
+	  "$(PY) tools/run_case.py --inject REF_MISSING D09A --results build/case-noref --expect 'no verdict'" \
 	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect fail" \
 	  "$(PY) tools/run_case.py --inject REF_PROFILE_MISSING F1A --results build/case-noclip --expect 'no verdict'" \
 	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A --results build/case-badhash --expect 'no verdict'"
