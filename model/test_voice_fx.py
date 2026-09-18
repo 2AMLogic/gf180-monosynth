@@ -80,21 +80,190 @@ def test_reciprocal_width_is_set_by_waveform_accuracy_not_aliasing():
     assert np.abs(fine - ref * 32768).max() <= 4
 
 
-def test_glide_increment_reaches_the_target_exactly():
-    """The linear slew must land on the target increment and the reciprocal
-    must follow it; a stale reciprocal shows as LSB-scale garbage at the
-    wraps after the glide."""
+def _single(voice, note, dur, **kw):
+    """One note through play(); returns (out, trace)."""
+    out = voice.note(note, dur, **kw)
+    return out, voice.trace
+
+
+# ---- glide (DR 0004) --------------------------------------------------------
+def test_glide_is_constant_rate_and_lands_exactly():
+    """DR 0004: the increment moves by a constant RATIO per frame (a constant
+    number of cents per frame), so a two-octave glide takes twice as long as
+    a one-octave one, and it lands on the target exactly -- after which the
+    oscillator is the held-note oscillator bit for bit."""
     v = vf.VoiceFx()
     r = v.note_on(64, 0.5, glide_from=52, waves=("saw",), detune=(0.0,), mix=(1.0,))
-    seq = r["incs"][0]
-    assert seq[-1] == dsp.phase_inc(dsp.note_hz(64))
-    assert seq[0] == dsp.phase_inc(dsp.note_hz(52))
-    out = v.run(r)
-    n = len(out); inc = int(seq[-1])
-    # after the glide the oscillator must be the held-note oscillator, bit for bit
-    o = vf.OscFx("saw"); o.phase = int(seq[:vf.GLIDE_SAMPLES].sum()) & dsp.PHASE_MASK
-    held = o.render(n - vf.GLIDE_SAMPLES, inc)
-    assert np.array_equal(v.trace["osc"][0][vf.GLIDE_SAMPLES:], held)
+    v.run(r)
+    seq = v.trace["incs"][0]
+    i0, i1 = dsp.phase_inc(dsp.note_hz(52)), dsp.phase_inc(dsp.note_hz(64))
+    assert seq[0] == i0 and seq[-1] == i1
+    land = int(np.argmax(seq == i1))
+    assert 0 < land < len(seq) and np.all(seq[land:] == i1)
+    # constant cents per frame: log(inc) is linear in time within 1 LSB of rounding
+    lg = np.log2(seq[:land].astype(float))
+    step = np.diff(lg)
+    assert step.max() - step.min() < 1e-3
+    # one octave at the reference rate takes 90 ms within 1 %
+    assert abs(land / SR - vf.GLIDE_REF_S) / vf.GLIDE_REF_S < 0.01, land / SR
+    # the held-note oscillator after landing, bit for bit
+    o = vf.OscFx("saw"); o.phase = int(seq[:land].sum()) & dsp.PHASE_MASK
+    held = o.render(len(seq) - land, i1)
+    assert np.array_equal(v.trace["osc"][0][land:], held)
+
+
+def test_glide_time_is_proportional_to_the_interval():
+    """Constant rate: two octaves take twice as long as one, up or down."""
+    def land(a, b):
+        v = vf.VoiceFx()
+        v.run(v.note_on(b, 1.0, glide_from=a, waves=("saw",), detune=(0.0,), mix=(1.0,)))
+        seq = v.trace["incs"][0]
+        return int(np.argmax(seq == seq[-1]))
+    one, two = land(52, 64), land(40, 64)
+    assert abs(two / one - 2.0) < 0.02, (one, two)
+    down = land(64, 52)
+    assert abs(down / one - 1.0) < 0.02, (one, down)
+
+
+def test_glide_preserves_the_detune_and_recomputes_the_reciprocal():
+    """Every oscillator glides at the same rate, so the interval between two
+    detuned oscillators is constant through the glide; and the PolyBLEP's
+    (e, r) follow the increment (a stale reciprocal is LSB garbage at the
+    wraps, which the exact-landing test above would catch)."""
+    v = vf.VoiceFx()
+    v.run(v.note_on(64, 0.4, glide_from=52, waves=("saw", "saw"), detune=(0.0, -12.0), mix=(1.0, 1.0)))
+    a, b = v.trace["incs"][:2]
+    land = int(np.argmax(a == a[-1]))
+    ratio = a[:land].astype(float) / b[:land]
+    assert ratio.min() > 1.99 and ratio.max() < 2.01
+    for o, inc in zip(v.oscs, (a, b)):
+        for u in np.unique(inc):
+            assert o._er(int(u)) == vf.recip_of(int(u))
+
+
+def test_glide_off_and_jump_take_effect_at_once():
+    """glide = 0 snaps to the target; jump = 1 snaps whatever the rate."""
+    v = vf.VoiceFx()
+    v.run(v.note_on(64, 0.1, glide_from=52, glide_s=0.0))
+    assert np.all(v.trace["incs"][0] == dsp.phase_inc(dsp.note_hz(64)))
+    v = vf.VoiceFx()
+    regs = vf.VoiceFx.patch_regs()
+    i0, i1 = dsp.phase_inc(dsp.note_hz(40)), dsp.phase_inc(dsp.note_hz(52))
+    v.play(regs, [(0, "INC", 0, i0, True), (0, "GATE", 1), (100, "INC", 0, i1, True)], 200)
+    assert np.all(v.trace["incs"][0][:100] == i0) and np.all(v.trace["incs"][0][100:] == i1)
+
+
+def test_glide_register_conversion():
+    """One octave in 90 ms: 2^(1/4320) - 1 in Q0.24 is 2692; 0 s is off."""
+    assert vf.glide_reg(0.09) == 2692
+    assert vf.glide_reg(0.0) == 0
+    assert vf.glide_reg(10.0) >= 1
+
+
+# ---- retrigger (DR 0003) ----------------------------------------------------
+def _events(*evs):
+    return [(int(t * SR), kind, n) for t, kind, n in evs]
+
+
+def test_legato_note_changes_pitch_without_restarting_the_envelopes():
+    """Single trigger (the Minimoog's): a second key while the first is held
+    changes the pitch and leaves both envelopes where they are."""
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs()
+    host = vf.KeyHost(priority="last", trigger="single", glide="off")
+    w = host.writes(_events((0.0, "on", 40), (0.3, "on", 47), (0.5, "off", 47), (0.6, "off", 40)), regs)
+    v.play(regs, w, int(0.8 * SR))
+    f = int(0.3 * SR)
+    assert v.trace["trig"][f] == 0 and v.trace["gate"][f] == 1
+    ae = v.trace["amp_env"]
+    assert abs(int(ae[f + 1]) - int(ae[f])) <= 1              # sustain: level constant across the change
+    assert v.trace["incs"][0][f] == dsp.phase_inc(dsp.note_hz(47))
+    # last-note priority: releasing 47 returns to 40 while it is still held
+    assert v.trace["incs"][0][int(0.55 * SR)] == dsp.phase_inc(dsp.note_hz(40))
+    assert v.trace["gate"][int(0.55 * SR)] == 1 and v.trace["gate"][int(0.7 * SR)] == 0
+
+
+def test_multi_trigger_restarts_the_attack_from_the_current_level():
+    """TRIG: both envelopes re-enter ATTACK with their level unchanged -- no
+    step in the output, then a rise of a_inc per frame from where it was."""
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs(amp=(0.05, 0.25, 0.5, 0.12))
+    host = vf.KeyHost(trigger="multi", glide="off")
+    w = host.writes(_events((0.0, "on", 40), (0.4, "on", 47), (0.6, "off", 47), (0.6, "off", 40)), regs)
+    v.play(regs, w, int(0.8 * SR))
+    f = int(0.4 * SR)
+    assert v.trace["trig"][f] == 1
+    ae = v.trace["amp_env"]; a_inc = v.amp_env.a_inc
+    assert ae[f] == ae[f - 1]                                   # no jump at the trigger frame
+    assert 0 < ae[f + 1] - ae[f] <= (a_inc >> 9) + 1            # then attacking from the current level
+    assert ae[f + 1] > ae[f - 1]                                 # from the sustain level, not from zero
+
+
+def test_gate_on_after_a_release_attacks_from_the_released_level():
+    """A new phrase while the release is still audible: the attack starts
+    from the current level, never from zero (no click)."""
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs(amp=(0.05, 0.25, 0.5, 0.5))
+    host = vf.KeyHost(glide="off")
+    w = host.writes(_events((0.0, "on", 40), (0.3, "off", 40), (0.32, "on", 45)), regs)
+    v.play(regs, w, int(0.6 * SR))
+    f = int(0.32 * SR)
+    ae = v.trace["amp_env"]
+    assert v.trace["trig"][f] == 1 and 0 < ae[f - 1] < 32767
+    assert 0 <= ae[f - 1] - ae[f] <= 4                          # one last release step, no jump
+    assert ae[f + 1] > ae[f] and ae[f + 1] > 8000                # attacking from the released level
+
+
+def test_oscillator_phase_is_not_reset_at_note_on():
+    """Free-running: GATE_ON, TRIG and SET_INC never write the phase."""
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs(waves=("saw",), detune=(0.0,), mix=(1.0,))
+    host = vf.KeyHost(trigger="multi", glide="off")
+    w = host.writes(_events((0.0, "on", 40), (0.2, "off", 40), (0.25, "on", 52), (0.5, "off", 52)), regs)
+    v.play(regs, w, int(0.6 * SR))
+    incs = v.trace["incs"][0]
+    ph = np.cumsum(np.concatenate([[0], incs[:-1]])) & dsp.PHASE_MASK
+    o = vf.OscFx("saw")
+    assert np.array_equal(v.trace["osc"][0], o.render(len(incs), incs))
+    assert int(ph[int(0.25 * SR)]) != 0                          # the second note did not start at phase 0
+
+
+def test_ladder_state_is_continuous_across_notes():
+    """The filter is never reset by a note: its state at the second note's
+    first frame is exactly the state the first note left. A resonant ring
+    from the first note therefore carries into the second, as it does in a
+    circuit."""
+    regs = vf.VoiceFx.patch_regs(q=0.95, cutoff=(300, 300), track=0.0)
+    host = vf.KeyHost(glide="off")
+    ev = _events((0.0, "on", 40), (0.2, "off", 40), (0.3, "on", 40), (0.5, "off", 40))
+    v1 = vf.VoiceFx(); out1 = v1.play(regs, host.writes(ev, regs), int(0.6 * SR))
+    v2 = vf.VoiceFx(); out2 = v2.play(regs, host.writes(ev[:2], regs), int(0.3 * SR))
+    st2 = (list(v2.ladder.y), list(v2.ladder.w), v2.ladder.d1, v2.ladder.d2)
+    out3 = v2.play(regs, [(0, "GATE", 1), (int(0.2 * SR), "GATE", 0)], int(0.3 * SR))
+    assert np.array_equal(out1, np.concatenate([out2, out3]))
+    assert np.abs(v1.trace["ladder"][int(0.3 * SR) - 1]) > 0     # still ringing when the gate returns
+
+
+def test_paraphonic_keys_go_to_separate_oscillators():
+    """Paraphony costs nothing on the chip: the host writes one held key per
+    oscillator; the filter and envelopes stay shared. Single trigger."""
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs(waves=("saw", "saw", "saw"), detune=(0, 0, 0), mix=(1, 1, 1))
+    host = vf.KeyHost(mode="para", glide="off")
+    w = host.writes(_events((0.0, "on", 40), (0.1, "on", 47), (0.2, "on", 52), (0.4, "off", 47), (0.5, "off", 40), (0.6, "off", 52)), regs)
+    v.play(regs, w, int(0.7 * SR))
+    inc = lambda n: dsp.phase_inc(dsp.note_hz(n))
+    f = int(0.3 * SR)
+    assert [int(a[f]) for a in v.trace["incs"]] == [inc(40), inc(47), inc(52)]
+    f = int(0.05 * SR)
+    assert [int(a[f]) for a in v.trace["incs"]] == [inc(40), inc(40), inc(40)]   # one key: all three double it
+    assert v.trace["trig"].sum() == 1 and v.trace["gate"][int(0.55 * SR)] == 1 and v.trace["gate"][-1] == 0
+
+
+def test_single_note_from_reset_is_play_with_one_gate():
+    """Contract 16's reference sequences: note() is play() with GATE_ON at
+    frame 0 and GATE_OFF at gate_n, from reset."""
+    a = vf.VoiceFx().note(40, 0.3)
+    v = vf.VoiceFx(); regs = vf.VoiceFx.patch_regs()
+    w = [(0, "INC", k, x, True) for k, x in enumerate(vf.VoiceFx.note_incs(40, regs["detune"]))]
+    w += [(0, "TRACK", vf.VoiceFx.note_track(40, regs["track"])), (0, "GATE", 1), (int(0.24 * SR), "GATE", 0)]
+    b = v.play(regs, w, int(0.3 * SR))
+    assert np.array_equal(a, b)
 
 
 # ---- mixer -----------------------------------------------------------------
@@ -183,15 +352,109 @@ def test_cutoff_rom_tracks_the_float_coefficient():
     assert rel[cut >= 100].max() < 0.01
 
 
+# ---- resonance compensation (DR 0006) ---------------------------------------
+def test_k_rom_is_the_linearised_onset():
+    """32 + 1 entries of k_onset/4 in Q1.15 every 1024 Hz, evaluated at the
+    cutoff clamped to 30..21600 Hz: 1.001 at the bottom, a peak of 1.217 at
+    11 kHz, and flat at the clamp above entry 21. Spot values the contract
+    quotes."""
+    rom = vf.make_k_rom()
+    assert len(rom) == 33 and rom[0] == 32799 and rom[1] == 33832
+    assert rom.max() == 39879 and rom.argmax() == 11
+    assert rom[22:].tolist() == [33964] * 11
+    for i in (0, 5, 11, 21):
+        k, _ = vf.k_onset(max(vf.CUT_MIN, 1024 * i))
+        assert rom[i] == round(k / 4 * 32768)
+
+
+def test_k_effective_saturates_at_the_port_width():
+    """(k * kc) >> 15, clamped to the ladder's 17-bit k port."""
+    assert int(vf.k_effective(65536, 32768)) == 65536
+    assert int(vf.k_effective(65536, 39879)) == (65536 * 39879) >> 15
+    assert int(vf.k_effective((1 << 17) - 1, 39879)) == (1 << 17) - 1
+
+
+def _rings(cut, res, comp):
+    """Growth rate of the fixed-point ladder's free ring at this cutoff and
+    host resonance, with or without the compensation ROM (k_comp_sweep)."""
+    import k_comp_sweep as ks
+    rom = vf.make_g_rom()
+    g = int(vf.g_from_cut(np.array([cut]), rom)[0])
+    k = int(round(4.0 * res * (1 << 14)))
+    if comp:
+        k = int(vf.k_effective(k, vf.kc_from_cut(np.array([cut]), vf.make_k_rom())[0]))
+    _, f_lin = vf.k_onset(cut, rom)
+    n_cyc = SR / cut
+    n_burst, n_settle, n_win = max(int(0.02 * SR), int(20 * n_cyc)), max(int(0.005 * SR), int(10 * n_cyc)), max(int(0.01 * SR), int(20 * n_cyc))
+    for amp in (100.0, 25.0, 6.0, 1.5):
+        tail = ks.ring(k, g, f_lin, amp, n_burst, n_settle + 2 * n_win)
+        r, peak = ks.growth(tail, n_settle, n_win)
+        if peak <= 1200:
+            return r
+    return 100.0
+
+
+@pytest.mark.parametrize("cut", [200, 3000, 10000])
+def test_self_oscillation_starts_at_res_1_everywhere(cut):
+    """DR 0006's rule: with the ROM applied, res = 1 is the onset of
+    self-oscillation at every cutoff within 0.5 % -- the ring decays at
+    res 0.995 and grows at 1.005. The measured onset over 30 Hz .. 21.6 kHz
+    is in model/k_comp_sweep.py's table."""
+    assert _rings(cut, 0.995, True) < 0
+    assert _rings(cut, 1.005, True) > 0
+
+
+def test_uncompensated_k_stops_sustaining_above_3_khz():
+    """Rev 1's finding, as a regression: at res 1.08 with no compensation the
+    filter self-oscillates at 800 Hz and not at 6 kHz (the onset there is
+    res 1.165); compensated, both sustain."""
+    assert _rings(800, 1.08, False) > 0
+    assert _rings(6000, 1.08, False) < 0
+    assert _rings(6000, 1.08, True) > 0
+
+
+# ---- gain staging (DR 0005) --------------------------------------------------
+def test_reference_volume_clips_no_audition_patch():
+    """The eight patches through the continuous voice at vol 0.45: the
+    ladder's 19-bit output word never saturates (peak 1.94 x full scale on
+    growl-bass) and the output's 16-bit clamp never fires; at rev 1's 0.9 it
+    would clip growl-bass on 4.8 % of its samples."""
+    import patches
+    worst, clip45, clip90 = 0.0, 0.0, 0.0
+    for name, seq, total in patches.MONO:
+        v = vf.VoiceFx()
+        vf.render_mono_fx(seq, total, v)
+        y, vca = v.trace["ladder"], v.trace["vca"]
+        worst = max(worst, np.abs(y).max() / 32768)
+        assert np.abs(y).max() < (1 << 18), name                # sat19 never reached
+        clip45 = max(clip45, np.mean(np.abs((vca * vf.VOL_REF) >> 15) > 32767))
+        clip90 = max(clip90, np.mean(np.abs((vca * 29491) >> 15) > 32767))
+    assert 1.5 < worst < 2.5, worst
+    assert clip45 == 0.0 and clip90 > 0.03
+
+
+def test_note_ends_after_gate_off_even_when_the_filter_sings():
+    """The VCA is after the filter: a self-oscillating patch is silent
+    0.5 s after its last gate-off although the ladder is still ringing."""
+    regs = vf.VoiceFx.patch_regs(waves=("sine",), detune=(0.0,), mix=(1.0,), cutoff=(600, 600),
+                                 q=1.06, drive=0.5, track=0.0, amp=(0.005, 0.1, 0.8, 0.05))
+    v = vf.VoiceFx()
+    w = [(0, "INC", 0, dsp.phase_inc(600.0), True), (0, "GATE", 1), (int(0.4 * SR), "GATE", 0)]
+    out = v.play(regs, w, int(1.0 * SR))
+    assert np.abs(v.trace["ladder"][-2400:]).max() > 3000       # the filter is still singing
+    assert np.abs(out[-2400:]).max() <= 1                        # the note has ended
+
+
 # ---- the voice -------------------------------------------------------------
 def test_voice_tracks_the_float_voice():
-    """One default-patch note against mono_note(blep=True), with the float's
-    ladder output clipped at +-1.0 the way the integer one must be (this
-    patch peaks at 1.09). What remains is quantisation, and the ladder owns
+    """One default-patch note against mono_note(blep=True, vca_post=True), the
+    float voice in the integer voice's chain order (DR 0005). Nothing clips
+    on either side now; what remains is quantisation, and the ladder owns
     most of it: the front end alone measures below -40 dB on the bass
     patches (voice_fx_render.py)."""
-    y = vf.VoiceFx().note(40, 0.6) / 32768.0
-    ref = np.clip(engines.mono_note(40, 0.6, blep=True), -0.9, 0.9)
+    y = vf.VoiceFx(k_comp=False).note(40, 0.6) / 32768.0      # the float has no k compensation
+    ref = engines.mono_note(40, 0.6, blep=True, vca_post=True) * (vf.VOL_REF / 32768.0 / 0.9)
+    assert np.abs(y).max() < 1.0 and np.abs(ref).max() < 1.0
     assert _diff_db(y, ref) < -25.0
 
 

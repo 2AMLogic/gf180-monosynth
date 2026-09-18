@@ -62,8 +62,14 @@ def sat(v: int, bits: int) -> int:
 
 class LadderFx:
     def __init__(self, state_bits=24, state_q=20, tanh_entries=128,
-                 interp=True, volts_per_unit=0.13, oversample=2):
+                 interp=True, volts_per_unit=0.13, oversample=2, out_bits=16):
+        """`out_bits`: width of the saturated output word, Q(out_bits-16).15.
+        16 is Q1.15 (rev 1 of the contract, where loud patches clipped here);
+        the voice uses 19 (Q4.15, +-8.0) so that the resonant peak and the
+        (1 + 2 res) passband compensation have headroom and the clip moves to
+        the output stage behind the VCA (DR 0005)."""
         self.SB, self.SQ = state_bits, state_q
+        self.OB = out_bits
         self.N, self.interp = tanh_entries, interp
         self.vpu, self.os = volts_per_unit, oversample
         self.dom_fx = int(TANH_DOMAIN * (1 << self.SQ))      # state value where tanh clamps
@@ -101,14 +107,16 @@ class LadderFx:
         return -r if neg else r
 
     def coefficients(self, cutoff_hz: np.ndarray, res: float, drive: float = 1.0,
-                     *, g_q16: np.ndarray = None, n: int = None):
+                     *, g_q16: np.ndarray = None, n: int = None, k_q14: np.ndarray = None):
         """The four integers the loop actually runs on, from the float controls.
         Split out so a testbench can hand the RTL exactly what the model used.
 
         `g_q16`, when given, supplies the per-sample Q0.16 coefficient directly
         instead of converting `cutoff_hz` here with a float exp. `voice_fx.py`
         passes it from its own integer ROM so the cutoff-modulation path is
-        integer too.
+        integer too. `k_q14`, when given, is the per-sample Q3.14 feedback
+        coefficient (the voice's resonance-compensated k, DR 0006) in place
+        of the constant 4*res; the RTL's k port is per-sample already.
 
         Widths, since the RTL has to carry them: g is Q0.16 and reaches 61,659
         at the 0.45*fs cutoff clamp (bit 15 set above ~10.6 kHz, so it is NOT a
@@ -125,7 +133,12 @@ class LadderFx:
             g_tab = np.clip(
                 np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
                          * (1 << COEF_Q)), 1, (1 << COEF_Q) - 1).astype(np.int64)
-        k = int(round(4.0 * res * (1 << 14)))          # Q2.14
+        if k_q14 is not None:
+            k = np.asarray(k_q14, dtype=np.int64)
+            if n is not None:
+                assert len(k) == n, f"k_q14 has {len(k)} entries, need {n}"
+        else:
+            k = int(round(4.0 * res * (1 << 14)))      # Q3.14
         # Q1.15 audio -> state units (2*Vt). One constant: drive*vpu/(2*Vt).
         gain = int(round(drive * self.vpu / VT2 * (1 << COEF_Q)))
         # state units -> Q1.15 audio on the way out, with resonance gain comp
@@ -133,19 +146,24 @@ class LadderFx:
         return g_tab, k, gain, ogain
 
     def process(self, x_q15: np.ndarray, cutoff_hz: np.ndarray, res: float,
-                drive: float = 1.0, *, g_q16: np.ndarray = None):
-        """x_q15: int16 samples. Returns int16. Everything between is integer."""
-        os_, SQ, SB = self.os, self.SQ, self.SB
+                drive: float = 1.0, *, g_q16: np.ndarray = None, k_q14: np.ndarray = None):
+        """x_q15: int16 samples. Returns int16 when out_bits is 16, else int32
+        (Q(OB-16).15, saturated to OB bits). Everything between is integer."""
+        os_, SQ, SB, OB = self.os, self.SQ, self.SB, self.OB
         n = len(x_q15)
-        g_tab, k, gain, ogain = self.coefficients(cutoff_hz, res, drive,
-                                                  g_q16=g_q16, n=n)
-        out = np.empty(n, dtype=np.int16)
+        g_tab, k_tab, gain, ogain = self.coefficients(cutoff_hz, res, drive,
+                                                      g_q16=g_q16, n=n, k_q14=k_q14)
+        k_per_sample = np.ndim(k_tab) > 0
+        k = None if k_per_sample else int(k_tab)
+        out = np.empty(n, dtype=np.int16 if OB <= 16 else np.int32)
         y, w = self.y, self.w
         d1, d2 = self.d1, self.d2
         TQ = SQ - SIG_Q                                 # shift Q1.15 -> state Q
         for i in range(n):
             xi = int(x_q15[i])
             g = int(g_tab[i])
+            if k_per_sample:
+                k = int(k_tab[i])
             for _ in range(os_):
                 fb = (d1 + d2) >> 1
                 u = sat(shl(xi * gain, TQ - COEF_Q) - ((k * fb) >> 14), SB)
@@ -157,7 +175,7 @@ class LadderFx:
                     y[s] = sat(y[s] + inc, SB)
                     w[s] = self.tanh_fx(y[s])
                 d2, d1 = d1, y[3]
-            out[i] = sat((shl(y[3], -TQ) * ogain) >> COEF_Q, 16)
+            out[i] = sat((shl(y[3], -TQ) * ogain) >> COEF_Q, OB)
         self.y, self.w, self.d1, self.d2 = y, w, d1, d2
         return out
 
