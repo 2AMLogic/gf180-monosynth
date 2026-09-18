@@ -63,6 +63,7 @@ module tb_voice;
     reg        [15:0] t_kc;
     reg signed [24:0] t_v;
     reg t_v_seen = 0;                                    // did S_VCA2 ever happen? (see the localparams)
+    reg st_def   = 0;                                    // was `state` ever DEFINED this frame?
     always @(posedge clk) begin
         if (dut.state == S_MIX) begin                     // oscillator kk is being mixed: its sample, inc, (e, r)
             t_osc[dut.kk] <= dut.osc;
@@ -71,6 +72,7 @@ module tb_voice;
             t_r[dut.kk]   <= dut.r[dut.kk];
         end
         if (dut.state == S_KEFF1) t_kc <= dut.mb[15:0];   // the operand loaded at S_KEFF0 is kc
+        if (^dut.state !== 1'bx)  st_def = 1'b1;
         if (dut.state == S_VCA2)  begin t_v <= dut.ma; t_v_seen = 1'b1; end
                                                          // the operand loaded at S_VCA1 is v = (y * ae) >> 15
     end
@@ -118,11 +120,18 @@ module tb_voice;
                 if (sample_valid) begin got = sample; got_valid = 1; lat = cyc - GO; end
             end
             if (busy) begin $display("tb_voice: datapath still busy at the end of frame %0d", f); $finish; end
-            if (!t_v_seen) begin
+            // The encoding-moved guard, and why it is conditional. Against the
+            // all-X stub of docs/verification-rules.md section 1 `state` is X, so
+            // S_VCA2 can never match -- and aborting there would turn the stub's
+            // RED RUN from "mismatch" (status 1) into "did not run" (status 2),
+            // which is the outcome that rule exists to forbid. So the guard only
+            // fires when the DUT's state was DEFINED and S_VCA2 still never
+            // happened: that is an encoding change, not an unimplemented design.
+            if (st_def && !t_v_seen) begin
                 $display("tb_voice: the S_VCA2 tap never fired in frame %0d -- voice_dp's state encoding moved; fix the localparams at the top of this file", f);
                 $finish;
             end
-            t_v_seen = 1'b0;
+            t_v_seen = 1'b0; st_def = 1'b0;
             if (!got_valid) begin $display("tb_voice: no sample in frame %0d", f); $finish; end
             lat_total = lat_total + lat; if (lat > lat_worst) lat_worst = lat; if (lat < lat_best) lat_best = lat;
             $fdisplay(ofd, "%0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d",
