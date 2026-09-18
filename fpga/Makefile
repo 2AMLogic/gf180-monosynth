@@ -49,7 +49,7 @@ provenance: | $(REPORTS)
 	   echo "date        : $$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; \
 	   echo "rtl commit  : $$(git -C $(ROOT) rev-parse HEAD)"; \
 	   echo "rtl branch  : $$(git -C $(ROOT) rev-parse --abbrev-ref HEAD)"; \
-	   echo "tree state  : $$(git -C $(ROOT) status --porcelain -- rtl-sketch fpga | wc -l | tr -d ' ') modified file(s) under rtl-sketch/ and fpga/"; \
+	   echo "tree state  : $$(git -C $(ROOT) status --porcelain -- rtl-sketch fpga/rtl fpga/scripts fpga/boards fpga/Makefile | wc -l | tr -d ' ') modified file(s) among the RTL and the flow (reports/ excluded: this file is one of them)"; \
 	   echo "yosys       : $$($(YOSYS) -V 2>/dev/null | head -1)"; \
 	   echo "nextpnr-ice40: $$($(NEXTPNR_ICE40) --version 2>&1 | head -1)"; \
 	   echo "nextpnr-ecp5 : $$($(NEXTPNR_ECP5) --version 2>&1 | head -1)"; \

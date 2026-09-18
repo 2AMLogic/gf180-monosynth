@@ -66,3 +66,31 @@ Contract 17.23. No synth_top on any branch instantiates the real drum section.
 
 NOTHING HERE IS EVIDENCE OF CORRECTNESS. It is an area and timing record.
 See docs/verification-rules.md rule 3.
+
+## the gf180 numbers this branch also reports
+The ORFS synthesis numbers in docs/integration-area.md section 1 (A and B) were
+produced by the flow/synth-top-par run (commit acc9e8a7), not by this branch.
+All eight RTL source files are byte-identical between that worktree and this
+one -- verified by sha256 and recorded so the comparison is not taken on trust:
+  0f338c9cec790c29 synth_top.v      96ba3bcf04612e67 spi_ctl.v
+  09c19672c81ee5ac voice_dp.v       bf081a1b780d047d recip_div.v
+  975a09b18f984e06 ladder_dp_n.v    c4e7c371a0bd47be i2s_tx.v
+  9491fe558e83a460 modal_dp_rom.v   38c909b76ca7d1bf modal_coef_rom_p8.v
+Its logs are copied verbatim into pnr/orfs/evidence/.
+
+The gf180 CELL-area numbers (integration-area sections 1 C', 3 and 4) were
+produced by this branch with rtl-sketch/area/synth_area.py and
+fpga/scripts/x1_ab.sh against PDK gf180mcuD, ciel version
+54435919abffb937387ec956209f9cf5fd2dfbee. Raw per-run results:
+rtl-sketch/area/results/.
+
+REPRODUCED FROM A CLEAN CHECKOUT: `git clone --branch flow/fpga` then
+`make -C fpga` regenerates ice40_up5k.txt, ecp5_25f.txt and blocks.txt
+byte-identically to the committed copies.
+
+SCOPE: every synth_top figure anywhere in this record is a chip with
+PLACEHOLDER DRUMS (synth_top.v:81 -- drum_section_placeholder, not drum_kit).
+Contract 17.23. No synth_top on any branch instantiates the real drum section.
+
+NOTHING HERE IS EVIDENCE OF CORRECTNESS. It is an area and timing record.
+See docs/verification-rules.md rule 3.

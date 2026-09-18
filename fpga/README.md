@@ -9,6 +9,10 @@ make -C fpga
 That runs yosys + nextpnr for two targets, writes `fpga/reports/`, and
 records the RTL commit that produced them in `fpga/reports/provenance.txt`.
 
+Verified: a fresh `git clone --branch flow/fpga` followed by `make -C fpga`
+regenerates `ice40_up5k.txt`, `ecp5_25f.txt` and `blocks.txt` byte-identically
+to the committed copies.
+
 Tools: `yosys`; `nextpnr-ice40` + `icestorm` for the iCE40 target;
 `nextpnr-ecp5` + `prjtrellis` for the ECP5 target. On macOS,
 `brew install yosys nextpnr-ice40 icestorm prjtrellis` gets everything except
