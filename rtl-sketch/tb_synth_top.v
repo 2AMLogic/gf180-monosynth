@@ -29,7 +29,7 @@ module tb_synth_top;
     reg signed [15:0] last_sample = 0;
     integer last_vcyc = -1, vcyc_prev = -1, vcyc_word = -1;
     integer out_fd = 0, frame_no = -1;
-    reg [1023:0] out_file;
+    reg [8*512-1:0] out_file;
     always @(posedge clk) begin
         if (dut.tick) begin
             if (n_frames > 0 && (dut.voice_busy || dut.drum_busy)) busy_at_tick = busy_at_tick + 1;
@@ -108,7 +108,7 @@ module tb_synth_top;
 
     // ---- the script ------------------------------------------------------------------------
     integer cmd_fd, rc, wait_f, flag_i, addr_i, data_i, n_sent = 0, run_frames = 2000, ticks_seen = 0;
-    reg [1023:0] cmd_file;
+    reg [8*512-1:0] cmd_file;
     always @(posedge clk) if (dut.tick) ticks_seen = ticks_seen + 1;
     task wait_ticks(input integer n); integer t0; begin t0 = ticks_seen; wait (ticks_seen >= t0 + n); end endtask
     initial begin

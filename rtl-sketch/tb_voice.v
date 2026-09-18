@@ -30,7 +30,7 @@ module tb_voice;
                   .mixed(mixed), .ae(ae), .fe(fe), .cut(cut), .k_eff(k_eff), .y19(y19));
     always #10 clk = ~clk;
 
-    reg [1023:0] wrfile, expfile, outfile, tapfile;
+    reg [8*512-1:0] wrfile, expfile, outfile, tapfile;
     integer wfd, efd, ofd, tfd, rc, nw, nexp, i, f, frame, cyc, wi, nout, mism, first_f, first_exp, first_got, maxerr, err;
     integer wr_f [0:MAXW-1]; integer wr_fl [0:MAXW-1]; integer wr_a [0:MAXW-1]; integer wr_d [0:MAXW-1];
     integer expv [0:MAXN-1];
