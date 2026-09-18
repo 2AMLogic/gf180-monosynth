@@ -133,12 +133,42 @@ module synth_top #(
         end
     end
 
+    // ---- the two integration defects this join can have, as negative controls ---------
+    // Both produce PLAUSIBLE audio -- a full kit under a note, one frame out of
+    // step -- which is why they are here rather than left to inspection. A mix
+    // that silently uses the previous frame's bus passes every check that looks
+    // at the voice alone or the drums alone.
+`ifdef INJECT_BUG_DRUM_BUS_STALE
+    // The master mix takes the PREVIOUS frame's drum buses: the handshake is
+    // satisfied, the format is right, the deadline is met, and the audio is one
+    // frame stale.
+    reg signed [21:0] dmix_q;
+    reg signed [18:0] body_q;
+    always @(posedge clk) if (!rst_n_drum) begin dmix_q <= 22'sd0; body_q <= 19'sd0; end
+                          else if (go) begin dmix_q <= dmix; body_q <= body; end
+    wire signed [21:0] dmix_v = dmix_q;
+    wire signed [18:0] body_v = body_q;
+    wire               done_v = 1'b1;
+`elsif INJECT_BUG_DRUM_DONE_NOWAIT
+    // The handshake removed and nothing else: the mix does not WAIT for this
+    // frame's buses. Whether that is audible depends on whether the voice
+    // reaches its drum stage before drum_kit finishes -- which is the question
+    // the handshake exists to answer, and it must not be left to timing.
+    wire signed [21:0] dmix_v = dmix;
+    wire signed [18:0] body_v = body;
+    wire               done_v = 1'b1;
+`else
+    wire signed [21:0] dmix_v = dmix;
+    wire signed [18:0] body_v = body;
+    wire               done_v = drum_done;
+`endif
+
     // ---- the voice, the ladder, the master mix -------------------------------------------
     wire signed [15:0] sample;
     wire        sample_valid;
     voice_dp u_voice (.clk(clk), .rst_n(rst_n_dp), .go(go),
                       .wr_valid(wr_voice), .wr_flag(wr_flag), .wr_addr(wr_addr), .wr_data(wr_data),
-                      .dmix(dmix), .body(body), .drum_done(drum_done),
+                      .dmix(dmix_v), .body(body_v), .drum_done(done_v),
                       .sample(sample), .sample_valid(sample_valid), .busy(voice_busy),
                       .mixed(), .ae(), .fe(), .cut(), .k_eff(), .y19());
 

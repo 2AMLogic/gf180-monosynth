@@ -121,8 +121,19 @@ module drum_regs #(
             for (i = 0; i < PATHS; i = i + 1) path[i] <= 25'd0;
             for (i = 0; i < MODES; i = i + 1) begin a1[i] <= 26'd0; a2[i] <= 26'd0; amp[i] <= 16'd0; num[i] <= 2'd0; end
         end else if (wr_valid) begin
+`ifdef INJECT_BUG_DRUM_STOPS8
+            // NEGATIVE CONTROL: revision 8's stop field -- eight bits, eight
+            // accents. The three circuits revision 10 added (MT, CL, CY) can
+            // then never be struck and never take an accent, and the chip is
+            // silent on exactly the stops a bench written for eight voices
+            // does not drive. This is what the old top-level bench would not
+            // have seen.
+            if (wr_addr == 8'h00)                                        stops <= {{(STOPS-8){1'b0}}, wr_data[7:0]};
+            else if (wr_addr >= 8'h10 && wr_addr < 8'h18)                accent[a_idx[3:0]] <= wr_data[15:0];
+`else
             if (wr_addr == 8'h00)                                        stops <= wr_data[STOPS-1:0];
             else if (wr_addr >= 8'h10 && wr_addr < 8'h10 + STOPS)        accent[a_idx[3:0]] <= wr_data[15:0];
+`endif
             else if (wr_addr >= 8'h20 && wr_addr < 8'h26)                osc[wr_addr[2:0]]    <= wr_data[23:0];
             else if (wr_addr >= 8'h40 && wr_addr < 8'h40 + ENVS * 4) begin
                 if      (fld == 2'd0) ectl[e_idx] <= wr_data[26:0];      // 27 bits

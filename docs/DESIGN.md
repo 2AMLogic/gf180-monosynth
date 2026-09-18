@@ -257,18 +257,23 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   and [DR 0004](../spec/decision-records/0004-glide-constant-rate-linear-in-pitch.md)
   (proposed) and implemented in the integer model, which is now one
   continuous voice; the float audition still renders note by note.
-- **The chip's drum sources are still a placeholder.**
-  `rtl-sketch/ladder_dp.v` / `ladder_dp_n.v`, `modal_dp.v` /
+- **The chip carries the complete drum kit, and the join is verified at the
+  pins.** `rtl-sketch/ladder_dp.v` / `ladder_dp_n.v`, `modal_dp.v` /
   `modal_dp_rom.v` and `drum_kit.v` (`drum_dp.v` + `modal_dp.v`) are
   bit-exact against `model/fixed.py`, `model/modal_fixed.py` and
   `model/drums_fx.py` under iverilog, with negative controls that show each
   bench can fail (`rtl-sketch/test_rtl.py`), and so is the whole voice,
-  `voice_dp.v`, against `model/voice_fx.py`. What is **not** verified is the
-  join: `synth_top.v` still carries `drum_section_placeholder` and the
-  two-term master mix, not `drum_kit` and the output stage of contract 12
-  (contract 17.23). `drum_src_seq.v`, the area strawman verified against
-  nothing, and `touch_dp.v`, never compared against anything, are both
-  deleted. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
+  `voice_dp.v`, against `model/voice_fx.py`. `drum_section_placeholder` is
+  **gone**: `synth_top.v` instantiates `drum_kit` at revision 10's size
+  (16 modes / 11 numerators / 18 envelopes / 23 paths / 11 stops) through the
+  22-bit mix bus, the 19-bit body bus, the `drum_done` handshake and the
+  output stage of contract 12. `rtl-sketch/verify_synth_top.py` drives all
+  eleven circuits and all sixteen sounds over the SPI pins and compares the
+  decoded I2S wire against `model/synth_top_model.py`; it was observed RED
+  against the pre-integration drum section first (`--rtl`), which is what
+  makes the green run mean anything. `drum_src_seq.v`, the area strawman
+  verified against nothing, and `touch_dp.v`, never compared against
+  anything, are both deleted. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
 - **The drum section is an 808 by circuit, and now partly by measurement.**

@@ -36,25 +36,70 @@ against a number the chip had no part in producing.
 
 Exit status, as verify_ladder.py: 0 identical, 1 differed, 2 did not run.
 
+WHAT THE STIMULUS COVERS, and why each case is here. These are the joins, not
+the blocks; every one of them can be wrong while `verify_voice`, `verify_drums`
+and `verify_modal` are all green, because none of those three can see the join.
+
+  1. every sound through its REGISTER INTERFACE -- all eleven circuits struck
+     one at a time from the STOPS register, and all five shared circuits
+     switched to their second sound with `drums_fx.preset_writes`. Sixteen
+     sounds, not eight, and not one of them poked into internal state;
+  2. repeated triggers and the exclusive pairs -- a circuit re-struck on
+     consecutive frames, and a paired circuit retuned WHILE it rings and struck
+     again, which is the case where one circuit cannot sound twice at once;
+  3. simultaneous loud hits -- every accent at full scale, both drum gains at
+     65535 and every stop in one frame, which is the only thing the master
+     clamp exists for. The run REFUSES unless the model actually reached the
+     rail, because a headroom case that never clipped is not a headroom case;
+  4. reset during activity -- the drum page's RESET (0xFF) with the kit ringing
+     and the voice page's RESET (0x23) under a held note, each followed
+     immediately by more writes, which must still arrive: the datapath resets
+     must not touch the link (DR 0007 section 4);
+  5. the handshake -- `drum_done` must name THIS frame's buses. Two negative
+     controls in synth_top.v cover it: DRUM_BUS_STALE (the mix takes the
+     previous frame's buses) and DRUM_DONE_NOWAIT (the handshake removed). A
+     mix that is one frame stale produces entirely plausible audio;
+  6. the deadline and the format -- both datapaths must be idle at the tick,
+     `overrun` and the link's `overflow` must never set, a sample must be
+     strobed in every frame, and every I2S slot must be 32 BCLK. These are
+     ASSERTED here from the bench's own report, not merely printed.
+
+Exit status, as verify_ladder.py: 0 identical, 1 differed, 2 did not run --
+which includes REFUSED: a stimulus that did not reach a case it claims to cover
+is a broken instrument, and is reported as one rather than as a pass.
+
   --inject NAME   compile with -DINJECT_BUG_<NAME>. Controls that must turn
                   this red: VOICE_MASTER_PRESHIFT (each product floored before
                   the sum instead of contract 12's single shift),
                   VOICE_DRUM_CLAMP16 (the drum buses clipped to 16 bits before
                   their gains), VOICE_OUT_SAT (no rail), I2S_SHIFT (the wire
-                  one bit late), I2S_SWAP (channels swapped), I2S_D0 (the
-                  sample sent in its own period, D = 0), SPI_ADDR7, SPI_DATA24,
-                  SPI_NOSEC, MODAL_NUM_HOLD, DRUM_ENV_FLOOR, DRUM_LFSR_TAP
+                  one bit late), I2S_SWAP (channels swapped), I2S_DELAY (the
+                  sample sent a period late, D = 2), SPI_ADDR7, SPI_DATA24,
+                  SPI_NOSEC, SPI_DRAIN_LATE, VOICE_MIX_SAT, MODAL_NUM_HOLD,
+                  DRUM_ENV_FLOOR, DRUM_LFSR_TAP,
+                  DRUM_RESET_ALIAS (revision 8's address collision),
+                  DRUM_STOPS8 (revision 8's eight-bit stop field: the three
+                  circuits revision 10 added go silent), DRUM_BUS_STALE and
+                  DRUM_DONE_NOWAIT (the handshake, case 5 above)
+  --rtl DIR       take any of this chip's sources that DIR holds from there
+                  instead of from rtl-sketch/. This is the START-RED path of
+                  docs/verification-rules.md 1: point it at a PRE-INTEGRATION
+                  drum section and watch this bench fail. Files DIR does not
+                  hold still come from rtl-sketch/, so a directory holding
+                  synth_top.v, drum_regs.v, drum_kit.v and drum_dp.v swaps
+                  exactly the drum section and nothing else.
   --expect-fail   exit 0 only if the comparison gave 1
   --short         a third of the stimulus
   --frames N      override the run length
 """
 from __future__ import annotations
-import argparse, os, subprocess, sys
+import argparse, os, re, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "model"))
 sys.path.insert(0, os.path.join(ROOT, "audition"))
+import hashlib
 import numpy as np
 import voice_fx as vf
 import drums_fx as dx
@@ -69,17 +114,19 @@ SRCS = ("synth_top.v", "voice_dp.v", "spi_ctl.v", "drum_regs.v", "drum_kit.v",
 
 
 def script(short: bool = False):
-    """(wait_frames, flag, sec, addr, data) in send order, and the frames to run
-    after the last write. `wait_frames` is how many frame ticks the bench waits
-    before starting that transaction; the frame a write LANDS in is the link's
-    business and comes back from the bench."""
+    """(wait_frames, flag, sec, addr, data) in send order, the frames to run
+    after the last write, and a COVERAGE claim -- what this stimulus says it
+    reaches, checked in main() against the model rather than assumed.
+    `wait_frames` is how many frame ticks the bench waits before starting that
+    transaction; the frame a write LANDS in is the link's business and comes
+    back from the bench."""
     S = 0.35 if short else 1.0
     regs = vf.VoiceFx.patch_regs()
     w = []
     def put(wait, flag, sec, addr, data): w.append((wait, flag, sec, addr, data))
 
     # ---- 1. the voice image, back to back (the MCU's boot-time patch load) ----
-    for k, s in enumerate(regs["waves"]):   put(0, 0, SEC_V, A.A_WAVE + k, WAVE_CODE[s])
+    for k, s_ in enumerate(regs["waves"]):  put(0, 0, SEC_V, A.A_WAVE + k, WAVE_CODE[s_])
     for base, key in ((A.A_AMP, "amp"), (A.A_FILT, "fenv")):
         for j, v in enumerate(regs[key]):   put(0, 0, SEC_V, base + j, v)
     for nm, key in (("A_CUT_LO", "cut_lo"), ("A_CUT_HI", "cut_hi"), ("A_K", "k"),
@@ -99,41 +146,96 @@ def script(short: bool = False):
 
     # ---- 2. the drum image: the reference kit, plus an accent of 1.0 per stop ----
     for a, v in dx.kit_808():               put(0, 0, SEC_D, a, v)
-    for s in range(dx.N_STOPS):             put(0, 0, SEC_D, dx.A_ACCENT + s, dx.accent_reg(1.0))
+    for st in range(dx.N_STOPS):            put(0, 0, SEC_D, dx.A_ACCENT + st, dx.accent_reg(1.0))
+    ALL_STOPS = (1 << dx.N_STOPS) - 1       # ELEVEN circuits. 0xFF reaches eight of them,
+                                            # which is what this bench used to send.
+    fired = set()                           # every stop this stimulus actually strikes
+    def strike(wait, mask, hold=2):
+        put(wait, 0, SEC_D, dx.A_STOPS, mask); put(hold, 0, SEC_D, dx.A_STOPS, 0)
+        fired.update(i for i in range(dx.N_STOPS) if mask >> i & 1)
 
     # ---- 3. play. The voice first alone, then with drums, then through the filter ----
     gap = max(2, int(14 * S))
     put(8, 0, SEC_V, A.A_GATE_ON, 0)                          # a note, drums silent
-    put(gap * 2, 0, SEC_D, dx.A_STOPS, 1 << dx.BD)            # bass drum
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
-    put(gap, 0, SEC_D, dx.A_STOPS, (1 << dx.CH) | (1 << dx.SD))
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
-    put(gap, 0, SEC_D, dx.A_STOPS, (1 << dx.OH))              # the OH -> CH choke
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap * 2, 1 << dx.BD)                               # bass drum
+    strike(gap, (1 << dx.CH) | (1 << dx.SD))
+    strike(gap, 1 << dx.OH)                                   # the OH -> CH choke
     put(gap, 0, SEC_V, A.A_TRIG, 0)                           # re-trigger the voice under the ring
-    put(gap, 0, SEC_D, dx.A_STOPS, 0xFF)                      # every stop in one frame
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap, ALL_STOPS)                                    # every stop in one frame
+
+    # ---- 3b. CASE 1: each of the eleven circuits struck ALONE ------------------
+    # Struck one at a time so a wrong one is attributable, and through the STOPS
+    # register like a host, never by poking state. MT, CL and CY are stops 8, 9
+    # and 10: the mask this bench used to send could not reach them and the run
+    # would have been green with all three silent, which is the defect
+    # INJECT_BUG_DRUM_STOPS8 reproduces.
+    for st in range(dx.N_STOPS):
+        strike(max(2, gap // 2), 1 << st)
+
+    # ---- 3c. CASE 1 continued: sixteen sounds on eleven circuits --------------
+    # Five circuits carry two sounds each (drums_fx.PAIRS) and `kit_808()` loads
+    # the first of each. Selecting the other is a burst of MODE, PATH and ENV
+    # writes -- the three register blocks revision 10 moved or grew -- so this is
+    # also the register map with audio behind it: leave PATH decoding at 0x80 or
+    # MODE at 0xC0 and the swapped sound is silent or unchanged, not merely
+    # mis-addressed.
+    # ---- CASE 2 with it: the EXCLUSIVE PAIR. The circuit is retuned WHILE it
+    # rings from the sound it is already playing, then struck again. One circuit
+    # cannot sound twice at once, and the second strike must restart it.
+    swapped = []
+    for alt in ("LC", "MC", "HC", "CL", "MA"):
+        st = dx.SOUND_STOP[alt]
+        strike(gap, 1 << st)                                  # the first sound of the pair, ringing
+        for a, v in dx.preset_writes(alt):  put(0, 0, SEC_D, a, v)   # retuned mid-ring
+        swapped.append(alt)
+        strike(max(2, gap // 2), 1 << st)                     # and struck again as the second sound
+        strike(2, 1 << st)                                    # CASE 2: re-struck on the next frames
+
     # retune the bass drum WHILE it rings -- a coefficient write mid-decay, which
     # is the write-atomicity case: a1 lands one frame, a2 the next (DR 0008)
     for a, v in dx.mode_writes(dx.M_BD, dx.BD_HZ_CHART, dx.bd_decay_q(1.0), 0.0)[:2]:
         put(gap // 2, 0, SEC_D, a, v)
-    put(gap, 0, SEC_D, dx.A_STOPS, 1 << dx.BD)
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap, 1 << dx.BD)
     # ---- the drum filter engaged mid-run (ROUTE.DFILT), then a louder master ----
     put(gap, 0, SEC_V, A.A_ROUTE, 1)
-    put(gap, 0, SEC_D, dx.A_STOPS, (1 << dx.BD) | (1 << dx.CH))
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap, (1 << dx.BD) | (1 << dx.CH))
     put(gap, 0, SEC_V, A.A_DCUT, 400)                         # sweep the drum filter down
-    put(gap, 0, SEC_D, dx.A_STOPS, (1 << dx.OH) | (1 << dx.SD))
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
-    put(gap, 0, SEC_V, A.A_DVOL, 65535)                       # the gains at their top: the rail
+    strike(gap, (1 << dx.OH) | (1 << dx.SD))
+
+    # ---- 3d. CASE 3: simultaneous loud hits, which is what the clamp is for ----
+    # Every accent at full scale, both drum gains at their top, every circuit in
+    # one frame, under a held note at the voice's own volume. main() REFUSES if
+    # the model did not actually reach the rail here.
+    put(gap, 0, SEC_V, A.A_DVOL, 65535)
     put(0, 0, SEC_V, A.A_BVOL, 65535)
-    put(gap, 0, SEC_D, dx.A_STOPS, 0xFF)
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    for st in range(dx.N_STOPS):            put(0, 0, SEC_D, dx.A_ACCENT + st, 65535)
+    strike(gap, ALL_STOPS)
+    strike(2, ALL_STOPS)                                      # CASE 2: and again immediately
     put(gap, 0, SEC_V, A.A_GATE_OFF, 0)                       # release: the note ends, drums ring on
     put(gap, 0, SEC_V, A.A_ROUTE, 0)                          # back to bypass, mid-ring
-    put(gap, 0, SEC_D, dx.A_STOPS, 1 << dx.CB)
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap, 1 << dx.CB)
+
+    # ---- 3e. CASE 4: a RESET in each page, during activity ---------------------
+    # The drum page's RESET while the whole kit rings, then the kit reloaded and
+    # struck: if 0xFF had touched the link or the queue those writes would not
+    # arrive, and the write-integrity check above counts every one of them. The
+    # voice page's RESET under a held note does the same on the other page. This
+    # is also the RESET_ALIAS control's target -- under it a MODE coefficient
+    # write reaches 0xFF's decode and silences the kit.
+    strike(gap, ALL_STOPS)
+    put(max(2, gap // 3), 0, SEC_D, dx.A_RESET, 0)            # drums reset mid-ring
+    for a, v in dx.kit_808():               put(0, 0, SEC_D, a, v)   # ... and the link still carries
+    for st in range(dx.N_STOPS):            put(0, 0, SEC_D, dx.A_ACCENT + st, dx.accent_reg(1.0))
+    strike(gap, ALL_STOPS)
+    put(gap, 0, SEC_V, A.A_GATE_ON, 0)                        # a note, then reset the voice under it
+    put(gap, 0, SEC_V, A.A_RESET, 0)
+    for k, v in enumerate(vf.VoiceFx.note_incs(45, regs["detune"])):
+        put(0, 1, SEC_V, A.A_INC + k, v)                      # the link carried these too
+    put(0, 0, SEC_V, A.A_VOL, regs["vol"])
+    put(0, 0, SEC_V, A.A_DVOL, dx.accent_reg(0.45))
+    put(0, 0, SEC_V, A.A_BVOL, dx.accent_reg(0.45))
+    strike(gap, (1 << dx.SD) | (1 << dx.CY))
+
     # ---- the envelope DEAD ZONE (15.3 / 8.3), reached on purpose -------------
     # Below 2^16/rate the exponential step is zero; without the max(1, .) the
     # level FREEZES there instead of running out at one LSB per frame. From a
@@ -146,14 +248,17 @@ def script(short: bool = False):
     rate = kit[dx.A_ENV + e * 4 + 2]
     freeze = 65535 // rate                       # largest level whose step is zero
     put(gap, 0, SEC_D, dx.A_ENV + e * 4 + 1, freeze + 64)
-    put(gap, 0, SEC_D, dx.A_STOPS, 1 << dx.OH)
-    put(2, 0, SEC_D, dx.A_STOPS, 0)
+    strike(gap, 1 << dx.OH)
     # The tail must outlast the SLOWEST envelope's linear floor, or the dead-zone
     # rule of 15.3 / 8.3 is never exercised and INJECT_BUG_DRUM_ENV_FLOOR goes
     # uncaught: below 2^16/rate the exponential step is zero and the tail runs at
     # one LSB per frame, which is hundreds of frames for the open hat.
     tail = int(1500 * S) if not short else int(260 * S)
-    return w, tail
+    cover = dict(stops=sorted(fired), swapped=swapped,
+                 sounds=len(fired) + len(swapped),
+                 drum_reset=sum(1 for c in w if c[2] == SEC_D and c[3] == dx.A_RESET),
+                 voice_reset=sum(1 for c in w if c[2] == SEC_V and c[3] == A.A_RESET))
+    return w, tail, cover
 
 
 def write_cmds(path: str, w) -> None:
@@ -162,7 +267,49 @@ def write_cmds(path: str, w) -> None:
             fh.write(f"{wait} {flag} {sec} {addr} {data}\n")
 
 
-def simulate(defines, outdir, frames, timeout_s=5400.0):
+def resolve_sources(rtl_dir: str | None):
+    """Which file each source name is actually taken from. A `--rtl DIR` that
+    holds some of them swaps exactly those; everything else stays rtl-sketch's.
+    Returned so that the run can SAY which top level it built rather than
+    leaving it to be inferred -- this project has published area figures for a
+    chip whose drum section was a placeholder."""
+    names = list(SRCS) + ["tb_top_bx.v"]
+    out = []
+    for n in names:
+        alt = os.path.join(rtl_dir, n) if rtl_dir else None
+        out.append((n, alt if alt and os.path.exists(alt) else os.path.join(HERE, n)))
+    return out
+
+
+def provenance(srcs) -> dict:
+    """The exact build, recorded: the source commit, every source file's SHA-256
+    and where it came from, and the generated ROM images the design reads."""
+    def sha(path):
+        with open(path, "rb") as fh: return hashlib.sha256(fh.read()).hexdigest()[:12]
+    try:
+        commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"],
+                                capture_output=True, text=True).stdout.strip() or "?"
+        dirty = bool(subprocess.run(["git", "-C", ROOT, "status", "--porcelain"],
+                                    capture_output=True, text=True).stdout.strip())
+    except Exception:
+        commit, dirty = "?", False
+    gen = {}
+    for n in ("tanh16.hex", "tanh256.hex"):                 # generated inputs the RTL $readmemh's
+        f = os.path.join(HERE, n)
+        if os.path.exists(f): gen[n] = sha(f)
+    files = {n: (sha(f), "rtl-sketch" if os.path.dirname(f) == HERE else os.path.dirname(f))
+             for n, f in srcs}
+    return dict(commit=commit + ("-dirty" if dirty else ""), files=files, generated=gen)
+
+
+# the bench's own report lines, which are preconditions of the comparison and
+# not decoration: a run where a datapath was still busy at the tick, or a frame
+# had no sample, is not a run whose audio means anything.
+RE_BUSY = re.compile(r"datapath busy at a tick: (\d+).*overrun (\d+); overflow (\d+)")
+RE_STRB = re.compile(r"sample strobed in (\d+) frames, MISSING in (\d+), worst strobe cycle (\d+)")
+
+
+def simulate(defines, outdir, frames, timeout_s=5400.0, rtl_dir=None):
     iverilog, vvp = tool("iverilog"), tool("vvp")
     if not iverilog or not vvp:
         print("verify_synth_top: iverilog/vvp not on PATH (or set OSS_CAD_SUITE)"); return None
@@ -171,7 +318,8 @@ def simulate(defines, outdir, frames, timeout_s=5400.0):
     out = {k: os.path.join(outdir, f"top_{k}_{tag}.txt") for k in ("i2s", "samp", "wrs")}
     for f in out.values():
         if os.path.exists(f): os.remove(f)
-    srcs = [os.path.join(HERE, f) for f in SRCS] + [os.path.join(HERE, "tb_top_bx.v")]
+    resolved = resolve_sources(rtl_dir)
+    srcs = [f for _, f in resolved]
     r = subprocess.run([iverilog, "-g2012", "-o", vvp_file] + [f"-D{d}" for d in defines] + srcs,
                        cwd=HERE, capture_output=True, text=True)
     if r.returncode != 0:
@@ -182,9 +330,12 @@ def simulate(defines, outdir, frames, timeout_s=5400.0):
                             f"+frames={frames}"], cwd=HERE, capture_output=True, text=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         print("verify_synth_top: simulation timed out"); return None
-    sys.stdout.write("".join("  sim: " + l + "\n" for l in r.stdout.splitlines() if l.startswith("tb_top_bx")))
+    report = [l for l in r.stdout.splitlines() if l.startswith("tb_top_bx")]
+    sys.stdout.write("".join("  sim: " + l + "\n" for l in report))
     if r.returncode != 0 or not os.path.exists(out["i2s"]):
         print("verify_synth_top: vvp failed:\n" + r.stdout + r.stderr); return None
+    out["report"] = report
+    out["sources"] = resolved
     return out
 
 
@@ -202,20 +353,86 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inject", default=None); ap.add_argument("--expect-fail", action="store_true")
     ap.add_argument("--short", action="store_true"); ap.add_argument("--frames", type=int, default=None)
+    ap.add_argument("--rtl", default=None,
+                    help="take sources this directory holds from there (the start-red path)")
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
     a = ap.parse_args(argv)
     a.outdir = os.path.abspath(a.outdir); os.makedirs(a.outdir, exist_ok=True)
+    if a.rtl:
+        a.rtl = os.path.abspath(a.rtl)
+        if not os.path.isdir(a.rtl):
+            print(f"verify_synth_top: REFUSED -- --rtl {a.rtl} is not a directory"); return 2
 
-    cmds, tail = script(a.short)
+    cmds, tail, cover = script(a.short)
+    # The stimulus must reach the cases this bench claims, or it is not the
+    # bench it says it is. Checked BEFORE the simulation, so a stimulus edit
+    # that quietly drops a circuit refuses instead of passing.
+    missing = [dx.STOP_NAMES[i] for i in range(dx.N_STOPS) if i not in cover["stops"]]
+    pairs = {b for _, b in dx.PAIRS}
+    if missing:
+        print(f"verify_synth_top: REFUSED -- the stimulus never strikes {', '.join(missing)}: "
+              f"{len(cover['stops'])} of {dx.N_STOPS} circuits"); return 2
+    if not pairs.issubset(set(cover["swapped"])):
+        print(f"verify_synth_top: REFUSED -- the stimulus never selects "
+              f"{', '.join(sorted(pairs - set(cover['swapped'])))}: "
+              f"{cover['sounds']} of {len(dx.SOUND_NAMES)} sounds"); return 2
+    if not (cover["drum_reset"] and cover["voice_reset"]):
+        print("verify_synth_top: REFUSED -- the stimulus does not reset both pages during activity")
+        return 2
     write_cmds(os.path.join(a.outdir, "top_bx_cmds.txt"), cmds)
     print(f"verify_synth_top: {len(cmds)} writes over the pins "
           f"({sum(1 for c in cmds if c[2] == SEC_V)} voice, {sum(1 for c in cmds if c[2] == SEC_D)} drum), "
           f"{tail} frames after the last")
+    print(f"verify_synth_top: stimulus covers {len(cover['stops'])} of {dx.N_STOPS} circuits and "
+          f"{cover['sounds']} of {len(dx.SOUND_NAMES)} sounds "
+          f"({', '.join(dx.STOP_NAMES[i] for i in cover['stops'])}; swapped to "
+          f"{', '.join(cover['swapped'])}), both pages reset while sounding")
     defines = [f"INJECT_BUG_{a.inject}"] if a.inject else []
     if defines: print(f"verify_synth_top: simulating with {defines[0]}")
-    out = simulate(defines, a.outdir, tail)
+    out = simulate(defines, a.outdir, tail, rtl_dir=a.rtl)
     if out is None:
         return 2
+
+    # ---- WHICH top level was built, recorded, not inferred -------------------
+    pv = provenance(out["sources"])
+    swapped_in = sorted(n for n, (_, where) in pv["files"].items() if where != "rtl-sketch")
+    print(f"verify_synth_top: built from {pv['commit']}, outdir {a.outdir}; "
+          f"synth_top.v {pv['files']['synth_top.v'][0]}, drum_kit.v {pv['files']['drum_kit.v'][0]}, "
+          f"drum_regs.v {pv['files']['drum_regs.v'][0]}"
+          + (f"; ROMs " + ", ".join(f"{k} {v}" for k, v in sorted(pv["generated"].items())) if pv["generated"] else "")
+          + (f"; {len(swapped_in)} source(s) taken from {a.rtl}: {', '.join(swapped_in)}" if swapped_in
+             else "; every source from rtl-sketch/"))
+    LAST.update(provenance=pv, cover=cover, rtl_dir=a.rtl)
+
+    # ---- the deadline, the overrun and the strobe: preconditions, asserted ----
+    rep = "\n".join(out["report"])
+    mb, ms = RE_BUSY.search(rep), RE_STRB.search(rep)
+    if not mb or not ms:
+        print("verify_synth_top: REFUSED -- the bench did not report the frame budget; "
+              "it cannot be checked and will not be assumed"); return 2
+    busy, overrun, overflow = (int(x) for x in mb.groups())
+    strobed, missing_s, worst = (int(x) for x in ms.groups())
+    LAST.update(busy_at_tick=busy, overrun=overrun, overflow=overflow,
+                frames_no_sample=missing_s, worst_strobe_cycle=worst)
+    if busy or overrun or overflow or missing_s or worst >= 256:
+        print(f"verify_synth_top: FAIL -- the frame budget was not met: a datapath was busy at "
+              f"{busy} tick(s), overrun {overrun}, link overflow {overflow}, {missing_s} frame(s) "
+              f"with no sample, worst strobe cycle {worst} of 256")
+        return 1
+    # An apparatus precondition, reported where it is used. The LRCLK transition
+    # is cycle 128 (cyc[7]). i2s_tx latches the period's word from `held` at
+    # cycle 255 and the right slot re-reads at cycle 127; if the core has not
+    # strobed a NEW sample by then, `held` still equals `cur` and a right-channel
+    # defect emits a stream bit-identical to the correct one. Revision 10's drum
+    # section pushed the strobe from cycle 124 to 156, so that is now the case
+    # and INJECT_BUG_I2S_SWAP no longer discriminates here. The audio is correct
+    # either way -- what is lost is a negative control, and it is said out loud
+    # rather than left in a list of controls that no longer fire.
+    if worst >= 128:
+        print(f"verify_synth_top: NOTE -- the core strobes its sample as late as cycle {worst} of 256, "
+              f"past the LRCLK transition at 128 ({100 * (256 - worst) / 256:.0f} % of the frame still "
+              f"spare, no overrun). A right-channel-only defect is INVISIBLE at the pins in this "
+              f"configuration: see the I2S_SWAP entry in the Makefile's controls target")
 
     # ---- what the chip says it received, and when --------------------------
     wr = rows(out["wrs"])
@@ -277,6 +494,16 @@ def main(argv=None) -> int:
     print(f"verify_synth_top: model peak |sample| {peak} of 32768 ({clipped} frames at the rail); "
           f"drums |dmix| max {int(np.abs(m['dmix']).max())}, |body| max {int(np.abs(m['body']).max())}, "
           f"DFILT engaged in {int(m['route'].sum())} frames")
+    # CASE 3's precondition. The simultaneous-hit section exists to drive the
+    # master clamp; if the model never reached the rail the clamp was never
+    # exercised and a pass here would be silent about the one thing that
+    # section is for. The model is the same whatever is injected, so this
+    # refuses for a stimulus that stopped covering the case, never for a defect.
+    LAST.update(model_peak=peak, model_clipped=clipped)
+    if clipped == 0:
+        print(f"verify_synth_top: REFUSED -- the simultaneous-hit section never reached the rail "
+              f"(model peak {peak} of 32768): the master clamp is not exercised by this stimulus")
+        return 2
     LAST.update(wire_mismatch=mism, swap=swap, width=width, core_bad=core_bad, periods=nper)
     if mism == 0 and swap == 0 and width == 0 and core_bad == 0:
         print(f"verify_synth_top: PASS -- {nper} I2S periods decoded from the wire, every one identical "

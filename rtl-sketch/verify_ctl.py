@@ -78,24 +78,39 @@ def stimulus() -> list:
     w += [(0, SEC_DRUM, a, v) for a, v in dx.kit_808()]
     # the widest value of every drum register class, at the top and bottom address of each
     bits = dx.REG_BITS
+    # The TOP address of every block, at the block's width, at the CURRENT size
+    # -- not at revision 8's. The drum page grew (11 stops, 18 envelopes, 23
+    # paths, 16 modes) and PATH and MODE moved to 0x90 and 0xB0 to keep the last
+    # mode's NUM register off 0xFF, which is the drum soft reset. A corner list
+    # pinned to the old counts would leave the new top of each block -- exactly
+    # the addresses the move was made for -- untested, and would still pass.
+    e_top = dx.A_ENV + (dx.N_ENV - 1) * dx.ENV_STRIDE
+    m_top = dx.A_MODE + (dx.N_MODES - 1) * dx.MODE_STRIDE
+    p_top = dx.A_PATH + dx.N_PATH - 1
+    assert m_top + 3 != dx.A_RESET, "the top MODE register aliases the drum RESET: revision 8's defect"
+    assert e_top + 2 < dx.A_PATH and p_top < dx.A_MODE, "two drum register blocks overlap"
     corners = [
-        (dx.A_STOPS,               (1 << bits["stops"]) - 1),
+        (dx.A_STOPS,               (1 << bits["stops"]) - 1),         # all ELEVEN stop bits
         (dx.A_ACCENT,              (1 << bits["accent"]) - 1),
-        (dx.A_ACCENT + 7,          0),
+        (dx.A_ACCENT + dx.N_STOPS - 1, (1 << bits["accent"]) - 1),    # the last accent, 0x1A
+        (dx.A_ACCENT + dx.N_STOPS, 0),                                # one past it: must be ignored
         (dx.A_OSC,                 (1 << bits["osc_inc"]) - 1),
         (dx.A_OSC + 5,             1),
-        (dx.A_ENV,                 (1 << bits["env_ctl"]) - 1),      # 27 bits
+        (dx.A_ENV,                 (1 << bits["env_ctl"]) - 1),       # 27 bits
         (dx.A_ENV + 1,             (1 << bits["peak"]) - 1),
         (dx.A_ENV + 2,             (1 << bits["rate"]) - 1),
-        (dx.A_ENV + 11 * 4,        (1 << bits["env_ctl"]) - 1),
-        (dx.A_PATH,                (1 << bits["path"]) - 1),
-        (dx.A_PATH + 15,           0),
-        (dx.A_MODE,                (1 << bits["a1"]) - 1),           # 26 bits
+        (e_top,                    (1 << bits["env_ctl"]) - 1),       # envelope 17, 0x84
+        (e_top + 2,                (1 << bits["rate"]) - 1),          # 0x86: the block's top
+        (dx.A_PATH,                (1 << bits["path"]) - 1),          # 25 bits now, at 0x90
+        (p_top,                    (1 << bits["path"]) - 1),          # path 22, 0xA6
+        (dx.A_MODE,                (1 << bits["a1"]) - 1),            # 26 bits, at 0xB0
         (dx.A_MODE + 1,            (1 << bits["a2"]) - 1),
         (dx.A_MODE + 2,            (1 << bits["amp"]) - 1),
         (dx.A_MODE + 3,            3),
-        (dx.A_MODE + 11 * 4,       (1 << bits["a1"]) - 1),
-        (dx.A_MODE + 11 * 4 + 3,   3),
+        (m_top,                    (1 << bits["a1"]) - 1),            # mode 15, 0xEC
+        (m_top + 3,                3),                                # 0xEF -- 0xC0 + 15*4 + 3 would
+                                                                      # have been 0xFF, the reset
+        (dx.A_RESET - 1,           (1 << 24) - 1),                    # 0xFE, next to the reset
         (dx.A_RESET,               0),                                # 0xFF, the drum page's reset
     ]
     w += [(0, SEC_DRUM, a, v) for a, v in corners]
