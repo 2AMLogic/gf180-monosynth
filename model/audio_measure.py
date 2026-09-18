@@ -1377,6 +1377,453 @@ def harmonic_signature(x, sr: int = SR_DEFAULT, *, f_lo: float = 25.0, f_hi: flo
 # `model/test_reference_voice.py`, against signals whose answer is known in
 # closed form -- including the two cases each estimator must REFUSE.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# WHICH WAVEFORM IS IT?
+#
+# `model/reference_rigs.py` asked Surge for a saw, received a 50 % pulse, and
+# published it as a saw for a whole study -- because the request and the label
+# agreed with each other and nothing compared either with the signal. Surge's
+# Classic "Shape" is BIPOLAR, so the normalised 0.0 the mapping used is -100 %,
+# not the saw that sits at the centre of the control.
+#
+# The identification is TIME DOMAIN FIRST, and that is not a preference:
+#
+#   * "odd harmonics only" is a test for 50 % DUTY, not for "square". A 49 %
+#     square has even harmonics and would fail it; some pulse width would pass
+#     a sloppier version of it. The duty cycle is a time-domain quantity and is
+#     measured as one -- the distance from the rising jump to the falling one
+#   * two saws do NOT always make a comb. At zero detune and aligned phase they
+#     sum to a saw at twice the amplitude, and at half a period apart to a saw
+#     at twice the FREQUENCY. Neither is a comb, so the absence of a comb rules
+#     nothing out. Counting the jumps in one period does
+#
+# The spectrum then provides an INDEPENDENT consistency check: the nulls
+# predicted from the MEASURED duty have to be where the measurement says they
+# are. Two measurements agreeing is evidence; one measurement compared with an
+# assumed shape is a lookup.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class WaveformID:
+    """What a record SAYS its waveform is. `label` is None when the record does
+    not qualify, and `reason` says why -- there is no "closest guess"."""
+    label: str | None
+    ok: bool
+    reason: str
+    detail: dict = field(default_factory=dict)
+
+    @property
+    def family(self) -> str | None:
+        return None if self.label is None else self.label.split(":")[0]
+
+    @property
+    def duty(self) -> float | None:
+        return self.detail.get("duty")
+
+    def __repr__(self) -> str:
+        return (f"WaveformID({self.label!r})" if self.ok
+                else f"WaveformID(UNQUALIFIED: {self.reason})")
+
+
+def cycle_average(x, f0: float, sr: int = SR_DEFAULT, *, n: int = 1024,
+                  min_periods: int = 8, upsample: int = 8):
+    """One period of `x`, resampled to `n` points and averaged over every whole
+    period at the COMMANDED f0, plus the per-period residual as a fraction of
+    the cycle's own RMS.
+
+    The residual is the precondition that matters. A single oscillator holding
+    a steady note repeats to a small fraction of a percent; unison, a detuned
+    partner, a chorus or a reverb in the path all destroy that repetition, and
+    they destroy it BEFORE they change any harmonic amplitude enough to
+    notice. Two saws 2 cents apart read 0.28 here and are invisible to
+    `inharmonic_fraction_db`, whose +-5-bin guards swallow a 0.13 Hz offset.
+
+    `upsample` is not a refinement, it is the difference between the estimator
+    working and not. Period starts fall between samples, so each period is
+    interpolated at different sub-sample offsets; with plain linear
+    interpolation that error alone reads 0.05 on an IDEAL saw at 1760 Hz --
+    the whole refusal threshold, from the analysis and not the signal. An
+    8x band-limited (FFT) upsample first takes it to 0.0007.
+    """
+    x = _as_float(x)
+    if is_silent(x):
+        raise InsufficientEvidence("cycle_average: silent")
+    per = sr / float(f0)
+    if int(len(x) // per) < min_periods + 2:
+        raise InsufficientEvidence(
+            f"cycle_average: {int(len(x) // per)} whole periods of {f0} Hz, "
+            f"need {min_periods + 2}")
+    u = max(1, int(upsample))
+    if u > 1:
+        X = np.fft.rfft(x)
+        Y = np.zeros(len(x) * u // 2 + 1, dtype=complex)
+        Y[:len(X)] = X
+        xu = np.fft.irfft(Y, len(x) * u) * u
+    else:
+        xu = x
+    peru = per * u
+    nper = int(len(xu) // peru)
+    idx = np.arange(len(xu), dtype=np.float64)
+    grid = np.arange(n) / n
+    # the first and last period carry the FFT's own wrap-around, so they are
+    # dropped rather than averaged in.
+    A = np.array([np.interp((p + grid) * peru, idx, xu) for p in range(1, nper - 1)])
+    cyc = A.mean(axis=0)
+    r = float(np.sqrt(((A - cyc) ** 2).mean()))
+    return cyc, r / (rms(cyc) or 1.0)
+
+
+def pulse_edges(cycle, win: float = 0.08, frac: float = 0.45) -> list:
+    """Where one period jumps, as [(index, +1 rising | -1 falling), ...].
+
+    The step is measured as the NET change over a window `win` of the period,
+    not as a single large sample-to-sample difference, and that is the whole
+    trick: a band-limited edge rings, Surge's minBLEP rings for about 15 % of
+    a period at 110 Hz, and its ringing lobes reach 0.9 of the main step. A
+    raw-difference test split one Surge square into four edges and the next
+    render of the same setting into two. Summed over a window the ringing
+    cancels -- it is oscillatory and its net contribution is zero -- and what
+    is left is one clean impulse per discontinuity, 1 for a saw and 2 for a
+    rectangle, identically over six octaves and identically DC-blocked.
+
+    Only meaningful once `step_ratio` says there IS a discontinuity: on a
+    triangle the largest net change is the ordinary slope."""
+    c = _as_float(cycle)
+    n = len(c)
+    d = np.diff(c, append=c[:1])
+    w = max(3, int(win * n))
+    net = np.convolve(np.concatenate([d, d, d]), np.ones(w), "same")[n:2 * n]
+    a = np.abs(net)
+    if a.max() <= 0:
+        return []
+    mask = a > frac * a.max()
+    starts = np.flatnonzero(mask & ~np.roll(mask, 1))
+    return [(int(i), float(np.sign(net[i]))) for i in starts]
+
+
+def duty_cycle(cycle, edges=None) -> float:
+    """Fraction of the period spent on the upper level of a rectangle, as the
+    distance from the RISING jump to the FALLING one.
+
+    Not the fraction above the midpoint of the excursion, because a real
+    oscillator's rectangle is not flat-topped: Surge DC-blocks its Classic
+    oscillator, so each half of its square decays from 0.283 to 0.087 before
+    the next edge. Jump positions do not care, and their SIGNS say which
+    segment is the high one -- so this tells duty `d` from `1 - d`, which a
+    spectrum cannot."""
+    c = _as_float(cycle)
+    n = len(c)
+    e = pulse_edges(c) if edges is None else edges
+    if len(e) == 2 and e[0][1] != e[1][1]:
+        rise = next(i for i, sg in e if sg > 0)
+        fall = next(i for i, sg in e if sg < 0)
+        return float(((fall - rise) % n) / n)
+    mid = 0.5 * (c.max() + c.min())
+    return float(np.mean(c > mid))
+
+
+def refine_f0(x, f0: float, sr: int = SR_DEFAULT, *, max_cents: float = 50.0,
+              sub_floor: float = 0.1, iters: int = 3) -> Estimate:
+    """The fundamental the record ACTUALLY holds, starting from the commanded
+    one, by the phase the fundamental accumulates between the two halves of
+    the record. Refuses when the record is more than `max_cents` from what was
+    asked for -- which is a rig playing the wrong note, not a measurement.
+
+    This is an apparatus precondition and it is not a fussy one. Mini V3 plays
+    +0.14 cents sharp. That is inaudible, it moves no harmonic amplitude, and
+    it takes the per-period residual of a perfectly steady oscillator from
+    0.6 % to 25 % at 1760 Hz, because over a half-second record 0.14 cents is
+    a quarter of a period of accumulated phase. Every Mini V3 row failed to
+    repeat until the fundamental was measured rather than assumed."""
+    x = _as_float(x)
+    if is_silent(x):
+        return _fail("silent")
+    dom = dominant_frequency(x, f0 / 1.5, f0 * 1.5, sr)
+    if not dom.ok:
+        return _fail(f"no fundamental near {f0:.1f} Hz ({dom.reason})")
+    f = float(dom.value)
+    n = len(x)
+    h = n // 2
+    w = _bh4(h)
+    t = np.arange(n) / sr
+    for _ in range(iters):
+        e = np.exp(-2j * math.pi * f * t)
+        p1 = np.dot(x[:h] * w, e[:h])
+        p2 = np.dot(x[h:2 * h] * w, e[h:2 * h])
+        f += float(np.angle(p2 * np.conj(p1))) / (2 * math.pi * (h / sr))
+    cents = 1200.0 * math.log2(f / f0)
+    if abs(cents) > max_cents:
+        return _fail(f"no component within {max_cents:.0f} cents of the commanded "
+                     f"{f0:.2f} Hz (the strongest nearby is {f:.2f} Hz, "
+                     f"{cents:+.1f} cents)", f0_measured=f, cents=cents)
+    # A rig playing an OCTAVE DOWN puts its 2nd harmonic exactly where the
+    # commanded note is, so a search around f0 locks onto it and reports no
+    # error at all. Mini V3's Range control defaults to the Model D's
+    # sub-audio setting, so this is the failure this repository has actually
+    # had. Look below: real energy at f/2 or f/3 means the fundamental is not
+    # the note that was asked for.
+    a1 = windowed_tone_amplitude(x, f, sr)
+    for m in (2, 3):
+        sub = windowed_tone_amplitude(x, f / m, sr)
+        if a1.ok and sub.ok and sub.value > sub_floor * a1.value:
+            return _fail(f"the record has {db(sub.value, a1.value):.1f} dB at "
+                         f"{f / m:.2f} Hz -- its fundamental is below the commanded "
+                         f"{f0:.2f} Hz, not at it", f0_measured=f, subharmonic=f / m)
+    return Estimate(f, True, "", dict(cents=cents, f0_commanded=float(f0)))
+
+
+def rectangularity(cycle) -> float:
+    """Fraction of the period spent near either extreme, after scaling the
+    excursion to +-1. An IDEAL rectangle reads 0.98, a saw 0.42, a triangle
+    0.51, a sine 0.67 -- but a real one need not: Surge DC-blocks its Classic
+    oscillator, whose square decays across each half period and reads 0.43.
+    Reported as a descriptor. It decides nothing, for exactly that reason."""
+    c = _as_float(cycle)
+    mid = 0.5 * (c.max() + c.min())
+    half = 0.5 * (c.max() - c.min())
+    if half <= 0:
+        return 0.0
+    return float(np.mean(np.abs(c - mid) > 0.5 * half))
+
+
+def midpoint_crossings(cycle, hyst: float = 0.25) -> int:
+    """How many times one period crosses the midpoint of its own excursion,
+    with hysteresis: a crossing counts only once the signal has gone `hyst` of
+    the half-excursion past the midpoint.
+
+    Exactly 2 for ONE cycle of any single-valued waveform -- saw, triangle,
+    sine, rectangle alike. More means the record holds more than one cycle of
+    something, which is how Surge's dual saw reads: two saws a quarter period
+    apart cross four times, and two half a period apart are simply a saw at
+    twice the frequency. Neither shows a comb, so this is the measurement that
+    finds them.
+
+    The hysteresis is not cosmetic. At 1760 Hz a period is 27 samples, a
+    band-limited edge is resolved over a fraction of one of them, and Surge's
+    saw showed a second crossing pair 22 grid points wide inside its own
+    discontinuity -- 0.6 of a sample. Without hysteresis that reads as two
+    cycles and throws away the top octave of the comparison."""
+    c = _as_float(cycle)
+    mid = 0.5 * (c.max() + c.min())
+    half = 0.5 * (c.max() - c.min())
+    if half <= 0:
+        return 0
+    v = (c - mid) / half
+    dec = np.where(v > hyst, 1, np.where(v < -hyst, -1, 0))
+    idx = np.flatnonzero(dec != 0)
+    if len(idx) == 0:
+        return 0
+    seq = dec[idx]
+    runs = seq[np.concatenate([[True], seq[1:] != seq[:-1]])]
+    if len(runs) > 1 and runs[0] == runs[-1]:      # the period wraps: one run
+        runs = runs[:-1]
+    return int(len(runs))
+
+
+def step_ratio(x) -> float:
+    """Largest sample-to-sample step over the mean one. A waveform with a
+    DISCONTINUITY (saw, rectangle) reads 7 to 120 depending on how many
+    samples a period holds; a continuous one (triangle, sine) reads 1.1 to
+    1.6, and nothing lands in between. Scale-free, and free of any threshold
+    that would have to be re-tuned per pitch."""
+    d = np.abs(np.diff(_as_float(x)))
+    return float(d.max() / max(d.mean(), 1e-30))
+
+
+def _pulse_db(d: float, k: int) -> float:
+    """Harmonic k of a duty-`d` rectangle relative to its own fundamental."""
+    a1 = abs(math.sin(math.pi * d))
+    ak = abs(math.sin(math.pi * k * d)) / k
+    if a1 < 1e-12:
+        return -400.0
+    return db(ak, a1) if ak > 0 else -400.0
+
+
+def _pulse_band(d: float, k: int, dtol: float) -> tuple[float, float]:
+    """Range of harmonic k over the duty band `d +- dtol`. Near a null the
+    range is enormous, and that is the honest answer: a duty measured to a few
+    percent cannot pin a level whose own derivative is unbounded."""
+    ds = np.linspace(max(1e-4, d - dtol), min(1 - 1e-4, d + dtol), 41)
+    v = [_pulse_db(float(x), k) for x in ds]
+    return min(v), max(v)
+
+
+def waveform_id(x, f0: float, sr: int = SR_DEFAULT, *, kmax: int = 9, f_hi: float = 12000.0,
+                tol_db: float = 3.0, null_dip_db: float = 12.0,
+                null_abs_db: float = -20.0, sine_max_db: float = -40.0,
+                min_harmonics: int = 5, jitter_max: float = 0.05,
+                step_min: float = 4.0, duty_tol: float = 0.03,
+                sub_corr: float = 0.98) -> WaveformID:
+    """Name the waveform in `x` from WHAT IT IS, at a commanded `f0`.
+
+    Order of decision, and every step can refuse:
+
+      1. the record must REPEAT at the commanded f0 -- `cycle_average`'s
+         per-period residual under `jitter_max`. Unison, a detuned partner, a
+         chorus or a reverb all fail here
+      2. it must not also repeat at HALF that period, or the commanded f0 is
+         not the fundamental (Surge's dual saw at 50 % width is a saw at 2*f0)
+      3. one period must cross its own midpoint exactly twice, or the record
+         holds more than one cycle of something (two saws a quarter period
+         apart cross four times and show no comb at all)
+      4. the averaged cycle decides the FAMILY by COUNTING ITS JUMPS: two is a
+         rectangle, one a ramp, none a triangle or a sine. Not by flatness --
+         Surge DC-blocks its Classic oscillator, so its square decays from
+         0.283 to 0.087 across each half period and reads only 0.43 on
+         `rectangularity`, which is reported as a descriptor and decides
+         nothing
+      5. for a rectangle the DUTY is measured in the time domain, and the
+         spectrum must then agree with that duty: every harmonic within
+         `tol_db` of the level the measured duty predicts, and every predicted
+         null actually suppressed. For a ramp or a smooth wave the closed form
+         is checked the same way
+
+    Returns a `WaveformID` whose label is "saw", "tri", "sine" or
+    "pulse:<duty>%" -- the duty is reported, not assumed.
+    """
+    det: dict = {"f0": float(f0)}
+    try:
+        cyc, jit = cycle_average(x, f0, sr)
+    except InsufficientEvidence as e:
+        return WaveformID(None, False, str(e), det)
+    det["period_residual"] = jit
+    if jit > jitter_max:
+        return WaveformID(None, False,
+                          f"the record does not repeat at {f0:.1f} Hz "
+                          f"(per-period residual {jit * 100:.1f} % of the cycle)", det)
+    n = len(cyc)
+    half = np.roll(cyc, n // 2)
+    c0 = cyc - cyc.mean()
+    h0 = half - half.mean()
+    sub = float(np.dot(c0, h0) / max(np.dot(c0, c0), 1e-30))
+    det["half_period_corr"] = sub
+    if sub > sub_corr:
+        return WaveformID(None, False,
+                          f"the record repeats at 2*{f0:.1f} Hz, so {f0:.1f} Hz is not "
+                          f"its fundamental (half-period correlation {sub:.3f})", det)
+
+    cross = midpoint_crossings(cyc)
+    rect = rectangularity(cyc)
+    step = step_ratio(x)
+    det["rectangularity"], det["midpoint_crossings"], det["step_ratio"] = rect, cross, step
+    if cross != 2:
+        return WaveformID(None, False,
+                          f"{cross} midpoint crossings in one period -- the record holds "
+                          f"{cross / 2:.0f} cycles of something, not one waveform", det)
+    # From here the APPARATUS has qualified: one steady cycle of one waveform
+    # at the commanded pitch, nothing beating and nothing in the path. What can
+    # still fail is the NAME, which is a different claim -- Mini V3's
+    # shark-tooth is a perfectly good record of a waveform with no closed form.
+    det["steady"] = True
+    sig = harmonic_signature(x, sr, f0=f0, kmax=kmax)
+    det["signature"] = {k: sig.get(f"h{k}") for k in range(2, kmax + 1)}
+    ks = [k for k in range(2, kmax + 1) if k * f0 < min(f_hi, 0.45 * sr)]
+    if len(ks) < min_harmonics:
+        return WaveformID(None, False,
+                          f"only {len(ks)} harmonics below {min(f_hi, 0.45 * sr):.0f} Hz, "
+                          f"need {min_harmonics}", det)
+    above = [k for k in ks if sig.get(f"h{k}") is not None and sig[f"h{k}"] > 0.0]
+    if above:
+        return WaveformID(None, False, f"harmonics above the fundamental at {above}", det)
+
+    def check(pred, env_law):
+        """`pred(k)` -> (lo, hi) dB band the model allows; `env_law(k)` -> the
+        series' own envelope, which is what a null is judged against."""
+        for k in ks:
+            lo, hi = pred(k)
+            v, fl = sig.get(f"h{k}"), sig.get(f"floor{k}")
+            e = db(env_law(k), env_law(1))
+            null_at = max(e - null_dip_db, null_abs_db)
+            if hi < e - null_dip_db:                      # the model says: null here
+                if v is not None and v > null_at:
+                    return f"h{k} {v:.1f} dB where the model's null allows {null_at:.1f}"
+                continue
+            if v is None:
+                # absent is consistent with the model when the model allows
+                # this harmonic to be small -- either under the record's own
+                # measured floor, or inside a null the duty band straddles.
+                if lo <= max(null_at, (fl if fl is not None else -200.0) + 6.0):
+                    continue
+                return f"h{k} absent, model expects {lo:.1f}..{hi:.1f} dB"
+            if v > hi + tol_db:
+                return f"h{k} {v:.1f} dB, model expects {lo:.1f}..{hi:.1f} dB"
+            # A LOWER bound is only meaningful where the model is sure the
+            # harmonic is there. When the duty band straddles a null the
+            # model's own minimum is unbounded, so a measurement below it is
+            # agreement, not disagreement: Surge's 25 % pulse puts an exact
+            # null in h4 and a two-sided test called -144.9 dB a failure to
+            # match a band whose floor was an artefact of the duty grid.
+            if lo > null_at + tol_db and v < lo - tol_db:
+                return f"h{k} {v:.1f} dB, model expects {lo:.1f}..{hi:.1f} dB"
+        return None
+
+    jumps = pulse_edges(cyc) if step >= step_min else []
+    det["jumps_per_period"] = len(jumps)
+
+    if len(jumps) == 2:
+        d = duty_cycle(cyc, jumps)
+        det["duty"] = d
+        why = check(lambda k: _pulse_band(d, k, duty_tol), lambda k: 1.0 / k)
+        if why:
+            return WaveformID(None, False,
+                              f"a rectangle at a measured duty of {d * 100:.1f} % would not "
+                              f"give this spectrum: {why}", det)
+        return WaveformID(f"pulse:{d * 100:.1f}%", True, "", det)
+
+    if len(jumps) == 1:
+        why = check(lambda k: (db(1.0 / k, 1.0), db(1.0 / k, 1.0)), lambda k: 1.0 / k)
+        if why:
+            return WaveformID(None, False,
+                              f"one discontinuity per period but not a saw: {why}", det)
+        return WaveformID("saw", True, "", det)
+
+    if jumps:
+        return WaveformID(None, False,
+                          f"{len(jumps)} discontinuities in one period -- neither a ramp "
+                          f"nor a rectangle", det)
+
+    if all(sig.get(f"h{k}") is None or sig[f"h{k}"] <= sine_max_db for k in ks):
+        return WaveformID("sine", True, "", det)
+    def tri_band(k):
+        return (db(1.0 / k ** 2, 1.0),) * 2 if k % 2 else (-400.0, -400.0)
+
+    why = check(tri_band, lambda k: 1.0 / k ** 2)
+    if why:
+        return WaveformID(None, False, f"no discontinuity, but not a triangle: {why}", det)
+    return WaveformID("tri", True, "", det)
+
+
+# What each rig's waveform NAME claims, so a label can be checked against a
+# measurement. (family, duty or None for "any"). A name that is not here has
+# no closed-form claim to check -- Mini V3's shark-tooth is a saw/triangle
+# hybrid -- and its rows are excluded rather than reported with a caveat.
+WAVE_EXPECT = {
+    "saw": ("saw", None), "sine": ("sine", None), "tri": ("tri", None),
+    "square": ("pulse", 0.50), "pulse25": ("pulse", 0.25),
+    "wide_rect": ("pulse", None), "narrow_rect": ("pulse", None),
+}
+
+
+def waveform_matches(wid: WaveformID, requested: str, *, duty_tol: float = 0.06):
+    """Does an identified waveform support the name the rig gave it?
+
+    Returns (ok, why). A spectrum cannot tell duty `d` from `1 - d`, and nor
+    can a name -- "25 % pulse" and "75 % pulse" are the same sound inverted --
+    so both are accepted for a duty claim."""
+    if requested not in WAVE_EXPECT:
+        return False, f"{requested!r} has no closed-form claim to check"
+    if not wid.ok:
+        return False, wid.reason
+    fam, duty = WAVE_EXPECT[requested]
+    if wid.family != fam:
+        return False, f"asked for {requested!r} ({fam}), measured {wid.label}"
+    if duty is not None:
+        d = wid.duty
+        if min(abs(d - duty), abs((1 - d) - duty)) > duty_tol:
+            return False, (f"asked for {requested!r} (duty {duty * 100:.0f} %), "
+                           f"measured {d * 100:.1f} %")
+    return True, ""
+
+
 def psd_slope_db_oct(x, band, sr: int = SR_DEFAULT, *, nfft: int = 8192,
                      max_residual_db: float = 4.0) -> Estimate:
     """Spectral slope of a NOISE signal in dB per octave, from a Welch power
