@@ -81,15 +81,22 @@ record says so.
 
 ### What the field does
 
-**[S] There is a standard *detector* family and it is not what we use.** The
-common tooling (librosa, `aubio`, the MIR literature) detects onsets from a
-**spectral-flux novelty function** computed on a short-time spectrum, then
-peak-picks it — not from a fixed amplitude threshold. librosa's `onset_detect`
-additionally ships `onset_backtrack`, which exists precisely to move a detected
-onset *earlier*, to the preceding local minimum of energy. (I was unable to fetch
-the librosa page — the documented URL 404s at both `/doc/latest/` and `/doc/main/`
-— so this is stated from knowledge of the API and is **downgraded to [R] until
-someone re-fetches it**.)
+**[S] There is a standard *detector* family and it is not what we use.** librosa
+locates onsets by "picking peaks in an onset strength envelope", where the onset
+strength is a **spectral flux** — `mean_f max(0, S[f, t] - ref[f, t - lag])` — over
+a short-time spectrum, at a default `hop_length` of **512 samples**. It ships
+`onset_backtrack` alongside, whose stated job is to "roll back the timing of
+detected onsets from a detected peak amplitude to the preceding minimum", matching
+each detected event to the "nearest preceding minima of `energy`".
+([librosa/onset.py](https://raw.githubusercontent.com/librosa/librosa/main/librosa/onset.py))
+
+**[R] Two things follow, and they point in opposite directions.** First, the
+standard detector's time grid is **512 samples — 23 ms at librosa's default
+22.05 kHz** — which is an order of magnitude coarser than our 2 %-of-peak
+threshold. Adopting it for *alignment* would be a downgrade. Second, the fact that
+`onset_backtrack` exists at all, and moves the mark to the energy minimum *before*
+the attack, is the field arriving independently at what #101 found the hard way:
+**a window that opens at the attack is the wrong window.**
 
 **[R] But detection is the wrong question here.** Onset *detection* is for finding
 unknown events in a stream. We have one strike per file and we know it is there.
@@ -182,7 +189,7 @@ prepending silence:
 |---|---:|---:|---:|---:|---:|---:|
 | `padtype='odd'` | −38.04 | −35.10 | −28.82 | −28.26 | −27.87 | **10.18 dB** |
 | `padtype=None` | −30.66 | −29.23 | −28.82 | −28.26 | −27.87 | **2.79 dB** |
-| `padtype='even'` | −24.96 | −25.51 | — | −28.26 | −27.87 | 3.29 dB |
+| `padtype='even'` | −24.96 | −25.51 | −28.82 | −28.26 | −27.87 | 3.29 dB |
 | causal `sosfilt` | −23.01 | −23.01 | −23.01 | −23.01 | −23.01 | **0.000 dB** |
 | rectangular-FFT Parseval | −27.23 | −27.47 | −27.20 | −27.04 | −27.03 | **0.44 dB** |
 
@@ -536,3 +543,176 @@ Ordered by how much the change would move a number on the board.
 | 11 | attack = onset-to-peak of a short-time RMS envelope, per-voice window | MPEG-7 log-attack-time; Timbre Toolbox "weakest effort" thresholds **[R, unsourced]** | **KEEP**, state the window | the docstring already concedes the window-sized floor and `docs/drum-verification.md` already compares ratios rather than absolutes. That is the right handling of a known floor |
 | 12 | nothing in the result record states the windowing convention | — | **CHANGE** | #103 asks for exactly this. A number that cannot be re-derived can only be re-trusted |
 
+---
+
+## Appendix A — the script that produces every [M] number
+
+Save as `docs/analysis-conventions-check.py` (or any scratch file) and run from
+the repository root. It imports `model/audio_measure.py` read-only and writes
+nothing. Every table above is one of its output blocks.
+
+```python
+"""Every [M] number in docs/analysis-conventions.md. Run from the repo root:
+       python3 docs/analysis-conventions-check.py     (or paste into a scratch file)
+No repository state is modified; `model/` is imported read-only."""
+import sys, math, pathlib, numpy as np
+for _d in [pathlib.Path.cwd(), *pathlib.Path(__file__).resolve().parents]:
+    if (_d / "model" / "audio_measure.py").exists():
+        sys.path.insert(0, str(_d / "model")); break
+else:
+    sys.exit("run this from the repository root")
+import audio_measure as am
+from scipy.signal import butter, sosfiltfilt, sosfilt
+
+SR = 48000
+EDGES = ((20.0, 400.0), (400.0, 2000.0))
+
+
+def padlen(sos):
+    return 3 * (2 * len(sos) + 1 - min((sos[:, 2] == 0).sum(), (sos[:, 5] == 0).sum()))
+
+
+def conga(sr=SR, secs=0.150):
+    t = np.arange(int(secs * sr)) / sr
+    return (np.exp(-t / 0.040) * np.sin(2 * np.pi * 220 * t)
+            + 0.02 * np.exp(-t / 0.002) * np.sin(2 * np.pi * 3000 * t))
+
+
+def split_sos(seg, sr=SR, causal=False, **kw):
+    tot = float((seg ** 2).sum()); out = []
+    for lo, hi in EDGES:
+        sos = butter(4, [lo / (sr / 2), min(hi, sr / 2 - 1) / (sr / 2)], btype="band", output="sos")
+        y = sosfilt(sos, seg) if causal else sosfiltfilt(sos, seg, **kw)
+        out.append(float((y ** 2).sum()) / tot)
+    return 10 * math.log10(out[1] / out[0])
+
+
+def split_fft(seg, sr=SR, win="rect"):
+    n = len(seg); w = np.hanning(n) if win == "hann" else np.ones(n)
+    X = np.abs(np.fft.rfft(seg * w)) ** 2; f = np.fft.rfftfreq(n, 1 / sr)
+    e = [X[(f >= lo) & (f < hi)].sum() for lo, hi in EDGES]
+    return 10 * math.log10(e[1] / e[0])
+
+
+print("== 0. default padlen ==")
+hp = butter(4, 100 / (SR / 2), btype="highpass", output="sos")
+bp = butter(4, [100 / (SR / 2), 2000 / (SR / 2)], btype="band", output="sos")
+for n, s in (("4th-order high-pass", hp), ("4th-order BAND-pass", bp)):
+    print(f"   {n}: {len(s)} sections, padlen {padlen(s)} = {padlen(s)/SR*1e3:.3f} ms @48k,"
+          f" {padlen(s)/44100*1e3:.3f} ms @44.1k")
+
+print("\n== 1/2. prepended silence vs band split ==")
+x = conga()
+print(f"   {'lead':>8} {'odd':>9} {'None':>9} {'even':>9} {'causal':>9} {'rectFFT':>9}")
+for n in (0, 7, 27, 48, 96, 480, 9600):
+    seg = np.concatenate([np.zeros(n), x])
+    print(f"   {n:5d}smp {split_sos(seg):9.3f} {split_sos(seg, padtype=None):9.3f}"
+          f" {split_sos(seg, padtype='even'):9.3f} {split_sos(seg, causal=True):9.3f}"
+          f" {split_fft(seg):9.3f}")
+print("   appended silence, odd padding:",
+      "  ".join(f"{split_sos(np.concatenate([x, np.zeros(n)])):.3f}" for n in (0, 27, 480, 4800)))
+
+print("\n== 1. alignment sensitivity, both sides with 5 ms lead ==")
+base = np.concatenate([np.zeros(int(0.005 * SR)), x]); a0 = int(0.005 * SR)
+for d in (-1.0, -0.5, 0.0, 0.5, 1.0, 2.0):
+    a = a0 + int(round(d * 1e-3 * SR))
+    seg = base[a - a0:] if a >= a0 else np.concatenate([np.zeros(a0 - a), base])
+    print(f"   offset {d:+5.2f} ms -> sosfiltfilt {split_sos(seg):8.3f}  rectFFT {split_fft(seg):8.3f}")
+
+print("\n== 3. Hann vs rectangular FFT, and Parseval ==")
+print(f"   rect {split_fft(x):.3f} dB   hann {split_fft(x, win='hann'):.3f} dB"
+      f"   difference {split_fft(x,win='hann')-split_fft(x):.3f} dB")
+X = np.abs(np.fft.rfft(x)) ** 2; n = len(x)
+print(f"   Parseval: time {float((x**2).sum()):.6e}  fft/n {(X[0]+2*X[1:-1].sum()+X[-1])/n:.6e}")
+
+print("\n== 4. Schroeder T20: noise floor, truncation, two exponentials ==")
+rng = np.random.default_rng(0); tau = 0.040
+t = np.arange(SR) / SR; x0 = np.exp(-t / tau) * np.sin(2 * np.pi * 220 * t)
+print(f"   exact ln(10)*tau = {np.log(10)*tau*1e3:.2f} ms")
+for fdb in (None, -100, -80, -70, -60, -50, -40):
+    y = x0 if fdb is None else x0 + rng.normal(0, 10 ** (fdb / 20), len(x0))
+    e = am.schroeder_t20(y, SR)
+    lab = "clean" if fdb is None else f"{fdb:+d} dB"
+    print(f"   floor {lab:>8}: " + (f"T20 {e.value*1e3:9.2f} ms  err {100*(e.value/(np.log(10)*tau)-1):+8.1f}%"
+          f"  resid {e.detail['residual_db']:5.2f} dB" if e.ok else f"REFUSED - {e.reason}"))
+for sec in (0.3, 0.2, 0.15, 0.1, 0.05):
+    e = am.schroeder_t20(x0[:int(sec * SR)], SR)
+    print(f"   record {sec*1e3:4.0f} ms: " + (f"T20 {e.value*1e3:8.2f} ms  err {100*(e.value/(np.log(10)*tau)-1):+7.1f}%"
+          f"  tail_db {e.detail['tail_db']:8.1f}" if e.ok else f"REFUSED - {e.reason}"))
+for a in (0.5, 0.2, 0.05):
+    e = am.schroeder_t20((np.exp(-t/0.040) + a*np.exp(-t/0.300)) * np.sin(2*np.pi*220*t), SR)
+    print(f"   tail {a:.2f}x@300ms: " + (f"T20 {e.value*1e3:8.2f} ms  resid {e.detail['residual_db']:5.2f} dB"
+          if e.ok else f"REFUSED - {e.reason}"))
+
+print("\n== 5. aliasing estimator floors ==")
+n = int(0.5 * SR); tt = np.arange(n) / SR
+def addsaw(f0):
+    y = np.zeros(n)
+    for k in range(1, int(SR / 2 / f0)):
+        y += np.sin(2 * np.pi * k * f0 * tt) / k
+    return y / np.abs(y).max()
+def naivesaw(f0):
+    y = 2 * ((f0 * tt) % 1.0) - 1.0
+    return y / np.abs(y).max()
+def inh(y, f0, win, guard=5):
+    w = am._bh4(n) if win == "bh4" else (np.hanning(n) if win == "hann" else np.ones(n))
+    p = np.abs(np.fft.rfft(y * w)) ** 2
+    harm = np.zeros_like(p, bool); k = 1
+    while k * f0 < SR / 2:
+        c = int(round(k * f0 * n / SR)); harm[max(0, c - guard):c + guard + 1] = True; k += 1
+    harm[:guard + 1] = True
+    return 10 * math.log10(max(p[~harm].sum(), 1e-300) / p.sum())
+print("   floor on an ALIAS-FREE additive saw (the reading IS the floor):")
+for f0 in (110.0, 111.0, 111.3, 261.626, 440.0, 441.0):
+    a, b = am.inharmonic_fraction_db(addsaw(f0), f0, SR), am.foldback_alias_db(addsaw(f0), f0, SR)
+    onbin = abs(f0 / (SR / n) - round(f0 / (SR / n))) < 1e-9
+    print(f"   f0={f0:9.3f} {'ON-BIN ' if onbin else 'off-bin'}  inharm "
+          + (f"{a.value:8.2f}" if a.ok else "REFUSED ") + "  foldback "
+          + (f"{b.value:9.2f}" if b.ok else f"REFUSED ({b.reason[:32]})"))
+print("   window choice at a fixed guard (floor / naive saw / headroom):")
+for f0 in (111.3, 441.0):
+    for win in ("hann", "bh4"):
+        for g in (5, 9):
+            fl, na = inh(addsaw(f0), f0, win, g), inh(naivesaw(f0), f0, win, g)
+            print(f"   f0={f0:7.2f} {win:>4} +-{g}  {fl:8.2f}  {na:8.2f}  {na-fl:6.1f} dB")
+```
+
+---
+
+## Appendix B — what could not be reached
+
+These would each change a section of this document, and none of them was
+reachable without WebSearch. **Whoever picks this up next should start here.**
+
+| what | why it matters | status |
+|---|---|---|
+| Werner, Abel & Smith, the three TR-808 papers (DAFx-14, ICMC/SMC-14, AES 137) | the only published work doing exactly what we do; if they state an alignment or windowing convention we should simply adopt it | PDFs 404 from the DAFx-14 host, the DAFx paper archive per-year pages, and the author's own paper directory |
+| Välimäki & Huovilainen, *Antialiasing Oscillators in Subtractive Synthesis*, IEEE SPM 24(2), 2007 | would settle §5 — what the standard aliasing metric actually is | bibliographic record reached, text behind IEEE Xplore |
+| ISO 3382-1 Annex, on time-symmetric band filtering of impulse responses | the only place I believe zero-phase filtering for decay analysis is *written down* as a recommendation | paywalled |
+| IEC 61260 / ANSI S1.11 octave-band filter specifications | would say how much of §3's Butterworth split is actually sanctioned | paywalled |
+| Karjalainen et al., *Estimation of Modal Decay Parameters from Noisy Response Measurements*, AES 2002 | the instrument-decay alternative to Schroeder integration | host refused the connection |
+| Lundeby et al. on truncation-point iteration | the principled fix for the §4 truncation defect | not reached |
+| Stilson & Smith, *Analyzing the Moog VCF* | ladder cutoff/resonance measurement convention | PDF fetched but did not decode to text |
+
+---
+
+## Sources
+
+Everything tagged **[S]** above comes from one of these, and nothing else in this
+document is sourced at all.
+
+- [scipy.signal.sosfiltfilt — SciPy documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.sosfiltfilt.html) — `padtype` default `'odd'`, the `padlen` formula, `padtype=None`
+- [scipy.signal.filtfilt — SciPy documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.filtfilt.html) — padding rationale, "transient effects at the edges are unavoidable"
+- [librosa/onset.py — librosa source](https://raw.githubusercontent.com/librosa/librosa/main/librosa/onset.py) — spectral-flux onset strength, `hop_length=512`, `onset_backtrack` to the preceding energy minimum
+- [acoustics/room.py — python-acoustics](https://raw.githubusercontent.com/python-acoustics/python-acoustics/master/acoustics/room.py) — T20 = −5 to −25 dB ×3, T30 = −5 to −35 ×2, EDT = 0 to −10 ×6, 8th-order Butterworth octave bands
+- [acoustics/signal.py — python-acoustics](https://raw.githubusercontent.com/python-acoustics/python-acoustics/master/acoustics/signal.py) — `bandpass` defaults to `zero_phase=False`, `octavepass` to `zero_phase=True`
+- [pyroomacoustics/experimental/rt60.py](https://raw.githubusercontent.com/LCAV/pyroomacoustics/master/pyroomacoustics/experimental/rt60.py) — backward cumulative sum, the −5 dB headroom start, extrapolation to −60 dB
+- [Reverberation — Wikipedia](https://en.wikipedia.org/wiki/Reverberation) — T20/T30 as defined in ISO 3382-1/-2/-3
+- [Antialiasing Oscillators in Subtractive Synthesis — Aalto research portal](https://research.aalto.fi/en/publications/antialiasing-oscillators-in-subtractive-synthesis) — Välimäki & Huovilainen, IEEE Signal Processing Magazine 24(2):116–125, 2007 (bibliographic record only)
+- [Kurt James Werner, publications — CCRMA](https://ccrma.stanford.edu/~kwerner/) — the three 2014 TR-808 modelling papers, titles and venues only
+
+### Repository sources
+
+- `model/audio_measure.py` — `band_energy`, `schroeder_t20`, `onsets`, `spectrum`, `inharmonic_fraction_db`, `foldback_alias_db`, `harmonic_signature`, `_bh4`
+- `tools/run_case.py` — `prepare`, `window`, `highpass`, `_bandpass`, `_t20_ms`, `band_ratio_db`, `attack_ms`
+- Issues **#101** (the 6.07 dB windowing artefact) and **#103** (metamorphic invariance tests)
