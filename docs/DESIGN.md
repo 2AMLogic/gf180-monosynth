@@ -49,10 +49,13 @@ was contemplated for, fits nine times over at 12.288 MHz.
 
 ## 3. The process is slower than "180 nm" implies
 
-This is foundational and easy to get wrong. `gf180mcu_fd_sc_mcu7t5v0` cells are
-built from **0.5–0.6 µm, 5 V transistors** (`nfet_05v0 W=0.82u L=0.6u`), not
-0.18 µm core devices. The PDK contains 0.28 µm 3.3 V devices; the digital
-libraries do not use them.
+GF180 *is* a 180 nm process. What is slower is the **digital standard-cell
+libraries**: `gf180mcu_fd_sc_mcu7t5v0` cells are built from 5 V transistors
+with **0.5–0.6 µm gate lengths** (`nfet_05v0 W=0.82u L=0.6u`). The PDK also
+contains 0.28 µm 3.3 V devices; these libraries do not use them.
+
+The practical rule is narrower than "gf180 is slow": **take timing from the
+library, never from the process name.**
 
 FO4 from the liberty tables (7-track; 9-track ≈ 5 % faster):
 
@@ -64,7 +67,9 @@ FO4 from the liberty tables (7-track; 9-track ≈ 5 % faster):
 | ss_125C_3v00 | 0.669 ns | **11×** |
 
 An 18×18 MAC (Dadda, Baugh-Wooley, Kogge-Stone CPA, ~2,420 cells) times at
-**13.9 ns at tt/5 V and 42.1 ns at ss/3.0 V**. At 81.4 ns it closes everywhere
+**13.9 ns at tt/5 V and 42.1 ns at ss/3.0 V** — from a Python STA over the
+liberty tables with **no clock-tree skew and no detailed routing**. That is
+enough to support the clock choice and is *not* timing closure. At 81.4 ns it closes everywhere
 with 38 ns of margin; at 20.35 ns (49.152 MHz) it closes only at typical 5 V
 and needs 2–4 pipeline stages otherwise.
 
@@ -168,8 +173,11 @@ asymmetry from this PDK's liberty is up to 0.44 ns at 3.3 V, capping it at
 the supply.
 
 The decisive problem is images, not noise. With no interpolator, a 19 kHz tone
-puts a zero-order-hold image at 29 kHz at **−12 dBFS**, and no filter with a
-20 kHz passband removes it. That is why every audio DAC interpolates.
+puts a zero-order-hold image at 29 kHz at **−12 dBFS**. A 20 kHz-passband
+filter *can* reach down to 29 kHz — an ideal 7th-order elliptic does — but it
+needs that steep a transition, which is why every audio DAC interpolates
+instead. The 65–80 dB SINAD ceiling is likewise a model result from the
+liberty's edge asymmetry, not a measured universal limit.
 
 And both claimed advantages dissolve: "bit-exactness extends to the pin" is
 **already true of I2S** and already tested that way; "no DAC in the BOM"
@@ -239,6 +247,12 @@ The honest list. Nothing below is in progress unless a linked PR says so.
 - **The commercial case is withdrawn** (DR 0002 Corrections) and the consumer
   promise still does not explain why someone would want to play it.
 - The filter's resonance-vs-frequency compensation ROM is not designed.
-- Signoff voltage is undecided. 5 V vs 3.3 V is 2.3× in dynamic power and 1.5×
-  in speed; the open flow defaults to 5 V, which works against a battery
-  product, and USB pads need 3.3 V. These interact.
+- Signoff voltage is undecided, and **core and IO need separate answers**.
+  5 V vs 3.3 V is 2.3× in *switching* power at unchanged capacitance, activity
+  and frequency — not total device power — and ~1.5× in speed. The open flow
+  defaults to 5 V, which works against a battery product, and USB pads need
+  3.3 V. A documentation discrepancy has to be resolved first: the
+  `gf180mcu_fd_io` **operating-conditions** table specifies 4.5–5.5 V DVDD,
+  while its **characterization-corners** page does list 3.3 V corners. Resolve
+  that against the pinned models before relying on either. Target 3.3 V and
+  ratify it from timing and interface checks.
