@@ -233,3 +233,245 @@ def test_ladder_accepts_integer_coefficients():
     g = np.clip(np.round((1 - np.exp(-2 * math.pi * cut / (2 * SR))) * 65536), 1, 65535).astype(np.int64)
     b = fixed.LadderFx(tanh_entries=16).process(x, None, 0.8, drive=2.0, g_q16=g)
     assert np.array_equal(a, b)
+
+
+# ---- register widths: NUMERIC-CONTRACT.md 5.1 against the conversions of 5.5
+FULL24 = (1 << 24) - 1
+SHAPES = ("saw", "square", "pulse25", "tri", "sine")
+
+
+def _fits(v, bits) -> bool:
+    return 0 <= int(v) < (1 << bits)
+
+
+def test_attack_increment_clamps_below_two_frames():
+    """Open item 17.7, a_inc. ceil(2^24 / frames) is 2^24 -- 25 bits -- for
+    an attack of fewer than two frames (attack_s < 2/48000 = 41.67 us,
+    attack_s = 0 included). The model now clamps to 2^24 - 1. Clamping, not
+    widening: the clamp is unobservable, since either value completes the
+    attack in one update from any level, so a 25th bit would buy nothing."""
+    two = 2.0 / SR
+    for a in (0.0, 1.0 / SR, math.nextafter(two, 0.0)):
+        assert -(-(1 << 24) // max(1, int(a * SR))) == 1 << 24      # the raw overflow
+        assert vf.AdsrFx(a, 0.25, 0.75, 0.12).a_inc == FULL24
+    assert vf.AdsrFx(two, 0.25, 0.75, 0.12).a_inc == 1 << 23          # two frames fits
+    assert vf.AdsrFx(3.0 / SR, 0.25, 0.75, 0.12).a_inc == 5592406
+    for level in (0, 1, 12345, FULL24 - 1, FULL24):
+        got = []
+        for a_inc in (FULL24, 1 << 24):
+            e = vf.AdsrFx(0.0, 0.25, 0.75, 0.12)
+            e.a_inc, e.level = a_inc, level
+            got.append((e.render(4, 4, q=24).tolist(), e.level, e.seg))
+        assert got[0] == got[1], level
+        assert got[0][0][1] == FULL24                                # full after one update
+
+
+def test_release_rate_clamps_below_seven_microseconds():
+    """Open item 17.7, rate. round((1 - exp(-4/(r*48000))) * 2^16) is 2^16
+    -- 1.0, which Q0.16 cannot hold -- for r <= 4 / (17 ln 2 * 48000) =
+    7.072 us, a third of a frame; and r = 0 divided by zero, a third raise
+    the contract had not recorded. The model now clamps to 65535 and treats
+    r <= 0 as instant, as the float model's max(1e-9, .) does. The cost of
+    clamping rather than widening, pinned: full scale reaches zero in three
+    updates (62.5 us) instead of one -- not worth a 17th bit on every rate
+    multiply for a release nobody can hear."""
+    r_star = 4.0 / (17.0 * math.log(2.0) * SR)
+    assert abs(r_star - 7.072e-6) < 1e-9
+    for r in (0.0, -1.0, 1e-6, 7.07e-6, r_star):
+        assert vf.AdsrFx(0.005, 0.25, 0.75, r).rate == 65535
+    for r in (1e-6, 7.07e-6):
+        assert round((1 - math.exp(-4 / (r * SR))) * 65536) == 65536   # the raw overflow
+    assert round((1 - math.exp(-4 / (7.08e-6 * SR))) * 65536) == 65535  # fits unclamped
+    assert vf.AdsrFx(0.005, 0.25, 0.75, 7.08e-6).rate == 65535
+    assert vf.AdsrFx(0.005, 0.25, 0.75, 1.0 / SR).rate == 64336
+    assert vf.AdsrFx(0.005, 0.25, 0.75, 0.12).rate == 45                # the default patch
+    def levels(rate):
+        e = vf.AdsrFx(0.005, 0.25, 0.75, 0.12)
+        e.rate, e.level = rate, FULL24
+        return e.render(5, 0, q=24).tolist()
+    assert levels(65535) == [FULL24, 256, 1, 0, 0]                      # three updates
+    assert levels(1 << 16) == [FULL24, 0, 0, 0, 0]                      # 1.0 would take one
+
+
+def test_zero_increment_stalls_the_oscillator():
+    """Open item 17.9. inc = 0 is a legal register value -- it is the reset
+    value of section 14 -- that no host conversion produces: NOTE_INC's
+    smallest entry is 2858, and reaching 0 needs an oscillator below
+    0.00143 Hz, a detune under -149 semitones at note 0. The model raised in
+    recip_of; the contract's prose (6.3, 6.6.3, 14) was right and the model
+    was wrong. Now: the phase stalls, the PolyBLEP is identically zero, and
+    the oscillator holds the naive value of its phase -- DC, not silence,
+    not a raise."""
+    assert vf.recip_of(0) == (0, 0)
+    assert min(dsp.phase_inc(dsp.note_hz(n)) for n in range(128)) == 2858
+    assert dsp.phase_inc(dsp.note_hz(0) * 2.0 ** (-149 / 12)) == 1
+    assert dsp.phase_inc(dsp.note_hz(0) * 2.0 ** (-150 / 12)) == 0
+    ph = np.arange(0, 1 << 24, 1 << 10, dtype=np.int64)
+    for e, r in ((0, 0), (-16, 0), (8, 65535)):
+        assert not vf.blep_fx(ph, 0, e, r).any()                        # whatever (e, r) hold
+    for shape in SHAPES:
+        for phase in (0, 1, 0x3FFFFF, 0x7FFFFF, 0xC00000, 0xFFFFFF):
+            o = vf.OscFx(shape)
+            o.phase = phase
+            out = o.render(64, 0)
+            assert np.all(out == int(vf.naive_fx(shape, np.array([phase]))[0])), (shape, phase)
+            assert o.phase == phase
+    assert vf.OscFx("saw").render(1, 0)[0] == -32768     # not the 0 of 6.6.4, which needs inc > 0
+    assert vf.OscFx("square").render(1, 0)[0] == 32767
+    seq = np.array([3, 2, 1, 0, 0, 1, 2], dtype=np.int64)               # a slew through 0
+    out = vf.OscFx("square").render(len(seq), seq)
+    assert out.min() >= -32768 and out.max() <= 32767
+
+
+def test_every_host_conversion_fits_its_register():
+    """Every conversion of contract 5.5, walked over its full plausible input
+    domain, lands inside the width 5.1 declares (vf.REG_BITS), and the clamp
+    fires only where this test says it does. Beyond 17.7, the first run of
+    this sweep found: inc overflows at note 127 with detune >= +23.24
+    semitones (any oscillator at or above 48 kHz, the sample rate); k
+    overflows at res >= 2.0; gain at drive >= 6.152; sus at sustain > 1;
+    and a mix summing to zero divided by zero. All now clamp (the mix gives
+    every weight 0). `wave` is an enum whose encoding is OPEN (17.3) and has
+    no numeric conversion; every shape is constructed here for the record."""
+    B = vf.REG_BITS
+    v = vf.VoiceFx()
+    detunes = [float(d) for d in np.arange(-24.0, 24.01, 0.25)]
+    clamped = set()
+    for note in range(128):
+        f0 = dsp.note_hz(note)
+        r = v.note_on(note, 0.001, waves=("saw",) * len(detunes), detune=tuple(detunes),
+                      mix=(1.0,) * len(detunes))
+        for dt, inc in zip(detunes, r["incs"]):
+            assert _fits(inc, B["inc"]), (note, dt, inc)
+            if inc != dsp.phase_inc(f0 * 2.0 ** (dt / 12.0)):
+                clamped.add((note, dt))
+        for track in np.linspace(0.0, 1.0, 11):
+            r = v.note_on(note, 0.001, track=float(track))
+            th = int(round(track * f0 * 4.0))
+            assert _fits(r["track_hz"], B["track_hz"]) and r["track_hz"] == th, (note, track)
+    assert clamped == {(127, dt) for dt in detunes if dt >= 23.25}
+    assert max(int(round(dsp.note_hz(127) * 4.0)), 50175) == 50175          # track 1.0, note 127
+    for lo in (0, 30, 100, 1000, 21600, 24000, 65535):
+        for hi in (0, 30, 100, 1000, 21600, 24000, 65535):
+            r = v.note_on(60, 0.001, cutoff=(lo, hi))
+            assert (r["cut_lo"], r["cut_hi"]) == (lo, hi)
+            assert _fits(r["cut_lo"], B["cut_lo"]) and _fits(r["cut_hi"], B["cut_hi"])
+    for shape in SHAPES:
+        vf.OscFx(shape)
+    # envelopes: attack, decay x sustain, release, each over 0 .. 30 s
+    two = 2.0 / SR
+    attacks = [0.0, 1.0 / SR, math.nextafter(two, 0.0), two, 3.0 / SR] + list(np.geomspace(1e-6, 30.0, 300))
+    for a in attacks:
+        e = vf.AdsrFx(a, 0.25, 0.75, 0.12)
+        assert _fits(e.a_inc, B["a_inc"]) and e.a_inc >= 1
+        assert (e.a_inc == FULL24) == (a < two), a
+    for d in [0.0] + list(np.geomspace(1e-6, 30.0, 60)):
+        for sus in np.linspace(0.0, 1.0, 11):
+            e = vf.AdsrFx(0.005, d, float(sus), 0.12)
+            assert _fits(e.sus, B["sus"]) and e.sus == int(round(sus * FULL24))
+            assert _fits(e.d_dec, B["d_dec"]) and e.d_dec == -(-(FULL24 - e.sus) // max(1, int(d * SR)))
+    assert vf.AdsrFx(0.005, 0.25, 1.01, 0.12).sus == FULL24                # beyond the domain: clamps
+    r_star = 4.0 / (17.0 * math.log(2.0) * SR)
+    for rel in [0.0] + list(np.geomspace(1e-7, 30.0, 300)):
+        e = vf.AdsrFx(0.005, 0.25, 0.75, rel)
+        assert _fits(e.rate, B["rate"]) and e.rate >= 1
+        if rel > r_star * (1 + 1e-9):
+            assert e.rate == max(1, round((1 - math.exp(-4 / (rel * SR))) * 65536))
+        else:
+            assert e.rate == 65535
+    # mixer weights: every 3-oscillator mix on a quarter grid, plus 1 and 2 oscillators
+    grid = (0.0, 0.25, 0.5, 0.75, 1.0)
+    for mix in [(a, b, c) for a in grid for b in grid for c in grid] + [(1.0,), (0.3, 1.0), (0.0,)]:
+        w = vf.mix_weights(mix)
+        assert all(_fits(x, B["w"]) for x in w)
+        assert sum(w) <= 32768
+        if sum(mix) == 0:
+            assert w == [0] * len(mix)
+    # ladder: res over 0 .. 1.5 (self-oscillation is at ~1.08), drive over 0 .. 4
+    lad = vf.LadderFx(**vf.LADDER_CFG)
+    for res in np.linspace(0.0, 1.5, 61):
+        k, gain, ogain = lad.regs(float(res), 1.0)
+        assert _fits(k, B["k"]) and k == int(round(4 * res * 16384))
+        assert _fits(ogain, B["ogain"]) and ogain == int(round(0.05 / 0.13 * (1 + 2 * res) * 65536))
+    for drive in np.linspace(0.0, 4.0, 41):
+        gain = lad.regs(0.62, float(drive))[1]
+        assert _fits(gain, B["gain"]) and gain == int(round(drive * 2.6 * 65536))
+    assert lad.regs(0.62, 1.6) == (40632, 272630, 56462)                    # the default patch
+    assert lad.regs(1.9999, 1.0)[0] == 131065 and lad.regs(2.0, 1.0)[0] == (1 << 17) - 1
+    assert lad.regs(0.5, 6.15)[1] == 1047921 and lad.regs(0.5, 6.16)[1] == (1 << 20) - 1
+
+
+def test_every_legal_register_value_runs():
+    """The other direction of 5.1: whatever a register can hold, the model
+    must process -- no raise, no NaN, output in range, state in range. Walks
+    each register's extremes (0, 1, max, and the power-of-two edges where the
+    PolyBLEP exponent changes) through the per-sample path, checks that the
+    ladder's pre-saturation values stay inside the 28-bit datapath the RTL
+    sketch carries (11.4) at every coefficient extreme, then runs the whole
+    voice on an all-max image and on the all-zero reset image, which must be
+    silent (14)."""
+    import fixed
+    incs = sorted({0, 1, 2, 3, (1 << 15) - 1, 1 << 15, (1 << 15) + 1, (1 << 16) - 1, 1 << 16,
+                   153791, (1 << 23) - 1, 1 << 23, (1 << 23) + 1, (1 << 24) - 2, (1 << 24) - 1})
+    for inc in incs:
+        e, r = vf.recip_of(inc)
+        assert -15 <= e <= 8 and 0 <= r < (1 << 16), inc
+        for shape in SHAPES:
+            for phase in (0, 0x7FFFFF, 0xFFFFFF):
+                o = vf.OscFx(shape)
+                o.phase = phase
+                out = o.render(300, inc)
+                assert out.dtype == np.int64 and out.min() >= -32768 and out.max() <= 32767, (shape, inc)
+    full = np.full(8, 32767, dtype=np.int64)
+    for w in (0, 1, 32768, (1 << 16) - 1):
+        for sgn in (1, -1):
+            m = vf.mix_fx([sgn * full] * 3, [w] * 3)
+            assert m.min() >= -32768 and m.max() <= 32767
+    ext24 = (0, 1, 1 << 23, FULL24)
+    for a_inc in ext24:
+        for d_dec in ext24:
+            for sus in ext24:
+                for rate in (0, 1, 32768, 65535):
+                    e = vf.AdsrFx(0.005, 0.25, 0.75, 0.12)
+                    e.a_inc, e.d_dec, e.sus, e.rate = a_inc, d_dec, sus, rate
+                    lv = e.render(48, 24, q=24)
+                    assert lv.min() >= 0 and lv.max() <= FULL24 and 0 <= e.level <= FULL24
+    x = np.where((np.arange(200) // 25) & 1, 32767, -32768).astype(np.int16)
+    widest = 0
+    orig = fixed.sat
+    def spy(v, bits):
+        nonlocal widest
+        widest = max(widest, abs(v))
+        return orig(v, bits)
+    fixed.sat = spy
+    try:
+        for k in (0, 1 << 16, (1 << 17) - 1):
+            for gain in (0, 1 << 19, (1 << 20) - 1):
+                for ogain in (0, (1 << 20) - 1):
+                    for g in (0, 127, 49594, 65535):
+                        y = fixed.LadderFx(**vf.LADDER_CFG).process(
+                            x, None, 0.0, 0.0, g_q16=np.full(len(x), g), k=k, gain=gain, ogain=ogain)
+                        assert y.dtype == np.int16
+    finally:
+        fixed.sat = orig
+    assert widest < (1 << 27), widest
+    v = vf.VoiceFx()
+    r = v.note_on(60, 0.02)
+    r["incs"] = [(1 << 24) - 1] * 3
+    r["weights"] = [(1 << 16) - 1] * 3
+    for env in (r["amp_env"], r["filt_env"]):
+        env.a_inc = env.d_dec = env.sus = FULL24
+        env.rate = 65535
+    r["cut_lo"] = r["cut_hi"] = r["track_hz"] = 65535
+    r["k"], r["gain"], r["ogain"] = (1 << 17) - 1, (1 << 20) - 1, (1 << 20) - 1
+    out = v.run(r)
+    assert out.dtype == np.int16 and np.abs(out.astype(np.int64)).max() <= 29491
+    assert v.trace["cut"].min() >= vf.CUT_MIN and v.trace["cut"].max() <= vf.CUT_MAX
+    r = v.note_on(60, 0.02)
+    r["incs"], r["weights"] = [0] * 3, [0] * 3
+    for env in (r["amp_env"], r["filt_env"]):
+        env.a_inc = env.d_dec = env.sus = env.rate = 0
+    r["cut_lo"] = r["cut_hi"] = r["track_hz"] = 0
+    r["k"] = r["gain"] = r["ogain"] = 0
+    assert not v.run(r).any()                                # silent until programmed (14)
+    assert v.trace["cut"].min() == v.trace["cut"].max() == vf.CUT_MIN

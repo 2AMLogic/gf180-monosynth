@@ -19,6 +19,15 @@ increment (`dsp.phase_inc`), seconds -> envelope rate, the tanh/sine/g tables.
 In hardware those are the host's job or a ROM's; the same convention `fixed.py`
 already uses for its coefficient. Everything evaluated per sample is integer.
 
+Every one of those conversions clamps its result to the width of the register
+it lands in (`REG_BITS`, NUMERIC-CONTRACT.md 5.1, via `fixed.usat`), so the
+model can never hold a value a register-limited implementation cannot. The two
+that can hit the clamp with musically plausible input are a_inc (attacks
+shorter than two frames) and rate (releases shorter than ~7 us); the sweep in
+test_voice_fx.py walks every conversion over its input domain and pins where
+each clamp fires. And every LEGAL register value is handled per sample: inc = 0
+stalls its oscillator with the PolyBLEP at zero rather than raising.
+
 Formats:
     phase           24-bit accumulator (dsp.PHASE_BITS)
     waveform        Q1.15
@@ -60,7 +69,7 @@ import numpy as np
 import dsp
 from dsp import SR, PHASE_BITS, PHASE_MASK, note_hz, phase_inc
 import fixed
-from fixed import LadderFx, sat, shl
+from fixed import LadderFx, sat, shl, usat
 
 CYCLE = 1 << PHASE_BITS
 ENV_BITS = 24
@@ -72,6 +81,16 @@ CUT_MIN, CUT_MAX = 30, 21600     # Hz; the float model clips to [30, 0.45*SR]
 OUT_GAIN = 29491                 # 0.9 in Q0.15, engines.mono_note's master gain
 GLIDE_SAMPLES = int(0.09 * SR)   # engines.mono_note's portamento time
 LADDER_CFG = dict(state_bits=24, state_q=20, tanh_entries=16, interp=True)
+INC_BITS = PHASE_BITS            # the increment register is as wide as the phase
+WEIGHT_BITS = 16                 # Q0.15 mixer weight; 1.0 = 32768 needs the 16th bit
+CUT_BITS = 16                    # cut_lo, cut_hi, track_hz: integer Hz (proposed width)
+
+# Register widths of the control image, NUMERIC-CONTRACT.md 5.1. Each host
+# conversion below clamps to the width named here; the sweep test walks them.
+REG_BITS = dict(inc=INC_BITS, w=WEIGHT_BITS,
+                a_inc=ENV_BITS, d_dec=ENV_BITS, sus=ENV_BITS, rate=RATE_Q,
+                cut_lo=CUT_BITS, cut_hi=CUT_BITS, track_hz=CUT_BITS,
+                k=LadderFx.K_BITS, gain=LadderFx.GAIN_BITS, ogain=LadderFx.GAIN_BITS)
 
 _SINE = dsp._QUARTER.astype(np.int64)   # 256-entry quarter wave, midpoint-sampled
 
@@ -109,7 +128,16 @@ def naive_fx(shape: str, ph: np.ndarray) -> np.ndarray:
 def recip_of(inc: int, mant_bits: int = MANT_BITS, recip_bits: int = RECIP_BITS):
     """Note-on: inc = m * 2^e with m in [2^(MB-1), 2^MB). Returns (e, r) with
     r = floor(2^(RB+MB-1) / m), clamped to RB bits (only m = 2^(MB-1) hits the
-    clamp, a 1-LSB error). One integer division per note-on."""
+    clamp, a 1-LSB error). One integer division per note-on.
+
+    inc = 0 is a legal register value (it is the reset value, and any 24-bit
+    write is accepted) and has no mantissa to divide by. It returns (0, 0),
+    the reset value of the (e, r) state. Neither is observable: with inc = 0
+    the phase never enters either PolyBLEP window, so `blep_fx` is identically
+    zero whatever (e, r) hold, and the oscillator outputs the naive waveform
+    at its stalled phase (DC)."""
+    if inc == 0:
+        return 0, 0
     e = inc.bit_length() - mant_bits
     m = shl(inc, -e)
     r = min((1 << (recip_bits + mant_bits - 1)) // m, (1 << recip_bits) - 1)
@@ -196,10 +224,15 @@ class OscFx:
 
 # ---- mixer ------------------------------------------------------------------
 def mix_weights(mix, q: int = 15) -> list:
-    """Q0.q weights, floor-normalised: they sum to at most 1.0, so a normalised
-    mixer cannot clip. Unnormalised weights are allowed and saturate."""
+    """Q0.q weights, floor-normalised: for non-negative mix levels they sum
+    to at most 1.0, so a normalised mixer cannot clip. Unnormalised weights
+    are allowed and saturate. A mix that sums to zero (every oscillator off)
+    has nothing to normalise by and gives every weight 0. Each weight is
+    clamped to its q+1-bit register (16 bits at q = 15)."""
     tot = float(sum(mix))
-    return [int(math.floor(m / tot * (1 << q))) for m in mix]
+    if tot <= 0.0:
+        return [0] * len(mix)
+    return [usat(int(math.floor(m / tot * (1 << q))), q + 1) for m in mix]
 
 
 def mix_fx(signals, weights, q: int = 15) -> np.ndarray:
@@ -222,17 +255,27 @@ class AdsrFx:
     rate = round((1 - exp(-4 / (release_s * SR))) * 2^RATE_Q), min 1, so the
     exponential matches the float's exp(-4 t / release). The `env_bits`
     parameter exists to measure the dead zone, exactly as fixed.LadderFx's
-    `state_q` does."""
+    `state_q` does.
+
+    Every register is clamped to its width (a_inc, d_dec, sus to env_bits;
+    rate to rate_q bits). Two conversions reach the clamp: an attack shorter
+    than two frames (< 41.67 us) gives a_inc = 2^24, clamped to 2^24 - 1,
+    which still completes the attack in one update from any level; a release
+    of 7.07 us or less (release_s <= 4 / (17 ln 2 * SR)), including 0, gives
+    rate = 2^16 = 1.0, clamped to 65535, which releases full scale to zero in
+    three updates instead of one. release_s <= 0 means instant, as the float
+    model's max(1e-9, .) does; the model no longer divides by it."""
     ATTACK, DECAY, SUSTAIN = 0, 1, 2
 
     def __init__(self, a_s, d_s, sus, r_s, env_bits: int = ENV_BITS, rate_q: int = RATE_Q):
         self.EB, self.RQ = env_bits, rate_q
         self.full = (1 << env_bits) - 1
         a, d = max(1, int(a_s * SR)), max(1, int(d_s * SR))
-        self.a_inc = -(-(1 << env_bits) // a)
-        self.sus = int(round(sus * self.full))
-        self.d_dec = -(-(self.full - self.sus) // d)
-        self.rate = max(1, int(round((1.0 - math.exp(-4.0 / (r_s * SR))) * (1 << rate_q))))
+        self.a_inc = usat(-(-(1 << env_bits) // a), env_bits)
+        self.sus = usat(int(round(sus * self.full)), env_bits)
+        self.d_dec = usat(-(-(self.full - self.sus) // d), env_bits)
+        decay = math.exp(-4.0 / (r_s * SR)) if r_s > 0.0 else 0.0
+        self.rate = max(1, usat(int(round((1.0 - decay) * (1 << rate_q))), rate_q))
         self.level, self.seg = 0, self.ATTACK
 
     def render(self, n: int, gate_n: int, q: int = 15) -> np.ndarray:
@@ -321,28 +364,32 @@ class VoiceFx:
         for dt in detune:
             f = f0 * 2.0 ** (dt / 12.0)
             if glide_from is None:
-                incs.append(phase_inc(f))
+                incs.append(usat(phase_inc(f), INC_BITS))
             else:
                 # Linear slew of the increment over GLIDE_SAMPLES frames, in a
                 # Q24.8 accumulator. The float model glides GEOMETRICALLY (a
                 # constant ratio per frame); this is a different curve for the
                 # 90 ms of the glide and identical after it. See the PR.
-                i0 = phase_inc(note_hz(glide_from) * 2.0 ** (dt / 12.0))
-                i1 = phase_inc(f)
+                # The slew stays between its two clamped endpoints.
+                i0 = usat(phase_inc(note_hz(glide_from) * 2.0 ** (dt / 12.0)), INC_BITS)
+                i1 = usat(phase_inc(f), INC_BITS)
                 gl = min(n, GLIDE_SAMPLES)
                 step = ((i1 - i0) << 8) // gl
                 seq = np.full(n, i1, dtype=np.int64)
                 seq[:gl] = (i0 * 256 + step * np.arange(gl, dtype=np.int64)) >> 8
                 incs.append(seq)
+        ladder = LadderFx(**self.ladder_cfg)
+        k, gain, ogain = ladder.regs(q, drive)
         return dict(
             n=n, gate_n=gate_n,
             oscs=[OscFx(s, self.blep, self.MB, self.RB) for s in waves],
             incs=incs, weights=mix_weights(mix),
             amp_env=AdsrFx(*amp, env_bits=self.EB),
             filt_env=AdsrFx(*fenv, env_bits=self.EB),
-            cut_lo=int(round(cutoff[0])), cut_hi=int(round(cutoff[1])),
-            track_hz=int(round(track * f0 * 4.0)),
-            ladder=LadderFx(**self.ladder_cfg), res=q, drive=drive)
+            cut_lo=usat(int(round(cutoff[0])), CUT_BITS),
+            cut_hi=usat(int(round(cutoff[1])), CUT_BITS),
+            track_hz=usat(int(round(track * f0 * 4.0)), CUT_BITS),
+            ladder=ladder, k=k, gain=gain, ogain=ogain, res=q, drive=drive)
 
     def run(self, r: dict) -> np.ndarray:
         """The per-sample signal path. Integer only. Returns int16."""
@@ -355,11 +402,12 @@ class VoiceFx:
         span = r["cut_hi"] - r["cut_lo"]
         cut = np.clip(r["cut_lo"] + ((span * fe) >> 15) + r["track_hz"], CUT_MIN, CUT_MAX)
         lad = r["ladder"]
+        regs = dict(k=r["k"], gain=r["gain"], ogain=r["ogain"])
         if self.g_exact:   # measurement only: float exp inside LadderFx
-            y = lad.process(x.astype(np.int16), cut.astype(np.float64), r["res"], r["drive"])
+            y = lad.process(x.astype(np.int16), cut.astype(np.float64), r["res"], r["drive"], **regs)
         else:
             g = g_from_cut(cut, self.g_rom, self.GB)
-            y = lad.process(x.astype(np.int16), None, r["res"], r["drive"], g_q16=g)
+            y = lad.process(x.astype(np.int16), None, r["res"], r["drive"], g_q16=g, **regs)
         out = (y.astype(np.int64) * OUT_GAIN) >> 15
         self.trace = dict(osc=sig, mixed=mixed, amp_env=ae, filt_env=fe, cut=cut,
                           ladder=y.astype(np.int64), incs=r["incs"])
