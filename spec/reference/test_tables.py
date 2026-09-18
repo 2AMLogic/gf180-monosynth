@@ -20,14 +20,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gen_tables as gt
 
-# Revision 10 (DR 0013) corrected the tanh ROM's GUARD word from 32767 to
-# tanh(4)*32767 = 32745. TANH16 itself -- the 16 table entries -- did not move;
-# only the 17th word of the image the RTL reads, and the clamp that now returns
-# that same word instead of a second literal.
-TANH16_ROM_REV3 = "3aa73628ec4f1b6eec99e77524a5460813c531dd9703a8fdea6df799dc91efeb"
-REV10 = {
-    "TANH16_ROM":    "08f7b0683e46785b9fe2d45d644d9eaf4e44b3814debbb59df817a9d2f74932d",
-}
 REV3 = {
     "NOTE_INC":      "e771e6b7b39d3941c471b772bfb5cdca398b78ee7fa964c3c90388d2cc888ba4",
     "SINE_Q256":     "66cfc2e50e0ea6c326d698bd2aa14cc8b67f8e518530c9bb9c3f8f62d0fd19a0",
@@ -65,7 +57,7 @@ REV9 = {
 REV9_NEW = {
     "EXP_ROM65":     "6a1cbbf81f383149c4ececcbd0eef37e979c24e9f700bfd6efc31185f520d557",
 }
-REV3_STILL = {k: v for k, v in REV3.items() if k not in REV9 and k not in REV10}
+REV3_STILL = {k: v for k, v in REV3.items() if k not in REV9}
 
 
 def test_committed_images_and_contract_match_the_model():
@@ -83,29 +75,25 @@ def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
     assert {k: got[k] for k in REV7} == REV7
     assert {k: got[k] for k in REV9} == REV9
     assert {k: got[k] for k in REV9_NEW} == REV9_NEW
-    assert {k: got[k] for k in REV10} == REV10
     assert set(got) == set(REV3) | set(REV5) | set(REV7) | set(REV9_NEW)
 
 
-def test_exactly_four_pinned_tables_have_ever_moved():
+def test_exactly_three_pinned_tables_have_ever_moved():
     """Loudly, because a pinned table moving is the expensive kind of change.
     KIT808 moved twice (revisions 6 and 7, fits to a real machine); G_ROM128
     and K_ROM32 moved once, together, in revision 9 (DR 0011's tuning
-    polynomial -- K_ROM32 is derived from G_ROM128, so it could not not move);
-    TANH16_ROM moved in revision 10 (DR 0013's guard word), while TANH16 itself
-    did NOT -- only the image's 17th word. Every other table in the contract's
-    history is still what revision 1 or 3 or 5 pinned. A fifth entry here means
-    a fifth pinned table has moved and needs its own revision and its own
-    paragraph."""
+    polynomial -- K_ROM32 is derived from G_ROM128, so it could not not move).
+    Every other table in the contract's history is still what revision 1 or 3
+    or 5 pinned -- INCLUDING TANH16_ROM, whose guard word DR 0013 measured and
+    deliberately left alone. A fourth entry here means a fourth pinned table
+    has moved and needs its own revision and its own paragraph."""
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
     was = {**REV3, **REV5, "KIT808": KIT808_REV5}   # EXP_ROM65 did not exist then
     moved = sorted(k for k, v in was.items() if got[k] != v)
-    assert moved == ["G_ROM128", "KIT808", "K_ROM32", "TANH16_ROM"], \
-        f"against revision 5's pins: {moved}"
+    assert moved == ["G_ROM128", "KIT808", "K_ROM32"], f"against revision 5's pins: {moved}"
     assert got["KIT808"] == REV7["KIT808"]
     assert {k: got[k] for k in REV9} == REV9
-    assert got["TANH16"] == REV3["TANH16"], "the tanh TABLE did not move, only the image's guard word"
-    assert got["TANH16_ROM"] != TANH16_ROM_REV3
+    assert got["TANH16_ROM"] == REV3["TANH16_ROM"], "DR 0013's guard word is NOT taken"
 
 
 def test_the_tuning_polynomial_is_the_only_thing_that_moved_the_cutoff_rom():
@@ -125,7 +113,7 @@ def test_spot_values_the_contract_quotes():
     assert len(sq) == 256 and sq[0] == 101 and sq[255] == 32767
     th = gt.tanh16()
     assert len(th) == 16 and th[0] == 0 and th[1] == 8025 and th[15] == 32731
-    assert gt.tanh16_rom()[16] == 32745 == round(math.tanh(4.0) * 32767)
+    assert gt.tanh16_rom()[16] == 32767 != round(math.tanh(4.0) * 32767)   # DR 0013, not taken
     gr = gt.g_rom128()
     assert len(gr) == 129 and gr[0] == 0 and gr[1] == 1116 and gr[128] == 62445
     assert all(b > a for a, b in zip(gr, gr[1:]))          # strictly increasing

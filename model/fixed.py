@@ -47,16 +47,16 @@ COEF_Q = 16
 VT2 = 0.05                      # 2*Vt, the paper's scaling
 TANH_DOMAIN = 4.0               # tanh(4) = 0.9993; beyond this, clamp
 # The table's GUARD word: the value the top bin interpolates toward and the
-# value the clamp returns above the domain. It is tanh(TANH_DOMAIN), not full
-# scale. Revisions 1-9 used 32767, which made the top bin [3.75, 4) up to
-# 6.5e-4 high -- twelve times the error of any other bin's interpolation -- and
-# put a step of that size at exactly x = 4, inside a feedback loop. Correcting
-# it costs nothing: it is one ROM word. What it does NOT do, measured, is move
-# the harmonic fingerprint at self-oscillation by as much as 0.05 dB on the
-# shipped 16-entry table, because the state never reaches the top bin there;
-# the 16-entry table's own worst error is 5.97e-3 at x = 0.625, nine times
-# larger. The guard only becomes the limiting error at 64 entries or more.
-TANH_GUARD = int(round(math.tanh(TANH_DOMAIN) * 32767))    # 32745
+# value the clamp returns above the domain. It is 32767 and is NOT
+# tanh(TANH_DOMAIN) = 32745, which is a known wrong constant recorded in DR
+# 0013 and NOT corrected: `rtl-sketch/drum_dp.v` reads the same ROM image with
+# its own hardcoded clamp, so moving this word alone would silently break the
+# DRUM section's bit-exactness. It is one line in a file the voice does not
+# own. DR 0013 has the measurement that says what correcting it buys -- the
+# top bin twelve times more accurate, and nothing else: h5 at
+# self-oscillation does not move by 0.05 dB, because the 16-entry table's own
+# worst error, 5.97e-3 at x = 0.625, is nine times larger.
+TANH_GUARD = 32767                 # see above and DR 0013; tanh(4) would be 32745
 
 
 def shl(v: int, k: int) -> int:

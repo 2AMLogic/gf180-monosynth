@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 10 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 9 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
@@ -10,7 +10,7 @@ TR-808-shaped set of eight stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 10,
+through the two-key process this fleet uses; until then it is revision 9,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -538,7 +538,7 @@ Let `p` be the 24-bit phase before advance. `naive` is signed 16-bit
 | 8 | pulse15 | `+32767` if `p < 2 516 582`, else `−32768` — **15 % duty**, the narrow rectangle |
 | 9–15 | sine | every register value is defined |
 
-Codes 5–8 and the register's fourth bit are revision 10 (DR 0012). Six of the
+Codes 5–8 and the register's fourth bit are revision 9 (DR 0012). Six of the
 nine are the Model D's waveform switch, and `docs/minimoog-reference.md` W1–W7
 carries the source for each: the shark-tooth's 10/57 and 47/57 are the R030 /
 R031 divider on drawing 1448, and the three rectangular duties are that
@@ -777,7 +777,7 @@ acc   = osc_0 · w_0 + osc_1 · w_1 + osc_2 · w_2 + noise · WN   exact; |acc| 
 mixed = sat16( acc >> 15 )                                     arithmetic shift, then clamp
 ```
 
-`noise` is 6.10's white or pink, per `NSEL`. The fourth term is revision 10
+`noise` is 6.10's white or pink, per `NSEL`. The fourth term is revision 9
 (DR 0012): the Model D's mixer has five sources and this chip has four, the
 external input being the one it does not have. `w_k` and `WN` are 16-bit
 unsigned. Weights the host derives by 5.5 sum to at most
@@ -2106,7 +2106,7 @@ SHA-256 of the derived 1024-entry full table (`voice_fx.sine_fx` at phases `i <<
 
 ### Appendix C -- TANH16: the ladder's tanh table, i = 0..15
 
-Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, used above entry 15 AND returned by the clamp for |v| >= 4.0, is `fixed.TANH_GUARD` = round(tanh(4.0) * 32767) = 32745. Revisions 1-9 used 32767 there, which left the top bin [3.75, 4) up to 6.5e-4 high and put a step of that size at exactly x = 4 inside the feedback loop; revision 10 corrects it (DR 0013). It changes no harmonic at self-oscillation by as much as 0.05 dB on this 16-entry table -- the table's own worst interpolation error, 5.97e-3 at x = 0.625, is nine times larger -- and only becomes the limiting error at 64 entries or more.
+Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, used above entry 15 AND returned by the clamp for |v| >= 4.0, is `fixed.TANH_GUARD` = 32767 and is NOT tanh(4.0) (which would round to 32745). That leaves the top bin [3.75, 4) up to 6.5e-4 high. It is a known wrong constant and DR 0013 records BOTH the measurement of what correcting it buys -- the top bin twelve times more accurate, and no movement at all in the harmonic fingerprint at self-oscillation, because the 16-entry table's own worst error is nine times larger -- and why it is not corrected here: `rtl-sketch/drum_dp.v` reads this same image with its own hardcoded clamp, so the word cannot move without a matching change in the drum section.
 
 | i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -2114,7 +2114,7 @@ Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over 
 | 8 | 31588 | 32047 | 32328 | 32500 | 32605 | 32669 | 32707 | 32731 |
 
 SHA-256 of the 16 decimal values joined by commas: `65a5fa4b38b807735e09eed0eadd49b2a42850151daa47e3abb97a1641542c04`  
-SHA-256 of the 17-word ROM image (`TANH16` followed by the guard word), which is exactly `rtl-sketch/tanh16.hex`: `08f7b0683e46785b9fe2d45d644d9eaf4e44b3814debbb59df817a9d2f74932d`
+SHA-256 of the 17-word ROM image (`TANH16` followed by the guard word), which is exactly `rtl-sketch/tanh16.hex`: `3aa73628ec4f1b6eec99e77524a5460813c531dd9703a8fdea6df799dc91efeb`
 
 ### Appendix D -- G_ROM128: cutoff (Hz) -> ladder coefficient g, i = 0..128
 

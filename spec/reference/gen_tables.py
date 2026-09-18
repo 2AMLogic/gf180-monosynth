@@ -171,12 +171,13 @@ def appendix() -> str:
     s.append("Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), "
              "Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, "
              "used above entry 15 AND returned by the clamp for |v| >= 4.0, is `fixed.TANH_GUARD` = "
-             "round(tanh(4.0) * 32767) = 32745. Revisions 1-9 used 32767 there, which left the top bin "
-             "[3.75, 4) up to 6.5e-4 high and put a step of that size at exactly x = 4 inside the "
-             "feedback loop; revision 10 corrects it (DR 0013). It changes no harmonic at "
-             "self-oscillation by as much as 0.05 dB on this 16-entry table -- the table's own worst "
-             "interpolation error, 5.97e-3 at x = 0.625, is nine times larger -- and only becomes the "
-             "limiting error at 64 entries or more.\n")
+             "32767 and is NOT tanh(4.0) (which would round to 32745). That leaves the top bin "
+             "[3.75, 4) up to 6.5e-4 high. It is a known wrong constant and DR 0013 records BOTH the "
+             "measurement of what correcting it buys -- the top bin twelve times more accurate, and "
+             "no movement at all in the harmonic fingerprint at self-oscillation, because the "
+             "16-entry table's own worst error is nine times larger -- and why it is not corrected "
+             "here: `rtl-sketch/drum_dp.v` reads this same image with its own hardcoded clamp, so "
+             "the word cannot move without a matching change in the drum section.\n")
     s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
     s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     s.append(_rows(th, 8))
