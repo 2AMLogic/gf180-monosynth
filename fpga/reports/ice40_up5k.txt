@@ -38,9 +38,16 @@
   RESULT: DOES NOT FIT / did not complete.
     ERROR: Unable to place cell 'u_synth.u_voice.mb_SB_MAC16_B_DSP', no BELs remaining to implement cell type 'ICESTORM_DSP'
 
-  clock constraints nextpnr USED (derived from the PLL for ecp5, not asserted):
+  clock constraints nextpnr DERIVED (ecp5: from the PLL instance, not from the LPF):
+   (none derived; the constraint is whatever --freq / the LPF asserted --
+    an asserted constraint is a promise the checker verifies, NOT a frequency
+    the board produces. See docs/fpga-clock.md.)
 
-  achieved Fmax (nextpnr post-route STA, typical corner):
+  achieved Fmax. nextpnr prints this twice: once after placement (an
+  ESTIMATE) and once after "Routing complete." (the RESULT). Both are shown
+  so nobody quotes the estimate by accident.
+
+  worst cross-domain delays (unconstrained I/O paths):
 
   bitstream: none (no routed design)
 

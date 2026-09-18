@@ -1,375 +1,34 @@
-Using template $paramod$a8ff24295e45aabda71972c6a839bf0640df5e86$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01001110 for cells of type $lut.
-Using template $paramod$daac9b1e7bb2ac018f7132a3fbe0026ddd7b1a71$lut for cells of type $lut.
-Using template $paramod$b18f60dfd13c21d3e472b89652353f3f5342b450$lut for cells of type $lut.
-Using template $paramod$4cab3b31c601551ff65536bf4f533afa0b2094ee$lut for cells of type $lut.
-Using template $paramod$e098d38d00670bf1f66f3fff32b3e8f0f799bc39$lut for cells of type $lut.
-Using template $paramod$712505941a295086314c22735153725461a87f4a$lut for cells of type $lut.
-Using template $paramod$e01a027fedb28671a20c130493a89c7afd4e87d3$lut for cells of type $lut.
-Using template $paramod$ea79e410ad0f4fc3326666c891e1f3992816d636$lut for cells of type $lut.
-Using template $paramod$39b0d201a18bed5573a88835da3f39d40814d360$lut for cells of type $lut.
-Using template $paramod$a4640096cbef09c4ef8613155a589c40164ac034$lut for cells of type $lut.
-Using template $paramod$cad45b6c9da81941161a13849773fe2ed4bc1c6f$lut for cells of type $lut.
-Using template $paramod$018d71a0fe325d6362687fe53ac13dd6340e400d$lut for cells of type $lut.
-Using template $paramod$8b24407096beec47292ddeb1567a058197a320b9$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11000101 for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01110101 for cells of type $lut.
-Using template $paramod$c217e185eb8e6463ca272982ba8c5940fa90d81f$lut for cells of type $lut.
-Using template $paramod$a1a2877a6803267a5ea4355589ca492869b94a2e$lut for cells of type $lut.
-Using template $paramod$b287726797d0722f64e731f1134f7c05af8f1578$lut for cells of type $lut.
-Using template $paramod$90bf02bfbc9ec8907e9d716c05e921b93d4705fd$lut for cells of type $lut.
-Using template $paramod$86d1a43c2f1d620ff2cef866448dd1258c868fad$lut for cells of type $lut.
-Using template $paramod$fdcae86fcfd036c1880a04306ae771a9d7579c31$lut for cells of type $lut.
-Using template $paramod$973818279bc95792902f3c09371fd2407d04a2a5$lut for cells of type $lut.
-Using template $paramod$f13b7bd4effc9b6d1cf804b8e5f87138a5b1c1f4$lut for cells of type $lut.
-Using template $paramod$30305e55a780880b9c824fe3509a4d981acb0f2b$lut for cells of type $lut.
-Using template $paramod$47a8214374025465e226fa66bee690ff33268a25$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'00001001 for cells of type $lut.
-Using template $paramod$37c9af120c85145419565a9ccf4ceb7397fbbe92$lut for cells of type $lut.
-Using template $paramod$70f68cc10fbeada9b6fa90c3bb75475e348ca467$lut for cells of type $lut.
-Using template $paramod$7d35f3eb4056e6484203c99fe42cfcf1dfaba704$lut for cells of type $lut.
-Using template $paramod$aab54572d5ffecd31253b36e73e9cb718d05be34$lut for cells of type $lut.
-Using template $paramod$2220b73b6ddcf12e26857a54add8fe4996179457$lut for cells of type $lut.
-Using template $paramod$047ec0a110b3f33933a5b165fc8e4bbf23b12f0a$lut for cells of type $lut.
-Using template $paramod$f750a4899b19cb23f7f91d895b70d40eaf6b0924$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10000111 for cells of type $lut.
-Using template $paramod$6a3d1b4c6389888034ca851571f0d03f46d1c4e9$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11001110 for cells of type $lut.
-Using template $paramod$4d7f17f71543a1e7fc1835bd79c4827a43f2e844$lut for cells of type $lut.
-Using template $paramod$a3d9d50a26c80b5c42d9b864ac52f329113a426e$lut for cells of type $lut.
-Using template $paramod$3751cff910103888107374559f35d9f1f2f94946$lut for cells of type $lut.
-Using template $paramod$f24ba3ced4b870f8e829f5ac5a8af88573350e6f$lut for cells of type $lut.
-Using template $paramod$b9a432e46ea7e92748bcd03205a5de49dcef3d46$lut for cells of type $lut.
-Using template $paramod$be48d952fcad8a16b8d84daa4c48a3065f343e5e$lut for cells of type $lut.
-Using template $paramod$19457468c03b53ec09024ada785c6816b7d0407d$lut for cells of type $lut.
-Using template $paramod$b83256fe6954cee2d7c2a428bfae96faaa07da62$lut for cells of type $lut.
-Using template $paramod$1bb2fc47b457abe7e28b98cfa3441b6432237f90$lut for cells of type $lut.
-Using template $paramod$b078096ec6f227394ed9a2369084c870232ca47e$lut for cells of type $lut.
-Using template $paramod$78b4324556f6321a85bd440441a5392f271ea218$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11001011 for cells of type $lut.
-Using template $paramod$22dec7e8c4f4b1c3e62879fa2207e0c39047bbd3$lut for cells of type $lut.
-Using template $paramod$bacdb2105cbfbe75cfbcc2fb021fd3aba864526b$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10001101 for cells of type $lut.
-Using template $paramod$cae4c308db378f1445d68e8ecc625424172489f5$lut for cells of type $lut.
-Using template $paramod$5da5fc2bf61da4d6dac686c0b8a953173ac89c13$lut for cells of type $lut.
-Using template $paramod$a1d323730045824cfc84bb9f4ee8031f1c4dcc9e$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11011001 for cells of type $lut.
-Using template $paramod$f1a7ba5a0228690adb866b4dfbca10c1c80b00ea$lut for cells of type $lut.
-Using template $paramod$15deee21bfb7f6f9f3963bae01e1abc87728ceb1$lut for cells of type $lut.
-Using template $paramod$f626b575273537b3090dbe5d04b27b283ec9a192$lut for cells of type $lut.
-Using template $paramod$e8b1383c6901b56df73ac402d78a5e0a42461be0$lut for cells of type $lut.
-Using template $paramod$c6fd174d88feab374186ff0aaa12437cb15cebf6$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10000100 for cells of type $lut.
-Using template $paramod$6602bddb29e0fc66f7809353cbe31b4750e86459$lut for cells of type $lut.
-Using template $paramod$ac9879df029f610b92e03c233120acb21fbaf34e$lut for cells of type $lut.
-Using template $paramod$09a38d763a6cbfcc05307d45e0813cda5e396b53$lut for cells of type $lut.
-Using template $paramod$8c034aaeb3314483e78d19170abfd2b7942f1054$lut for cells of type $lut.
-Using template $paramod$90211918a84e1cef3407e0f8e61fa8260d248e82$lut for cells of type $lut.
-Using template $paramod$e3208ed894c4bfed9351edfbfe323b429f8a7d2a$lut for cells of type $lut.
-Using template $paramod$a95fe29afe4a75cb74ce1b96c392fa6e80a06246$lut for cells of type $lut.
-Using template $paramod$3da81d7b5319df46ea3e0075e5b329bee5392e47$lut for cells of type $lut.
-Using template $paramod$b2a7a55f1521af55e83c426b029645dab12690d7$lut for cells of type $lut.
-Using template $paramod$24d63b3455980e0e78982463a3c035334a3d3c28$lut for cells of type $lut.
-Using template $paramod$02750f8d568bd99efbda01449a05e084a3143ca8$lut for cells of type $lut.
-Using template $paramod$dc4c6655b6605351e733f32853ccc6e0d896b531$lut for cells of type $lut.
-Using template $paramod$46d97a4eaeecf5767aeeba4ab087e7b252d8a60d$lut for cells of type $lut.
-Using template $paramod$2ec6422db00d358fc7469efce6208bffbc8521cd$lut for cells of type $lut.
-Using template $paramod$9238b4f918408168668f80b2f347ff8fe515d0e4$lut for cells of type $lut.
-Using template $paramod$6d0d4d5cc63cacc2b5e6b13bcf5ac29e08b0ec85$lut for cells of type $lut.
-Using template $paramod$8c9a587c8d58233ca6a4d2c750aee7401f4767a7$lut for cells of type $lut.
-Using template $paramod$178bda39ffdcebd3e876f3983b329791c49ec5d5$lut for cells of type $lut.
-Using template $paramod$b7685cb0c8a6753256bc84bc31d36a443c15fab7$lut for cells of type $lut.
-Using template $paramod$0a09809dff99c4cbeb25e1f87103c9adde04f196$lut for cells of type $lut.
-Using template $paramod$bca5b6567f6770a6112e209ac4ad433e3ef55e27$lut for cells of type $lut.
-Using template $paramod$612a3fc005960156497ad4b20c43ea11f10d8826$lut for cells of type $lut.
-Using template $paramod$7e2c53a8b5d3922b81b3f4f7f30621a188af13fc$lut for cells of type $lut.
-Using template $paramod$40b69fc62154b9d434f038383162970b3b5ebe99$lut for cells of type $lut.
-Using template $paramod$f7f5ae5da1f1ac0404f309f8debeafc4ce060f51$lut for cells of type $lut.
-Using template $paramod$6393c6b2f1c48e8680487f1da7ff64edee21a35f$lut for cells of type $lut.
-Using template $paramod$de8062cb3dd9dab464fb9b01569f3a3405853903$lut for cells of type $lut.
-Using template $paramod$ebee052096079e4c1183c0e267684cb211081796$lut for cells of type $lut.
-Using template $paramod$9622b9ad07fc0dc93e2f79bd6eb72a52b917a65c$lut for cells of type $lut.
-Using template $paramod$c93023a6b71afa99f188513e895767cccedbea15$lut for cells of type $lut.
-Using template $paramod$b62063780e49876a9cbe4d5ff4d0538bf8d4dc27$lut for cells of type $lut.
-Using template $paramod$6e46ec5a196ba1a24b8e69ab094cadc07c13ac1f$lut for cells of type $lut.
-Using template $paramod$d5378b5e7cb78114418a7cb915418c5b77984f18$lut for cells of type $lut.
-Using template $paramod$b2cf769a04428bc871ad33dbb9650ab25da5e7b2$lut for cells of type $lut.
-Using template $paramod$84bd77a239d82e5abebe16791972d69d00dd8bc1$lut for cells of type $lut.
-Using template $paramod$14ef84dc81b9867fd6ea5e3a7082e13c00c32442$lut for cells of type $lut.
-Using template $paramod$8e020ada9f82301d4c48e2caec46e68acdfaec5c$lut for cells of type $lut.
-Using template $paramod$8aa996b6a777e592ae17cf23d3b19665565f0c08$lut for cells of type $lut.
-Using template $paramod$9f502076bb0ae5eaa705cfccf1b48e78a3b7e07c$lut for cells of type $lut.
-Using template $paramod$60d5816c032e72beb3a458ca2d89755bfdfd78c7$lut for cells of type $lut.
-Using template $paramod$728e616c918eb05878d70b2bb240e381ea2847b9$lut for cells of type $lut.
-Using template $paramod$dd7272e19df69aad281d936a70ce4c831350bdf4$lut for cells of type $lut.
-Using template $paramod$700ba979c586efa306699c3cf15f053ab3a45ad6$lut for cells of type $lut.
-Using template $paramod$48e48f19ccbd9670ba6796f172fd69e99982afa3$lut for cells of type $lut.
-Using template $paramod$9bb813bc7c7618eeb0122a1a3d9d88ecb17bcf78$lut for cells of type $lut.
-Using template $paramod$679c209e3b6b5e751b17c3163188ad7178ece0f4$lut for cells of type $lut.
-Using template $paramod$02521f3f78f1ec011fefcce388a41538d53fd445$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01001101 for cells of type $lut.
-Using template $paramod$bf3079bd1843681a8b5af43a428a807f93fca83c$lut for cells of type $lut.
-Using template $paramod$f95bcef906e7f9e75ebec1457d3c3902dbf2f1d9$lut for cells of type $lut.
-Using template $paramod$606c7e8326a2fb049baf9070ff3f340d6b99f0ec$lut for cells of type $lut.
-Using template $paramod$b1f7ab8ab53152dc491db94b20065d25203f198f$lut for cells of type $lut.
-Using template $paramod$8edcc175b0b0c44d54a7ff63544c2e51b4b08a7b$lut for cells of type $lut.
-Using template $paramod$ced29bd57370c1efa945f01a4abfac5556f6ab64$lut for cells of type $lut.
-Using template $paramod$0f1fbc0341e0f6d46b6df627cebeed481d956145$lut for cells of type $lut.
-Using template $paramod$eeaae9673dd790ba99d242b745ad08f15bea5389$lut for cells of type $lut.
-Using template $paramod$9e5a4768a8e076dda8a1c0d372df1ba633bfc1c8$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11101001 for cells of type $lut.
-Using template $paramod$0ca51272bb1f37972a8573ff2d73d123558c5476$lut for cells of type $lut.
-Using template $paramod$2f931865dc1b59a1649ff8086b87bb320ed362c9$lut for cells of type $lut.
-Using template $paramod$06e62c2045624c211a1abe4f2f36c8f22c688165$lut for cells of type $lut.
-Using template $paramod$1ad31ab5987f86df1b7318b66050a58293a9e132$lut for cells of type $lut.
-Using template $paramod$d448d229078fb474592e573608c93e858556df35$lut for cells of type $lut.
-Using template $paramod$d0d6ac510aed915eacb9452ad40e1e88b25771b5$lut for cells of type $lut.
-Using template $paramod$706f21d504c9486d3297d57169a22109ca331c94$lut for cells of type $lut.
-Using template $paramod$742450de0c9aaee19e94e4e4dd76c647538b47cc$lut for cells of type $lut.
-Using template $paramod$66025a043dc2fd71a3ec76ab7ebc4e1daef971ce$lut for cells of type $lut.
-Using template $paramod$1cf4268c0b9abcfcd385a899a77cefa28047933f$lut for cells of type $lut.
-Using template $paramod$30d767f6e76d6eb57706278dda72b79c1ba674f2$lut for cells of type $lut.
-Using template $paramod$ebb331991585ba5f6698b5b012f35f7e9e930179$lut for cells of type $lut.
-Using template $paramod$9823b7d7fd7be11a5fe09626b8e57bc27d9c9d23$lut for cells of type $lut.
-Using template $paramod$478aec76b5d583150fc3dcf408df66ccdf0d918f$lut for cells of type $lut.
-Using template $paramod$0d1abfedb7f76bfc66f858e64db381a2d3dc6337$lut for cells of type $lut.
-Using template $paramod$2496412616b42ba854738973fb684c3291ce956b$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10111010 for cells of type $lut.
-Using template $paramod$0da1e7ce45c01907eca1584c22cd0e9a53e39636$lut for cells of type $lut.
-Using template $paramod$8c24dc0cdd336b7fb88bbf7eed45cec5cbae862b$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11101010 for cells of type $lut.
-Using template $paramod$da98d9e875932ba6a280d468e3b5f7014491d245$lut for cells of type $lut.
-Using template $paramod$66e741791413519a466d4f44240bc83d3a191818$lut for cells of type $lut.
-Using template $paramod$d909494d67d7075f17a422f7cb5526f6d6564ea6$lut for cells of type $lut.
-Using template $paramod$c64dec5f9cba92e7fb1a4ba3987a6ac85d9a3898$lut for cells of type $lut.
-Using template $paramod$c7754eeb17b54dfe53ea4a973db3714d78ced2f9$lut for cells of type $lut.
-Using template $paramod$5348912da867a611a8088b6b8b27a62d65f1de6e$lut for cells of type $lut.
-Using template $paramod$a08747f6886cf18eb421a673542fe5f7b02aae3e$lut for cells of type $lut.
-Using template $paramod$a228c0c372d3d7a6798b19f17ca01445d387a603$lut for cells of type $lut.
-Using template $paramod$51898ba34e2065a55daa28ed8fe7809df3c6198f$lut for cells of type $lut.
-Using template $paramod$b16d044ccd686fc18e73c96f2e4e9981e526c930$lut for cells of type $lut.
-Using template $paramod$9baa3f929c8bf46082cc66b6c75e388726287fdd$lut for cells of type $lut.
-Using template $paramod$28681d85cdd5193b102b2e6c3b902b6caab96385$lut for cells of type $lut.
-Using template $paramod$6581465616122f2f32731aafac2bd8d9ddc81325$lut for cells of type $lut.
-Using template $paramod$75d5c453cca75cc7a7ca320c4fb7be0932b6aaa7$lut for cells of type $lut.
-Using template $paramod$78b7f61776f7b3e82414706b5df5da710258defb$lut for cells of type $lut.
-Using template $paramod$0ee0167fb5dd83bdfe7197fff23e2c7146c57037$lut for cells of type $lut.
-Using template $paramod$24ca0390b3c7866a19922039474de91afb9e77c2$lut for cells of type $lut.
-Using template $paramod$df6b12cebabc3b2db650658c5e894d03a346e968$lut for cells of type $lut.
-Using template $paramod$c79aec6bf66334ca918f85c196e004c918c371ef$lut for cells of type $lut.
-Using template $paramod$6187dded0f760dc8c76a865ca2b704096031f68b$lut for cells of type $lut.
-Using template $paramod$8670261af8d77851d2850ba537e3a1d0e2415376$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01100000 for cells of type $lut.
-Using template $paramod$3d7168c8134c4765b84a7b86d5ef7e1e65bbf4a0$lut for cells of type $lut.
-Using template $paramod$c24fe1e937c4e9aef343c55f43f4019282f37df4$lut for cells of type $lut.
-Using template $paramod$98c06f9c4d683aed3e374f9bcd2d9cf0eb797071$lut for cells of type $lut.
-Using template $paramod$cfd807e22868a8191a7b70d1505818467d62f24c$lut for cells of type $lut.
-Using template $paramod$a5ca24457e6d029bf6e2fadc6ac169c07ba7c909$lut for cells of type $lut.
-Using template $paramod$9a6965d4f53d69e345bd8d48283856520a30225e$lut for cells of type $lut.
-Using template $paramod$219b71aec9a19e7a27754ed85a7d6cdad9e5ec96$lut for cells of type $lut.
-Using template $paramod$b40080b643baa8bb528ec249e10d82b2d80dfed9$lut for cells of type $lut.
-Using template $paramod$5321e04f7ce32c091123c3570ab562efb1c81402$lut for cells of type $lut.
-Using template $paramod$6e424bd4a747f8421ac946af3d9bb3a47fd0b233$lut for cells of type $lut.
-Using template $paramod$5d91ae8bf13f169f64fe2e993cae12295d19d8d3$lut for cells of type $lut.
-Using template $paramod$c6a0592c97067fef304ce86e45e6d1602bafe9ed$lut for cells of type $lut.
-Using template $paramod$d575de8e588b46dbb00e03e414e3303cf809cb33$lut for cells of type $lut.
-Using template $paramod$8a1a380f3fe040c11298439b53abec72cc90b6cd$lut for cells of type $lut.
-Using template $paramod$53ce561f80f32d4298a3beadc88b6c5c78293221$lut for cells of type $lut.
-Using template $paramod$52fa1b2073b9054923f466bbb768e0ea7c69c9e3$lut for cells of type $lut.
-Using template $paramod$5f99aa1a31b4f0c356281a67e16706e1e689d29f$lut for cells of type $lut.
-Using template $paramod$5d16e795d6c582b27c818459b159f81a7f4525c4$lut for cells of type $lut.
-Using template $paramod$9506ecf18c91672f3dae4008b6ad1f2863e8019f$lut for cells of type $lut.
-Using template $paramod$32abbd1d449a67fb913b4733374e345d4c17175b$lut for cells of type $lut.
-Using template $paramod$f65af1b660a013aeaba9a5dc41e6bdede642e3c3$lut for cells of type $lut.
-Using template $paramod$c627e7fc36fd5f8fca16a74816d11be60e4b9470$lut for cells of type $lut.
-Using template $paramod$a03ef989f8f4e1878ce2f5c4e0e3d2dfb54307ef$lut for cells of type $lut.
-Using template $paramod$43f80bfa85ab470887310b168a5d80144489e087$lut for cells of type $lut.
-Using template $paramod$4133fe00eb18442862a284ccc67a95f8194d041c$lut for cells of type $lut.
-Using template $paramod$373d637619c29cb9150902df9528107e5f3b8288$lut for cells of type $lut.
-Using template $paramod$452071dd5b4d2cf3c491a87328b95851097aed44$lut for cells of type $lut.
-Using template $paramod$682dcf7a44e09cdf417bc55247ac658426f4c8e6$lut for cells of type $lut.
-Using template $paramod$49a48ea861a32e79fb34f6a8d9056f27f84d2732$lut for cells of type $lut.
-Using template $paramod$8fd8efe0a495790cc9ddc97266933ea8a8cd7b45$lut for cells of type $lut.
-Using template $paramod$a588efb2c12dd91e9494070799a8f877c212665c$lut for cells of type $lut.
-Using template $paramod$45a233d4e3290297343eb1bed005ecfcde25fa37$lut for cells of type $lut.
-Using template $paramod$833582361e14b3ee2e66ad676022ab35d7aa7e28$lut for cells of type $lut.
-Using template $paramod$6ca49d6d7e3fcf38c09b514f93cffe85e648de18$lut for cells of type $lut.
-Using template $paramod$3e9998a5b5418084a90a1a53c017406b6f3e634a$lut for cells of type $lut.
-Using template $paramod$7ffc04c088a4897014506d1e561a14b627924059$lut for cells of type $lut.
-Using template $paramod$d7856980c8e3df62f97c26ab34037f33a9e831b5$lut for cells of type $lut.
-Using template $paramod$c1747c0c7cb4f86c4813433b4d41103fb3fe105a$lut for cells of type $lut.
-Using template $paramod$84a9bb4ea112cac05b4a6b108a4c6ec2091f4ef3$lut for cells of type $lut.
-Using template $paramod$67913137ca3f966ff2f569165be4786b1518b76c$lut for cells of type $lut.
-Using template $paramod$d153b56b0a7fa15b91ae6e9c35ace46dc29a9c9e$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01111000 for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10000101 for cells of type $lut.
-Using template $paramod$6b0849254d6c87461fb93e37cc18f089f61eb912$lut for cells of type $lut.
-Using template $paramod$b3b5cad4a8d1fcdc5e4c7aa27a4d43090669fc00$lut for cells of type $lut.
-Using template $paramod$e989d0218982abcc294e6ae7d476189143f5430d$lut for cells of type $lut.
-Using template $paramod$5bdfaa6eaba1b449525afa8da73ba46d7c2a5136$lut for cells of type $lut.
-Using template $paramod$313bcf3b4b2afcbe0466403d941edcafef0af801$lut for cells of type $lut.
-Using template $paramod$77268019239d7d46332da9cb6aa01cbf3ba29ee3$lut for cells of type $lut.
-Using template $paramod$ff253a94829d814a60ddcfeeb8603a207c865f01$lut for cells of type $lut.
-Using template $paramod$e3f15dbf386eb2d9773236c73b6cf924ec3294ee$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'11110001 for cells of type $lut.
-Using template $paramod$0902f8d1c9e5c6c713b965d4ca4e29b6b02cf790$lut for cells of type $lut.
-Using template $paramod$46ca4a7f696642c56ce23381d0e2a69ca11e7103$lut for cells of type $lut.
-Using template $paramod$575b200168b9e109c2ed99df4359056f2c6696ac$lut for cells of type $lut.
-Using template $paramod$ad823946862e656cf7f96d606b18b8f972dc6d6c$lut for cells of type $lut.
-Using template $paramod$52dba6761665aed9152453b29dcef2985488963d$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10100100 for cells of type $lut.
-Using template $paramod$d53578aacfd93124244778d88be0e90eb09c1b1b$lut for cells of type $lut.
-Using template $paramod$891d17c049ef97ffbed57a5d4edf3f9e83d4f776$lut for cells of type $lut.
-Using template $paramod$38f9bf4dd2329347b8471f0a98443dd323386889$lut for cells of type $lut.
-Using template $paramod$59f2a3e232df3029c8bc36978b9bbe72a71dfb5a$lut for cells of type $lut.
-Using template $paramod$cdc5bba2585477f1744fd1f869bebc8beb23d707$lut for cells of type $lut.
-Using template $paramod$12879138d1e376f344e47ea40be66b776233be75$lut for cells of type $lut.
-Using template $paramod$1bf3509a544426de1daa8b6919ee1df60c7165ec$lut for cells of type $lut.
-Using template $paramod$e46703b423a661cd7d311c41833ea655969702cc$lut for cells of type $lut.
-Using template $paramod$a4399ab9ab2086a4dd8377a70187771efe5d8c8a$lut for cells of type $lut.
-Using template $paramod$d6ca727e39f31d51d29072e0f33aa09c65e37336$lut for cells of type $lut.
-Using template $paramod$efc60783c939ae41b2f3555af407b17c007b27f8$lut for cells of type $lut.
-Using template $paramod$c28a8b7ce0535d090c4cfb52e9c74affd52b110c$lut for cells of type $lut.
-Using template $paramod$b2e8d279775d333b39e310bd45fd5952acdde290$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'00011111 for cells of type $lut.
-Using template $paramod$a670b08a47dd8a34f954c50cd06e9996d77e8467$lut for cells of type $lut.
-Using template $paramod$3fd3cd243a8b2f71b0ffe04bdaebf6ad83bcc78e$lut for cells of type $lut.
-Using template $paramod$ead66ba22839f96e739c8f1b5a09bc1717b3be02$lut for cells of type $lut.
-Using template $paramod$adc0b354bb960519a616db7423a6274fc380540e$lut for cells of type $lut.
-Using template $paramod$1cabbe2f17ea824b0f9f091fd1dc13fff0b3a362$lut for cells of type $lut.
-Using template $paramod$0acc8d601702e9b60288baa3d5cf1d38d4f22457$lut for cells of type $lut.
-Using template $paramod$b04f0510561c4bbb703d2e39c6eca682b920366b$lut for cells of type $lut.
-Using template $paramod$c244211b162763cc5b8606c674b3815ad5b3d663$lut for cells of type $lut.
-Using template $paramod$c4a3b10a433eedb517f008b7869cdc7d305e7d36$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01011001 for cells of type $lut.
-Using template $paramod$e5e9da8fed769f971686eed8c5eea50e61f73aaa$lut for cells of type $lut.
-Using template $paramod$c24ed72ebb67e9ead6029e42e909ef7fc0abbb11$lut for cells of type $lut.
-Using template $paramod$703a13a751e631ef123f38f7d2125aeabec0f94c$lut for cells of type $lut.
-Using template $paramod$95647f061a452a57330090c74bbb5ab75f7ee34a$lut for cells of type $lut.
-Using template $paramod$fccccf8bb2add7667329c686feec7546eb9a3ae3$lut for cells of type $lut.
-Using template $paramod$66658cbed86a8310f9b7ba1190d35eff90ee749b$lut for cells of type $lut.
-Using template $paramod$2c5744b1140d1bffcfbc5b3a5098e5a9ebbec559$lut for cells of type $lut.
-Using template $paramod$a06aa83841491819ea0cf939b57a7ccfb595b114$lut for cells of type $lut.
-Using template $paramod$82b4a585d1edcb5c6e755dc9bd3392228a1c1304$lut for cells of type $lut.
-Using template $paramod$a453c648339339cf8085b4c74072c3d56ec2bae9$lut for cells of type $lut.
-Using template $paramod$0a4d85497e20c50068555dd5ad9ad3a7952cab73$lut for cells of type $lut.
-Using template $paramod$41326ad8644342a66dfb051d050f2b6fbf15015b$lut for cells of type $lut.
-Using template $paramod$368ece0cbe0dd8813956f5c0ea41432c34a980c2$lut for cells of type $lut.
-Using template $paramod$c63fb63be97a9db4ce7bd031e26652a8b349a094$lut for cells of type $lut.
-Using template $paramod$fbed19fb84ee7c8a884778d28a96daea96245184$lut for cells of type $lut.
-Using template $paramod$83bbac075f592f65820484d8d7c1874fa68829fa$lut for cells of type $lut.
-Using template $paramod$39a3022e55aa03d0b5478da3a6d9fcb662c62e56$lut for cells of type $lut.
-Using template $paramod$e134ec2a47a2462a591072e65d34fb15b81c90e0$lut for cells of type $lut.
-Using template $paramod$4b815e6c998e04ad0d0242e44b0c58a7a9d0b3b6$lut for cells of type $lut.
-Using template $paramod$bea08a495d16293f8cc454a45845d26cde0762b6$lut for cells of type $lut.
-Using template $paramod$37203517188e0e81c6d1574dd1c274ed56646adf$lut for cells of type $lut.
-Using template $paramod$2a81e4e2039baac4193795e8fad1ab1a9b325795$lut for cells of type $lut.
-Using template $paramod$193d365ba3260f56de4ca734b1cedcf9dc72302b$lut for cells of type $lut.
-Using template $paramod$013ea92584a5ef9f5e69885ec307dff4e97bf522$lut for cells of type $lut.
-Using template $paramod$c4e4e438f53deb14c1ad728c967e8024f686836f$lut for cells of type $lut.
-Using template $paramod$902ed43dcaa6101b2d051ad26600288d910a8996$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'10011011 for cells of type $lut.
-Using template $paramod$db79d511c863f1949edf4b5bf671fd96c9ad821c$lut for cells of type $lut.
-Using template $paramod$07d604fa63557df73201af3ab3c9bef4e6969c47$lut for cells of type $lut.
-Using template $paramod$e53493f89400484e4e19015869a8a6f7d3804aa9$lut for cells of type $lut.
-Using template $paramod$b2192df6f90569fea4015d0a6658bdc192199f95$lut for cells of type $lut.
-Using template $paramod$07fb0ffbc4e0e2eb0a6a160c2a92c89d999b4f2c$lut for cells of type $lut.
-Using template $paramod$f58e0d90afc57a738914697b6a4a7319b30d7e7e$lut for cells of type $lut.
-Using template $paramod$15d3dd50cc31557057274aea687fe2a8296cd155$lut for cells of type $lut.
-Using template $paramod$5b636801cd8c0464565cdeac73a9093ab9447b35$lut for cells of type $lut.
-Using template $paramod$2a324c44d229902ebf867a4c85b027228b03e405$lut for cells of type $lut.
-Using template $paramod$498daa9936ffa1c0b12d774cacc95a35d14b818e$lut for cells of type $lut.
-Using template $paramod$f840a6057f1d372c3e6a8a9fa5382749feb221f5$lut for cells of type $lut.
-Using template $paramod$44a31e5be59cd3ca0870eb8d89e5e32d8a2f2a5c$lut for cells of type $lut.
-Using template $paramod$6fbfa9152fe11b8dc65345f8b34a39031d44214e$lut for cells of type $lut.
-Using template $paramod$cd6ebc61afe8cc37fe72c1a2becd71e60adabc00$lut for cells of type $lut.
-Using template $paramod$6fffb11eb3a571a1bb712a286bdf5b8f4b321f0a$lut for cells of type $lut.
-Using template $paramod$65856fb08e09681d374fb12f11a768916d10bf38$lut for cells of type $lut.
-Using template $paramod$d1dc785fc5b97e7bec2be30ee7302c8cf250ad22$lut for cells of type $lut.
-Using template $paramod$635b7f34fc1bd02d56f7d946c2b4390eed09757c$lut for cells of type $lut.
-Using template $paramod$2f35f125a78690286f0cd2faecbaee9c64828b65$lut for cells of type $lut.
-Using template $paramod$92ffb5506c71d7eeb5af7f25dad6665365af62e4$lut for cells of type $lut.
-Using template $paramod$lut\WIDTH=32'00000000000000000000000000000011\LUT=8'01011011 for cells of type $lut.
-Using template $paramod$d7c634c964a868577f926c0690c937ab5b147f6e$lut for cells of type $lut.
-Using template $paramod$c68ae9b4fe1a5657ae8c2f70a3c6d65260813cc9$lut for cells of type $lut.
-No more expansions possible.
-<suppressed ~13423 debug messages>
-Removed 0 unused cells and 13596 unused wires.
-
-12.54. Executing AUTONAME pass.
-Renamed 16025 objects in module fpga_top.
-<suppressed ~16025 debug messages>
-
-12.55. Executing HIERARCHY pass (managing design hierarchy).
-Attribute `top' found on module `fpga_top'. Setting top module to fpga_top.
-
-12.55.1. Analyzing design hierarchy..
-Top module:  \fpga_top
-
-12.55.2. Analyzing design hierarchy..
-Top module:  \fpga_top
-Removed 0 unused modules.
-
-12.56. Printing statistics.
-
-=== fpga_top ===
-
-        +----------Local Count, excluding submodules.
-        | 
-     6041 wires
-    17765 wire bits
-     6041 public wires
-    17765 public wire bits
-        9 ports
-        9 port bits
-       21 cells
-        9   $scopeinfo
-       12   SB_MAC16
-    10280 submodules
-     1464   SB_CARRY
-        5   SB_DFF
-      304   SB_DFFE
-     2561   SB_DFFESR
-       25   SB_DFFESS
-       33   SB_DFFSR
-        3   SB_DFFSS
-     5885   SB_LUT4
-
-=== design hierarchy ===
+       24 fpga_top
 
         +----------Count including submodules.
         | 
-       21 fpga_top
-
-        +----------Count including submodules.
-        | 
-     6041 wires
-    17765 wire bits
-     6041 public wires
-    17765 public wire bits
+    10290 wires
+    43549 wire bits
+    10290 public wires
+    43549 public wire bits
         9 ports
         9 port bits
         - memories
         - memory bits
         - processes
-       21 cells
-        9   $scopeinfo
-       12   SB_MAC16
-    10280 submodules
-     1464   SB_CARRY
-        5   SB_DFF
-      304   SB_DFFE
-     2561   SB_DFFESR
-       25   SB_DFFESS
-       33   SB_DFFSR
+       24 cells
+       10   $scopeinfo
+       14   SB_MAC16
+    22659 submodules
+     2044   SB_CARRY
+       12   SB_DFF
+      989   SB_DFFE
+     7248   SB_DFFESR
+       18   SB_DFFESS
+       44   SB_DFFSR
         3   SB_DFFSS
-     5885   SB_LUT4
+    12301   SB_LUT4
 
-12.57. Executing CHECK pass (checking for obvious problems).
+12.58. Executing CHECK pass (checking for obvious problems).
 Checking module fpga_top...
 Found and reported 0 problems.
 
-12.58. Executing JSON backend.
+12.59. Executing JSON backend.
 
 13. Printing statistics.
 
@@ -377,24 +36,25 @@ Found and reported 0 problems.
 
         +----------Local Count, excluding submodules.
         | 
-     6041 wires
-    17765 wire bits
-     6041 public wires
-    17765 public wire bits
+    10290 wires
+    43549 wire bits
+    10290 public wires
+    43549 public wire bits
         9 ports
         9 port bits
-    10301 cells
-        9   $scopeinfo
-     1464   SB_CARRY
-        5   SB_DFF
-      304   SB_DFFE
-     2561   SB_DFFESR
-       25   SB_DFFESS
-       33   SB_DFFSR
+    22683 cells
+       10   $scopeinfo
+     2044   SB_CARRY
+       12   SB_DFF
+      989   SB_DFFE
+     7248   SB_DFFESR
+       18   SB_DFFESS
+       44   SB_DFFSR
         3   SB_DFFSS
-     5885   SB_LUT4
-       12   SB_MAC16
+    12301   SB_LUT4
+       14   SB_MAC16
 
-End of script. Logfile hash: 805cee6acd, time: 97.04s, user: 6.84s, system: 0.27s, MEM: 178.47 MB peak
+Warnings: 1 unique messages, 1 total
+End of script. Logfile hash: 04a922d2b6, time: 42.28s, user: 21.67s, system: 0.56s, MEM: 400.03 MB peak
 Yosys 0.69+post (git sha1 143eb14f9cc55d6f8927e68523b0c9d2166ed02c, Release, AppleClang clang++ 21.0.0.21000101)
-Time spent: 60% 1x abc9_exe (10 sec), 6% 70x opt_expr (1 sec), ...
+Time spent: 46% 1x abc9_exe (19 sec), 12% 95x opt_expr (5 sec), ...

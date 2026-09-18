@@ -6,8 +6,16 @@ One command, from a clean checkout:
 make -C fpga
 ```
 
-That runs yosys + nextpnr for two targets, writes `fpga/reports/`, and records
-the RTL commit that produced them in `fpga/reports/provenance.txt`.
+That runs `srccheck`, writes provenance, runs yosys + nextpnr for two targets
+and the per-block sweep, and records the RTL commit that produced them in
+`fpga/reports/provenance.txt`. `make -C fpga headroom` adds the completed-808
+margin probe.
+
+**Reproduced.** With `fpga/build/` deleted *and the generated reports deleted*
+— `make clean` alone is not enough, because the report targets are then still
+newer than their sources and make does nothing — a full rerun regenerates
+`ecp5_25f.txt`, `ecp5_25f_headroom.txt` and `blocks.txt` **byte-identically**
+to the committed copies. `ice40_up5k.txt` is the copy from that rerun.
 
 ## Read this before quoting any number from here
 

@@ -1,22 +1,23 @@
 
 13. Printing statistics.
 
-=== fpga_top ===
+=== ulx3s_top ===
 
         +----------Local Count, excluding submodules.
         | 
-     6128 wires
-    17227 wire bits
-     6128 public wires
-    17227 public wire bits
-        9 ports
-        9 port bits
-     9454 cells
-        9   $scopeinfo
-      828   CCU2C
-      155   L6MUX21
-     4675   LUT4
-       12   MULT18X18D
-      843   PFUMX
-     2932   TRELLIS_FF
+    11555 wires
+    45221 wire bits
+    11555 public wires
+    45221 public wire bits
+       11 ports
+       18 port bits
+    22534 cells
+       11   $scopeinfo
+     1163   CCU2C
+        1   EHXPLLL
+      250   L6MUX21
+    10970   LUT4
+       14   MULT18X18D
+     1713   PFUMX
+     8412   TRELLIS_FF
 
