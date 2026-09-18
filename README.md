@@ -26,6 +26,25 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 
 ## Where we are
 
+### The board
+
+<!-- BOARD:BEGIN -->
+**0 of 100 acceptance cases have a valid measurement.** 0 pass · 0 fail · 0 no verdict · 100 not run.
+
+> **No case has been measured on the integrated RTL yet**, so these describe a model rather than the instrument.
+
+| | cases | valid | pass | fail | no verdict | not run |
+|---|---:|---:|---:|---:|---:|---:|
+| Drums | 32 | 0 | 0 | 0 | 0 | 32 |
+| Mono | 32 | 0 | 0 | 0 | 0 | 32 |
+| Filters | 24 | 0 | 0 | 0 | 0 | 24 |
+| Ensemble | 12 | 0 | 0 | 0 | 0 | 12 |
+
+Every case is in [`docs/scorecard/BOARD.md`](docs/scorecard/BOARD.md). **Coverage is reported separately from agreement on purpose** — a case without a verdict is missing verification, not evidence the instrument is wrong, and it must not be able to flatter a percentage.
+<!-- BOARD:END -->
+
+### The capability graph
+
 <!-- DAG:BEGIN -->
 ```mermaid
 graph LR

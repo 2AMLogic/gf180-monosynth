@@ -116,6 +116,8 @@ def main() -> int:
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if the report is internally inconsistent")
     ap.add_argument("--verbose", action="store_true", help="one line per case")
+    ap.add_argument("--readme", action="store_true",
+                    help="write the summary into README.md between its BOARD markers")
     ap.add_argument("--markdown", metavar="PATH", nargs="?", const="docs/scorecard/BOARD.md",
                     help="write the full board as markdown (default docs/scorecard/BOARD.md)")
     a = ap.parse_args()
@@ -174,6 +176,38 @@ def main() -> int:
         if "integrated-rtl" not in engines:
             print("  NOTE: no case has been measured on the integrated RTL. Results "
                   "describe a model, not the instrument.")
+
+    if a.readme:
+        import re
+        rp = ROOT / "README.md"
+        txt = rp.read_text()
+        B, E = "<!-- BOARD:BEGIN -->", "<!-- BOARD:END -->"
+        if B not in txt:
+            print(f"README.md has no {B} marker", file=sys.stderr)
+            return 2
+        bits = [f"**{valid} of {n} acceptance cases have a valid measurement.** "
+                f"{st[PASS]} pass · {st[FAIL]} fail · {st[NO_VERDICT]} no verdict · "
+                f"{st[NOT_RUN]} not run.", ""]
+        if "integrated-rtl" not in engines:
+            bits += ["> **No case has been measured on the integrated RTL yet**, so these "
+                     "describe a model rather than the instrument.", ""]
+        bits += ["| | cases | valid | pass | fail | no verdict | not run |",
+                 "|---|---:|---:|---:|---:|---:|---:|"]
+        for fam in ["Drums", "Mono", "Filters", "Ensemble"]:
+            sub = [(c, r) for c, r in rows if c["family"] == fam]
+            if not sub:
+                continue
+            fn, fst, fv = tally(sub)
+            bits.append(f"| {fam} | {fn} | {fv} | {fst[PASS]} | {fst[FAIL]} | "
+                        f"{fst[NO_VERDICT]} | {fst[NOT_RUN]} |")
+        bits += ["", "Every case is in [`docs/scorecard/BOARD.md`](docs/scorecard/BOARD.md). "
+                 "**Coverage is reported separately from agreement on purpose** — a case "
+                 "without a verdict is missing verification, not evidence the instrument "
+                 "is wrong, and it must not be able to flatter a percentage.", ""]
+        new = re.sub(re.escape(B) + r".*?" + re.escape(E), B + "\n" + "\n".join(bits) + E,
+                     txt, flags=re.S)
+        rp.write_text(new)
+        print(f"wrote the board summary into README.md")
 
     if a.markdown:
         out = pathlib.Path(a.markdown)
