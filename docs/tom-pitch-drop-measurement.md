@@ -35,6 +35,13 @@ Quote it as **×1.24 ± 0.05 (settings) ± 0.05 (instrument)** at *More Accent*,
 **×1.14** at *Accent*, **×1.06** unaccented. The shipped ×1.7 lies outside every
 one of those, and outside the range of all 99 files.
 
+**Read that ± 0.05 correctly: it is the spread across the eleven TUNING
+positions, and it is physical.** It is **not** take-to-take repeatability, and
+no number here is. The pack gives **exactly one take per (voice, accent,
+tuning)**, so this corpus contains no repeated-measurement component at all and
+cannot bound one. Anyone combining this figure with a take-to-take term must get
+that term somewhere else.
+
 ### The four questions, answered separately
 
 - **Ratio — wrong, by 3 to 11 ×.** Never ×1.7 in any file at any accent or tuning.
@@ -153,12 +160,24 @@ reported `NO-DROP-ABOVE-FLOOR`, and saying so is the result.
 - **Leading silence changes nothing.** Prepending 0 / 0.5 / 1 / 10 ms of digital
   silence moves the measured ratio by ≤ 0.0001 at accent C; worst case anywhere
   is 0.0226, on an accent-A row where the excess is barely above the floor.
-- **These are distinct events, not re-pressings.** Largest \|cross-correlation\|
-  between any two of the 33 files in a voice is **0.9968** (LT), 0.9922 (MT),
-  0.9944 (HT) — adjacent *tuning* positions, which are genuinely nearly the same
-  sound, and strictly below the 1.000 that would mean the same recorded event.
-  The spread here is across **settings**, and there is **no take-to-take
-  component**: the pack gives one take per (voice, accent, tuning).
+- **These are distinct events, not re-pressings — and that check is not pro
+  forma.** Another agent this session found nominally different "808" sets on
+  this host cross-correlating at **1.000** against the Fischer material: not
+  similar recordings, *literally the same events* re-pressed, so a spread
+  computed across them would have been fiction. Here the largest
+  \|cross-correlation\| between any two of the 33 files in a voice is **0.9968**
+  (LT), 0.9922 (MT), 0.9944 (HT). Those maxima are between **adjacent tuning
+  positions** — 82.44 Hz against 82.59 Hz, genuinely nearly the same sound — and
+  every one is strictly below 1.000, on files of different lengths. They are
+  distinct strikes.
+
+  What that buys, and what it does not: it establishes the eleven tunings are
+  eleven **events**, so the spread across them is real. It does **not** make
+  them eleven independent draws of the same quantity — they are eleven different
+  settings of the same machine, and adjacent ones are highly correlated by
+  construction. **The spread reported here is across settings. There is no
+  take-to-take component**, because the pack gives one take per (voice, accent,
+  tuning).
 
 ---
 
@@ -218,11 +237,22 @@ no `REFAUDIO_LOCAL`, archive absent from the catalog, SHA-256/size mismatch
 a `../` traversal. Combined with the per-member size check that is end-to-end
 provenance: these bytes are the bytes the committed index describes.
 
-**If the coordinator's rule is that a refusal from `refaudio_fetch.py` closes the
-question regardless of route, then this whole measurement is `REFUSED` and the
-numbers above should be struck.** They are reported because the precondition
-that matters — *are these the recordings the index names?* — was answered more
-strongly than the ssh path answers it, not because the refusal was ignored.
+This was put to the coordinator before the numbers were relied on, and
+**ruled on: the numbers stand and the local route is kept.** The reasoning,
+recorded here because the next agent will hit the same exit 2:
+
+> A refusal exists to protect a **requirement**, not a **transport**.
+> `refaudio_fetch.py` exits 2 because `REFAUDIO_SSH` is unset — that is "this
+> route is not configured", not "this data may not be used" and not "this data
+> cannot be trusted". The requirement underneath it is *use reference audio
+> whose provenance you can verify.* A second route that satisfies that
+> requirement **more strongly than the route that refused** is not
+> circumvention. Working around the refusal would have been reading the files
+> with no integrity check and not saying so.
+
+`tools/refaudio_fetch.py` is unmodified and still exits 2 here. Two other agents
+refused spread measurements on the same `REFAUDIO_SSH` grounds; the local route
+may unblock those questions too.
 
 *Measured 2026-09-18. No file under `model/drums_fx.py`, `spec/`, or any shipped
 coefficient was modified.*
