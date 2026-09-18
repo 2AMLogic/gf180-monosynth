@@ -672,9 +672,13 @@ def render(probe_disqualified: bool = True) -> dict:
             "sha256": file_sha256(dest),
             "peak": round(float(np.abs(y).max()), 9),
             "rms": round(float(np.sqrt(np.mean(np.square(y)))), 9),
-            "render_seconds": round((datetime.datetime.now() - t0).total_seconds(), 2),
         }
-        print(f"rendered {cid}  {len(y)} frames  peak {np.abs(y).max():.4f}", flush=True)
+        # How long the render took is a stopwatch reading, not provenance of the
+        # audio, and putting it in the file would make every re-render show a
+        # diff whether or not anything about the reference changed. The diff IS
+        # the review here, so it carries only what a reader must act on.
+        print(f"rendered {cid}  {len(y)} frames  peak {np.abs(y).max():.4f}  "
+              f"{(datetime.datetime.now() - t0).total_seconds():.2f} s", flush=True)
 
     for d in devices.values():
         del d

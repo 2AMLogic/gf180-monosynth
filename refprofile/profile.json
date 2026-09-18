@@ -24,9 +24,9 @@
   }
  },
  "built": {
-  "at": "2026-09-18T21:36:10Z",
+  "at": "2026-09-18T21:55:22Z",
   "worktree": {
-   "commit": "7176b4c",
+   "commit": "25d6b9f",
    "branch": "refs-frozen-profile",
    "dirty": false,
    "uncommitted_sha256": "e3b0c44298fc1c14",
@@ -38,7 +38,7 @@
   "dawdreamer": "0.9.0",
   "platform": "darwin",
   "rig_source_sha256": "99b1c862857a34a8689e9389010aabc86e3ec790c37da1ee5de84b88e449dce9",
-  "builder_sha256": "2818da944d43ff93dde03b6dd149ed00925512f94b959d3d53610b9fa90db514"
+  "builder_sha256": "ce58b0eb5b9fe2f9670f7d5de747404e6141a93df660f89c5005316e17af2c0d"
  },
  "rigs": {
   "surge-type2": {
@@ -14601,7 +14601,7 @@
    "sha256": "ad30cebd73b77be3be7336f0d56b485e12d38f0f4dc300668352343b628e87c5",
    "peak": 0.092715234,
    "rms": 0.058456538,
-   "render_seconds": 0.57
+   "render_seconds": 0.54
   },
   "surge-type2/lp-cut250-res0.00": {
    "rig": "surge-type2",
@@ -15045,7 +15045,7 @@
    "sha256": "34abbb23750c79f4630ae106176161956c401e47631ac2d50c671607dbe0a11f",
    "peak": 0.094234444,
    "rms": 0.018233914,
-   "render_seconds": 0.28
+   "render_seconds": 0.27
   },
   "surge-type2/lp-cut250-res0.80": {
    "rig": "surge-type2",
@@ -15267,7 +15267,7 @@
    "sha256": "d53af531b56b52873a5b528e5a4069e566404fb33d71e38d2394a3223f619f7b",
    "peak": 0.123794615,
    "rms": 0.019101902,
-   "render_seconds": 0.27
+   "render_seconds": 0.29
   },
   "surge-type2/lp-cut250-res0.86": {
    "rig": "surge-type2",
@@ -15489,7 +15489,7 @@
    "sha256": "e07e9a05c02b53d35969a8d11f48116fbcea49a7d93462d35f7f2702e23d38fe",
    "peak": 0.16464363,
    "rms": 0.021608048,
-   "render_seconds": 0.27
+   "render_seconds": 0.29
   },
   "surge-type2/lp-cut250-res0.90": {
    "rig": "surge-type2",
@@ -15711,7 +15711,7 @@
    "sha256": "d4fff6ecb367f4267156b7f16428006f960742d2c15ea153576c259747201c79",
    "peak": 0.217213929,
    "rms": 0.025818429,
-   "render_seconds": 0.28
+   "render_seconds": 0.27
   },
   "surge-type2/lp-cut250-res0.93": {
    "rig": "surge-type2",
@@ -15933,7 +15933,7 @@
    "sha256": "12030d2c545988e9927b0bc3a30168a7700cf3514354b871d76125d2f39ae8da",
    "peak": 0.289526194,
    "rms": 0.032284543,
-   "render_seconds": 0.27
+   "render_seconds": 0.29
   },
   "surge-type2/lp-cut250-res0.95": {
    "rig": "surge-type2",
@@ -16155,7 +16155,7 @@
    "sha256": "3d26d029350260ba510f8aa8dba3e25538bdc407ad0970eebbbf07ec43417d49",
    "peak": 0.373693734,
    "rms": 0.040171357,
-   "render_seconds": 0.27
+   "render_seconds": 0.28
   },
   "surge-type2/lp-cut250-res0.97": {
    "rig": "surge-type2",
@@ -16377,7 +16377,7 @@
    "sha256": "d34f02f6be8a82f44c2e7f6735f251eaaa4c92956933725bf5a98dfb2633e344",
    "peak": 0.524255455,
    "rms": 0.05454097,
-   "render_seconds": 0.31
+   "render_seconds": 0.28
   },
   "surge-type2/lp-cut250-res0.99": {
    "rig": "surge-type2",
@@ -16821,7 +16821,7 @@
    "sha256": "e6c6b772d79ae169e2a1065c37a2b05e346492659b20a8d2a829407e64102ad9",
    "peak": 0.895497262,
    "rms": 0.094299397,
-   "render_seconds": 0.28
+   "render_seconds": 0.27
   },
   "surge-type2/drive-100hz-cut250-res0.50-in-12dbfs": {
    "rig": "surge-type2",
