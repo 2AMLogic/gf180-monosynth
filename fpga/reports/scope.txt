@@ -1,0 +1,37 @@
+=== what is in the build: the check, not the claim ===
+
+Every synth_top FPGA figure this repository published before 2026-09-18 was a
+chip with PLACEHOLDER DRUMS, because fpga/Makefile's SRC list omitted
+drum_kit.v, drum_dp.v, drum_regs.v and modal_dp.v, and synth_top.v at that
+commit (3372e789, branch flow/fpga) instantiated drum_section_placeholder.
+The claim that this is no longer true is checkable; here is the check.
+
+1. no placeholder MODULE or INSTANCE survives in the RTL or the FPGA wrappers
+   (comments and the archived ASIC area JSONs under rtl-sketch/area/results/
+   still mention the name, which is why this grep is restricted to Verilog and
+   to declaration/instantiation syntax):
+
+$ grep -nE "^[[:space:]]*(module[[:space:]]+)?drum_section_placeholder" rtl-sketch/*.v fpga/rtl/*.v
+  (no matches)
+
+2. the real drum section IS instantiated by the top level being routed:
+
+$ grep -n "drum_regs #\|drum_kit #" rtl-sketch/synth_top.v
+105:    drum_regs #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES)) u_dregs (
+115:    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS)) u_drums (
+
+3. and the file set the Makefile routes is the file set the bench verifies:
+
+$ make -C fpga srccheck
+srccheck: the routed file set is the verified file set (10 files)
+
+Check 3 is the one that matters going forward. It compares the Makefile's CORE
+list against rtl-sketch/verify_synth_top.py's own SRCS tuple and fails the
+build if they differ. The original defect was exactly that drift, and nothing
+but a comment was watching for it.
+
+Still stale elsewhere, and deliberately not touched by this branch because they
+are the ASIC flow's records and another agent owns them:
+  fpga/reports/x1_ab.txt, fpga/scripts/x1_ab.sh, fpga/scripts/x1_report.py
+  fpga/reports/README.md
+They are gf180 CELL-area records of the placeholder chip and say so.
