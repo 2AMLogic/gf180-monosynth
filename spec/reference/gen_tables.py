@@ -12,6 +12,7 @@ drifting away from it. It does three things:
         SINE_Q256  256 x Q1.15     dsp._QUARTER (midpoint-sampled quarter wave)
         TANH16      16 x Q1.15     fixed.LadderFx(tanh_entries=16, interp=True).tbl
         G_ROM128   129 x Q0.16     voice_fx.make_g_rom()  (128 entries + guard)
+        K_ROM32     33 x Q1.15     voice_fx.make_k_rom()  (32 entries + guard, DR 0006)
      plus two derived images the contract also states hashes for:
         SINE_FULL1024   the 1024-entry expansion via voice_fx.sine_fx
         TANH16_ROM      the 17-word ROM image ladder_dp.v reads (TANH16 + 32767)
@@ -75,6 +76,10 @@ def g_rom128() -> list[int]:
     return [int(v) for v in vf.make_g_rom(vf.GROM_BITS, vf.LADDER_CFG.get("oversample", 2))]
 
 
+def k_rom32() -> list[int]:
+    return [int(v) for v in vf.make_k_rom(vf.KROM_BITS, vf.GROM_BITS, vf.LADDER_CFG.get("oversample", 2))]
+
+
 # name, values, hex digits per word, signed?, hex file (None = derived only)
 def tables():
     return [
@@ -84,6 +89,7 @@ def tables():
         ("TANH16", tanh16(), 4, True, "tanh16.hex"),
         ("TANH16_ROM", tanh16_rom(), 4, True, None),
         ("G_ROM128", g_rom128(), 4, False, "g_rom128.hex"),
+        ("K_ROM32", k_rom32(), 4, False, "k_rom32.hex"),
     ]
 
 
@@ -102,8 +108,8 @@ def _rows(vals, per_row, fmt=lambda v: str(v)):
 
 
 def appendix() -> str:
-    ni, sq, sf, th, thr, gr = (note_inc(), sine_q256(), sine_full1024(),
-                               tanh16(), tanh16_rom(), g_rom128())
+    ni, sq, sf, th, thr, gr, kr = (note_inc(), sine_q256(), sine_full1024(),
+                                   tanh16(), tanh16_rom(), g_rom128(), k_rom32())
     s = []
     s.append("### Appendix A -- NOTE_INC: MIDI note number -> 24-bit phase increment\n")
     s.append("Normative. `NOTE_INC[n] = round(440 * 2^((n-69)/12) * 2^24 / 48000)`, evaluated by "
@@ -146,7 +152,18 @@ def appendix() -> str:
     s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
     s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     s.append(_rows(gr, 8))
-    s.append(f"\nSHA-256 of the 129 decimal values joined by commas: `{sha(gr)}`")
+    s.append(f"\nSHA-256 of the 129 decimal values joined by commas: `{sha(gr)}`\n")
+    s.append("### Appendix E -- K_ROM32: cutoff (Hz) -> resonance compensation, i = 0..32\n")
+    s.append("Normative (DR 0006). `K_ROM32[i] = round(k_onset(clamp(1024*i, 30, 21600)) / 4 * 32768)` -- "
+             "unsigned Q1.15, EDGE sampled every 1024 Hz, 32 entries plus entry 32 as the interpolation "
+             "guard (`voice_fx.make_k_rom`). `k_onset` is the small-signal onset of self-oscillation of the "
+             "linearised loop, section 10.2 (`voice_fx.k_onset`); 32768 means k = 4 res, the uncompensated "
+             "filter. Entries 0..21 are reachable through the cutoff clamp of section 10; entries 22..32 are "
+             "evaluated at the clamp and never read. Eight entries per row.\n")
+    s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
+    s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    s.append(_rows(kr, 8))
+    s.append(f"\nSHA-256 of the 33 decimal values joined by commas: `{sha(kr)}`")
     return "\n".join(s) + "\n"
 
 

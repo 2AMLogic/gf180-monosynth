@@ -11,7 +11,7 @@ Being precise about this, because "synth" covers five different things:
 | | | |
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
-| 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer. Float remains only where the host computes note-on register values and ROM contents from physical units (Hz → increment, seconds → rate) |
+| 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
 | 3 | RTL, bit-exact against (2) | **ladder and modal: done, in simulation** — each is identical to its model over 28,800 / 48,000 samples, and each bench is shown to fail on injected defects. `touch_dp.v`: unverified |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
@@ -64,19 +64,24 @@ inner loop.
 
 ## Measured
 
-Self-oscillation tracking the cutoff, which is the test that the resonance path
-and the delay compensation are both right:
+Self-oscillation at its onset, measured on the fixed-point filter
+(`model/k_comp_sweep.py`): the loop gain it starts at, and the frequency it
+oscillates at:
 
-| cutoff | oscillation | error |
-|---:|---:|---:|
-| 200 Hz | 197.5 Hz | −1.2 % |
-| 400 Hz | 397.5 Hz | −0.6 % |
-| 800 Hz | 800.0 Hz | 0.0 % |
-| 1600 Hz | 1630.0 Hz | +1.9 % |
+| cutoff | onset k (4 = the analog value) | oscillation | error |
+|---:|---:|---:|---:|
+| 200 Hz | 4.02 | 195.9 Hz | −2.0 % |
+| 800 Hz | 4.10 | 792.3 Hz | −1.0 % |
+| 1600 Hz | 4.19 | 1601.4 Hz | +0.1 % |
+| 3 kHz | 4.36 | 3060 Hz | +2.0 % |
+| 10 kHz | 4.85 | 10719 Hz | +7.2 % |
 
-Above ~3 kHz it stops self-oscillating at fixed resonance — the paper's own
-caveat that required feedback varies with frequency. A small compensation ROM
-in silicon; **not implemented**, and the filter's first open work item.
+At a fixed `k = 4·res` the filter stopped self-oscillating above ~3 kHz — the
+paper's own caveat that the required feedback varies with frequency.
+[DR 0006](spec/decision-records/0006-resonance-compensation-rom.md) adds a
+32-entry compensation ROM (528 bits) so that `res = 1` is the onset at every
+cutoff within 0.4 %; the tuning error in the last column is recorded there
+and not yet corrected.
 
 ### Fixed-point sizing
 
@@ -96,8 +101,9 @@ in silicon; **not implemented**, and the filter's first open work item.
 
 The interpolation is a multiply, and it goes through the one shared multiplier
 (two clocks per `tanh`), so the table costs no second multiplier. The RTL that
-is bit-exact against this model synthesises to **5,725 cells with the 16-entry
-table and 7,058 with 256**, 24 clocks per sample. The multiplier is 24 × 20 —
+is bit-exact against this model synthesises to **5,711 cells with the 16-entry
+table and 7,054 with 256**, 24 clocks per sample, with the 19-bit output word
+of DR 0005 (5,725 / 7,058 with the 16-bit output of rev 1). The multiplier is 24 × 20 —
 it has to carry `k·fb` at full state precision and the two 20-bit gains — and
 is 3,299 of those cells, 58 %. Against `gf180-polysynth`'s 19,049-cell core
 the filter is about **+30 %**.
@@ -192,12 +198,17 @@ about −73 dBFS, under any DAC's noise floor. (At resonance 1.02 the residual i
 ~650 LSB, but that is self-oscillation working as intended.)
 
 **Four of the eight audition patches exceed full scale.** `growl-bass` peaks at
-1.787 with 7.1 % of samples over. In float this is invisible because the
-renderer normalises afterwards; in fixed point it hard-clips, and that clipping
-is the entire 13 dB gap between the two models on that patch — no amount of
-extra state bits moves it, because it was never a precision problem. Gain
-staging is now an open design decision: a ladder saturating on purpose is the
-sound, but it should be a designed output stage, not an accident.
+1.94 × full scale at the ladder's output. In float this is invisible because
+the renderer normalises afterwards; in fixed point it hard-clipped at the
+ladder's 16-bit output, and that clipping was the entire 13 dB gap between the
+two models on that patch — no amount of extra state bits moves it, because it
+was never a precision problem.
+[DR 0005](spec/decision-records/0005-gain-structure-headroom-and-the-vca.md)
+designs the gain structure: the ladder's output word is Q4.15, the amplitude
+envelope is a VCA after the filter (the Minimoog's order, so a self-oscillating
+note ends), and a host `vol` register in front of a hard 16-bit rail replaces
+the fixed 0.9. At the reference volume nothing clips and `growl-bass` measures
+−32 dB against the float.
 
 ### The rest of the voice, measured
 
@@ -244,33 +255,36 @@ naive oscillators — the PolyBLEP in `dsp.py` had never been wired in — so th
 like-for-like reference is `mono_note(blep=True)`, added here (off by default
 so the audition renders do not change).
 
-| patch | vs float | float clipped like fixed | clipped % | front end alone |
-|---|---:|---:|---:|---:|
-| bass-classic | −30.0 dB | −38.9 dB | 1.7 % | −53.5 dB |
-| bass-octave | −29.1 dB | −38.4 dB | 3.0 % | −58.0 dB |
-| lead-line | −19.5 dB | −19.5 dB | 0 | −47.2 dB |
-| lead-glide (glide off) | −22.7 dB | −22.7 dB | 0 | −52.2 dB |
-| filter-sweep | −27.3 dB | −27.3 dB | 0 | −31.7 dB |
-| pluck-seq | −25.3 dB | −25.3 dB | 0 | −47.5 dB |
-| growl-bass | −13.4 dB | −31.2 dB | 8.7 % | −43.5 dB |
-| self-osc-whistle | −27.8 dB | −27.8 dB | 0 | −49.6 dB |
+| patch | vs float, rev 1 | vs float, rev 3 | with DR 0006's compensation |
+|---|---:|---:|---:|
+| bass-classic | −30.0 dB | −38.9 dB | −26.8 dB |
+| bass-octave | −29.1 dB | −37.5 dB | −25.3 dB |
+| lead-line | −19.5 dB | −19.6 dB | −13.1 dB |
+| lead-glide (glide off) | −22.7 dB | −22.9 dB | — |
+| filter-sweep | −27.3 dB | −27.8 dB | −19.3 dB |
+| pluck-seq | −25.3 dB | −27.2 dB | −18.0 dB |
+| growl-bass | −13.4 dB | −32.3 dB | −17.6 dB |
+| self-osc-whistle | −27.8 dB | −27.1 dB | −7.5 dB |
 
-"Front end alone" is the integer voice against the float front end driving the
-integer ladder — what this conversion cost, separated from what the ladder
-already cost. Reading the rest: the two bass patches and `growl-bass` are the
-**hard clip** at the ladder output (the float peaks at 1.22× and 1.99× full
-scale); everything else is the **ladder's** own fixed-vs-float figure, which
-`fixed_render.py` measured before any of this. The filter sweep's front-end
-share is the one that is not negligible: sub-1 % rounding of the envelope
-times moves a resonance-0.92 peak in time. With glide on, `lead-glide`
-measures +0.6 dB — uncorrelated — because the float glides geometrically and
-the integer voice slews the increment linearly, and that trajectory
-difference shifts every sample after it. That is a modelling choice to make in
-a decision record, not a quantisation effect.
+The float here is `mono_note(blep=True, vca_post=True)` — band-limited, and
+with the VCA after the filter as the integer voice has it since DR 0005 — and
+the integer voice is rendered note by note and summed as the float harness
+is, so that the number measures quantisation and nothing else. Rev 1's two
+bass patches and `growl-bass` were the **hard clip** at the ladder's 16-bit
+output; with DR 0005's headroom they are the **ladder's** own fixed-vs-float
+figure, which `fixed_render.py` measured before any of this. The last column
+is the same voice with the resonance compensation on: the float has none, so
+the difference there is the designed change, largest on the whistle patch
+whose resonance sits where rev 1 could not sustain it. With glide on,
+`lead-glide` measures −0.7 dB — uncorrelated — by design: the float glides
+geometrically over a constant time and the integer voice at a constant rate
+([DR 0004](spec/decision-records/0004-glide-constant-rate-linear-in-pitch.md)).
 
-**Not decided by either model:** note-on retrigger semantics. Both render each
-note independently and sum the overlaps; a hardware voice is one state machine
-that retriggers.
+**Note-on, decided** ([DR 0003](spec/decision-records/0003-note-on-gate-trigger-and-a-continuous-voice.md)):
+the model is one continuous voice (`VoiceFx.play`); GATE_ON and TRIG restart
+the attack from the current level, nothing resets the oscillators or the
+filter, and key priority, single/multi triggering and paraphonic allocation
+are the host's (`KeyHost`, last-note and single-trigger by default).
 
 ## A note worth keeping: table sample points
 
@@ -289,8 +303,8 @@ locks it.
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
 | `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
-| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 1, **proposed, not ratified**: every per-sample operation, the four tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
-| `spec/decision-records/` | Why things are the way they are |
+| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 3, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
+| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006) — all proposed |
 
 ## Playing it
 
@@ -304,7 +318,8 @@ a note on; `[` `]` sweep the cutoff, `-` `=` resonance, `;` `'` drive. A MIDI
 device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 
 ```bash
-.venv/bin/python -m pytest model/ -q                  # 34 tests
+.venv/bin/python -m pytest model/ spec/reference -q   # the model's tests
+.venv/bin/python model/k_comp_sweep.py                # the resonance-onset table of DR 0006 (~2 min)
 .venv/bin/python model/voice_fx_render.py             # eight patches, integer voice, beside float
 afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
 afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
