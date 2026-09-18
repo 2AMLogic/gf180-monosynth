@@ -32,12 +32,12 @@ mapping.
 
 | block | cycles | cells | RAM | status |
 |---|---:|---:|---:|---|
-| ladder filter, time-shared | **20** | 1,917 | 0 | area sketch, correctness unverified |
-| modal resonator, 4 modes | **18** | 4,683 | 0 | area sketch, correctness unverified |
+| ladder filter, time-shared | **24** | 5,725 | 0 | RTL bit-exact against `model/fixed.py`, in simulation |
+| modal resonator, 4 modes | **15** | 7,017 | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
 | capacitive touch, 8 pads | — | 568 | 0 | area sketch |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
 | existing 4-voice core (sibling repo) | not measured | 19,049 | 0 | verified, in production |
-| **used** | **38 of 256** | | | |
+| **used** | **39 of 256** | | | |
 
 The ladder's worst-case cycle count equals its mean — the fixed latency that
 justified choosing an explicit solver over an iterative one.
@@ -201,15 +201,19 @@ alive; it does not demonstrate the sound. The jack is the real output.
 
 The honest list. Nothing below is in progress unless a linked PR says so.
 
-- **No RTL has been verified for correctness.** `rtl-sketch/*.v` are area and
-  cycle sketches. They have never been compared against the reference model.
-  The 20-cycle and 1,917-cell figures are real; "it computes the right thing"
-  is not established.
+- **One of three sketches is still unverified.** `rtl-sketch/ladder_dp.v` and
+  `modal_dp.v` are bit-exact against `model/fixed.py` and `model/modal_fixed.py`
+  under iverilog, with negative controls that show each bench can fail
+  (`rtl-sketch/test_rtl.py`). `touch_dp.v` has never been compared against
+  anything. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
+  a circuit whose ROM reads were out of range — every output was X — and is
+  withdrawn; the table above has the measured numbers.
 - **The reference model is not fully integer.** The ladder is; oscillators and
   envelopes are still float, quantised at the filter input.
 - **There is no numeric contract for this instrument.** The sibling repo has
-  one for its four-voice engine; this block has none, so there is nothing for
-  RTL to be bit-exact *against* yet.
+  one for its four-voice engine; this block has none. The filter and the modal
+  bank are bit-exact against their own models; the rest of the voice has
+  nothing for RTL to be bit-exact *against* yet.
 - **No PDK has been run.** No synthesis, floorplan, route, GDS, DRC, LVS, STA
   or ERC on gf180mcu. **No area in mm², no timing, no power.** Every cell count
   here is PDK-neutral yosys output.

@@ -168,12 +168,12 @@ def simulate(rtl: str, tb: str, log2n: int, rom: str, defines: list[str],
 
 
 # ---- comparison -------------------------------------------------------------
-def compare(expected: list[int], rtl_out: str) -> int:
+def compare(expected: list[int], rtl_out: str, name: str = "verify_ladder") -> int:
     """0 identical, 1 mismatch, 2 short/absent output."""
     try:
         toks = open(rtl_out).read().split()
     except OSError:
-        print(f"verify_ladder: no RTL output at {rtl_out}")
+        print(f"{name}: no RTL output at {rtl_out}")
         return 2
     got = []
     for t in toks:
@@ -181,7 +181,7 @@ def compare(expected: list[int], rtl_out: str) -> int:
         except ValueError: got.append(None)          # 'x' -- undefined
     n = len(expected)
     if len(got) < n:
-        print(f"verify_ladder: RTL produced {len(got)} samples, model {n} -- did not run to completion")
+        print(f"{name}: RTL produced {len(got)} samples, model {n} -- did not run to completion")
         return 2
     got = got[:n]
     first, mism, maxerr, xs, sq = None, 0, 0, 0, 0.0
@@ -196,10 +196,10 @@ def compare(expected: list[int], rtl_out: str) -> int:
             maxerr = max(maxerr, abs(r - e))
             sq += (r - e) ** 2
     if mism == 0:
-        print(f"verify_ladder: PASS -- {n} samples, RTL identical to model")
+        print(f"{name}: PASS -- {n} samples, RTL identical to model")
         return 0
     i, e, r = first
-    print(f"verify_ladder: FAIL -- {mism} of {n} samples differ ({xs} undefined/X)")
+    print(f"{name}: FAIL -- {mism} of {n} samples differ ({xs} undefined/X)")
     print(f"  first mismatch at sample {i}: model {e}, RTL {'x' if r is None else r}"
           + ("" if r is None else f", error {r - e:+d} LSB"))
     if mism > xs:

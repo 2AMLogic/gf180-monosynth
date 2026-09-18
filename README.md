@@ -12,15 +12,15 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the filter | **done** — `model/`, oscillators and envelopes still float |
-| 3 | RTL, bit-exact against (2) | **ladder: done, in simulation** — `rtl-sketch/ladder_dp.v` is identical to the model on 28,800 samples across five patches, and the bench is shown to fail on injected defects. Modal and touch sketches: unverified |
+| 3 | RTL, bit-exact against (2) | **ladder and modal bank: done, in simulation** — `rtl-sketch/ladder_dp.v` is identical to `model/fixed.py` on 28,800 samples across five patches, `rtl-sketch/modal_dp.v` to `model/modal_fixed.py` on 48,000, and both benches are shown to fail on injected defects. The modal model's sizing is proposed, not ratified. Touch sketch: unverified |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
 
 Nothing here has been synthesized to a PDK, so there is **no area in mm², no
 timing and no power number**. The cell counts below are PDK-neutral yosys
-output. The ladder's is from RTL that is bit-exact against the model; the
-modal and touch sketches' are from datapaths that have never been simulated
-for correctness.
+output. The ladder's and the modal bank's are from RTL that is bit-exact
+against their models; the touch sketch's is from a datapath that has never
+been simulated for correctness.
 
 ## Why this block exists
 
@@ -124,6 +124,7 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python rtl-sketch/verify_ladder.py                     # 16-entry table
 .venv/bin/python rtl-sketch/verify_ladder.py --tanh-n 256
 .venv/bin/python rtl-sketch/verify_ladder.py --inject FB --expect-fail   # negative control
+.venv/bin/python rtl-sketch/verify_modal.py                      # the modal bank, same contract
 .venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
 rtl-sketch/synth_count.sh                                        # the cell counts
 ```
@@ -141,6 +142,41 @@ the difference driving the integrator changes sign, and the state turns back;
 it peaks at 4.0 + 2g ≈ 5.9. The 24th state bit is still required — 5.9 needs
 three integer bits and a sign — but it is not "6 dB of headroom before the
 clamp"; the clamp is dead logic in both model and RTL, kept for bit-exactness.
+
+### The modal bank, and the coefficient width it needs
+
+`rtl-sketch/modal_dp.v` — the "something you can hit" engine: four two-pole
+resonators, `y[n] = x[n] + a1·y[n−1] + a2·y[n−2]`, no RAM — was an unverified
+sketch too, and it had its own version of the same failure. Its 18-bit Q2.16
+coefficient ports **cannot tune a low bar**: at MIDI 28 (41 Hz) the pole sits
+at `a1 = 1.99992`, its pitch lives in the difference between `a1` and 2, and
+rounding that to Q2.16 puts mode 0 **2.4 % (41 cents) off pitch** and leaves
+the output at **−1.9 dB SNR against the float** — a different signal, not an
+approximation. The float model in `audition/physical.py` cannot show this
+because it never quantises a coefficient, and it normalises its output
+afterwards, so it fixes neither the precision nor the scale.
+
+`model/modal_fixed.py` is the integer reference the RTL is now bit-exact
+against, sized by its own sweep (`python3 model/modal_fixed.py`, locked by
+`model/test_modal_fixed.py`): Q2.24 coefficients (0.005 % pitch, 0.04 % decay
+at note 28), a 28-bit state with 15 fraction bits, and 10 bits of output
+headroom because the bank rings up to **657× the strike** at note 28 — the
+chip cannot normalise that away. Rounding in the recursion was measured and
+buys nothing, so there is none. **That sizing is proposed, not ratified.**
+Beyond the width, the sketch had the accumulator shift two bits too deep
+(coefficients effectively ÷ 4), took the level tap before the excitation was
+added, and wrapped instead of saturating.
+
+`rtl-sketch/verify_modal.py`: 48,000 samples — six hits from note 28 to 100
+(the top mode above 0.45·fs, so its coefficients are zero) and a full-scale
+square at f₀ that drives the state to the rail 2,960 times — **0 differ**.
+Three negative controls, each caught: `INJECT_BUG_MODAL_SHIFT` (the sketch's
+shift, 47,991 mismatches), `_SAT` (wrap, 7,920) and `_PREEXC` (the sketch's
+level tap, 552). **7,017 cells, 15 clocks per sample** — the sketch was
+4,683 and 18. The 28 × 26 multiplier is most of it; the parallel coefficient
+ports are muxed rather than read from a ROM, which overstates a real
+implementation by those muxes, as the sketch already said. The modal bank is
+not the cheap option it looked like.
 
 ### Two things fixed point caught that float hid
 
@@ -173,8 +209,8 @@ locks it.
 | | |
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
-| `model/` | The fixed-point filter, its sizing sweep, and regression tests |
-| `rtl-sketch/` | `ladder_dp.v`, a time-shared ladder datapath bit-exact against `model/fixed.py`, with its bench and negative controls. `modal_dp.v` and `touch_dp.v` are area sketches only — never simulated, never verified |
+| `model/` | The fixed-point filter and the proposed fixed-point modal bank, their sizing sweeps, and regression tests |
+| `rtl-sketch/` | `ladder_dp.v` and `modal_dp.v`, time-shared datapaths bit-exact against `model/fixed.py` and `model/modal_fixed.py`, with their benches and negative controls. `touch_dp.v` is an area sketch only — never simulated, never verified |
 | `spec/decision-records/` | Why things are the way they are |
 
 ## Playing it
