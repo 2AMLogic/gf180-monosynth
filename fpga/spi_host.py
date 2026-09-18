@@ -106,8 +106,17 @@ class LinkTiming:
     cs_lead_ps:  int = 200_000     # CS_N low -> first SCK edge
     cs_trail_ps: int = 200_000     # last SCK edge -> CS_N high
     cs_gap_ps:   int = 700_000     # CS_N high between transactions
-    t_rst_ps:    int = 651_040     # when frame 0 begins (reset released)
-    k_rst:       int = 8           # posedge index of the first clocked cycle
+    t_rst_ps:    int = 651_040     # when the script may first drive CS_N (rst_n_pad high)
+    k_rst:       int = 10          # posedge index at which `cyc` first increments
+
+    # k_rst IS 10, NOT 8, AND THE PIN IS WHAT SAID SO. `rst_n_pad` goes high at
+    # posedge 8, but synth_top.v synchronises it through TWO flops, so the core's
+    # own `rst_n` is only true from posedge 10 and `cyc` counts from there. The
+    # first version of this model used 8, predicted the landing frame correctly
+    # for 232 of 234 transactions, and was WRONG BY ONE FRAME on the two that
+    # straddled a tick -- caught by fpga/verify_fixture.py's check of the host's
+    # prediction against the CS_N pin, which is the only reason it is not still
+    # wrong. A scheduler calibrated on itself would have passed.
 
     @classmethod
     def bench(cls) -> "LinkTiming":
@@ -233,6 +242,26 @@ class Placed:
         return self.land - self.w.nominal if self.w.nominal >= 0 else 0
 
 
+def feasible(writes: list, link: LinkTiming) -> list:
+    """The forward pass: no write may be asked for a frame the one before it has
+    not left yet.
+
+    Two musical instants in the same frame -- a key down on the beat a drum hit
+    lands on -- are not both deliverable, because a transaction is longer than a
+    frame. A player does that constantly, so the host has to have an answer, and
+    the answer is the only one that keeps the order: the later one moves later,
+    by the minimum the link needs. That is a QUANTISATION of musical time to one
+    transaction, and `check()` reports it in microseconds as `anchor_jitter`
+    rather than letting it hide."""
+    step, prev = link.min_land_gap(), None
+    out = [replace(w, nominal=w.frame if w.nominal < 0 else w.nominal) for w in writes]
+    for w in out:
+        if prev is not None and w.frame < prev + step:
+            w.frame = prev + step
+        prev = w.frame
+    return out
+
+
 def spread(writes: list, link: LinkTiming) -> list:
     """Move image writes EARLIER until every write has a frame of its own.
 
@@ -296,15 +325,22 @@ def place(writes: list, link: LinkTiming) -> list:
 
 def check(placed: list) -> dict:
     """What the schedule actually achieved, in absolute units. `conflicts` is
-    the only fatal one: an anchor that did not land in its own frame is a note
-    or a drum hit that happened at the wrong time."""
+    the only fatal one: an anchor that did not land in the frame the scheduler
+    asked for means the scheduler and the link disagree. `anchor_jitter` is not
+    fatal but IS the musical cost -- how far a note or a hit moved from where
+    the player put it, because two of them wanted the same frame."""
     conflicts = [p for p in placed if p.w.anchor and p.slip != 0]
     slipped = [p for p in placed if p.slip != 0]
     moved = [p for p in placed if p.moved]
+    jitter = [p for p in placed if p.w.anchor and p.moved]
     return dict(n=len(placed),
                 conflicts=conflicts,
                 slipped=len(slipped),
                 moved=len(moved),
+                anchor_jitter=len(jitter),
+                anchor_jitter_frames=max((abs(p.moved) for p in jitter), default=0),
+                anchor_jitter_us=max((abs(p.moved) for p in jitter), default=0)
+                * FRAME_PS / 1e6,
                 worst_move_frames=max((abs(p.moved) for p in moved), default=0),
                 worst_slip_frames=max((abs(p.slip) for p in slipped), default=0))
 
@@ -438,8 +474,9 @@ class MusicHost:
         """Contract 15.7.1, first bullet. FOUR writes: the resonator up to
         130 Hz / Q 6 at the hit and back 192 frames (4 ms) later, to whatever
         the image holds -- NOT to a recomputed preset."""
-        for f, a, v in dx.bd_attack_writes(frame, self._mode_pair(dx.M_BD)):
-            self.drum(f, a, v, tag="bd-attack")
+        seq = dx.bd_attack_writes(frame, self._mode_pair(dx.M_BD))
+        for i, (f, a, v) in enumerate(seq):
+            self.drum(f, a, v, tag="bd-attack-hot" if f == frame else "bd-attack-restore")
         self.events.append((frame, f"BD attack window: 4 writes, "
                                    f"{int(round(dx.BD_ATTACK_MS * 1e-3 * SR))} frames wide"))
 
@@ -496,7 +533,12 @@ class MusicHost:
 
     # -- the schedule
     def schedule(self, link: LinkTiming = BENCH) -> list:
-        return place(spread(sorted(self.w, key=lambda w: w.frame), link), link)
+        """The whole decision, in order: push colliding musical instants apart,
+        back the image writes up in front of them, then lay the transactions on
+        the wire. Returns `Placed` -- what to send, and the frame the host
+        PREDICTS each one lands in."""
+        ws = sorted(self.w, key=lambda w: w.frame)
+        return place(feasible(spread(ws, link), link), link)
 
 
 def knob_cost() -> dict:
