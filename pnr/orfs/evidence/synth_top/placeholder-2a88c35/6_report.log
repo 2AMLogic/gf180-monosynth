@@ -1,0 +1,51 @@
+OpenROAD 26Q3-1260-g06a5a02279 
+Features included (+) or not (-): +GPU +GUI +Python
+This program is licensed under the BSD-3 license. See the LICENSE file for details.
+Components of this program may be licensed under more restrictive licenses which must be honored.
+[INFO ORD-0030] Using 8 thread(s).
+read_liberty /OpenROAD-flow-scripts/flow/platforms/gf180/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib.gz
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_1_fill.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_1_fill.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.odb
+Took 6 seconds: write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.odb
+write_sdc -no_timestamp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.sdc
+Deleted 0 routing obstructions
+[INFO RCX-0431] Defined process_corner X with ext_model_index 0
+[INFO RCX-0029] Defined extraction corner X
+[WARNING RCX-0514] The ext_model_file option is deprecated. Use set_extraction_rules_file command instead.
+[INFO RCX-0435] Reading extraction model file /OpenROAD-flow-scripts/flow/platforms/gf180/openROAD/rcx/gf180mcu_1p5m_1tm_9k_sp_smim_OPTB_typ.rules ...
+[INFO RCX-0436] RC segment generation synth_top (max_merge_res 50.0) ...
+[INFO RCX-0040] Final 101789 rc segments
+[INFO RCX-0439] Coupling Cap extraction synth_top ...
+[INFO RCX-0440] Coupling threshhold is 0.1000 fF, coupling capacitance less than 0.1000 fF will be grounded.
+[INFO RCX-0442] 20% of 241058 wires extracted
+[INFO RCX-0442] 50% of 241058 wires extracted
+[INFO RCX-0442] 70% of 241058 wires extracted
+[INFO RCX-0442] 100% of 241058 wires extracted
+[INFO RCX-0045] Extract 30793 nets, 132475 rsegs, 132475 caps, 292571 ccs
+[INFO RCX-0443] 30793 nets finished
+IR drop analysis for power nets is skipped because PWR_NETS_VOLTAGES is undefined
+IR drop analysis for ground nets is skipped because GND_NETS_VOLTAGES is undefined
+Cell type report:                       Count       Area
+  Endcap cell                             660    2897.66
+  Fill cell                             47208  724416.00
+  Tap cell                               1992    8745.68
+  Antenna cell                              1       4.39
+  Clock buffer                            255   29279.58
+  Timing Repair Buffer                    260    6568.04
+  Inverter                               3156   41739.53
+  Clock inverter                           78    2410.33
+  Sequential cell                        2925  199137.57
+  Multi-Input combinational cell        21216  658202.18
+  Total                                 77751 1673400.96
+Report metrics stage 6, finish...
+
+==========================================================================
+finish report_design_area
+--------------------------------------------------------------------------
+Design area 948985 um^2 57% utilization.
+[WARNING GUI-0076] QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-root'
+Elapsed time: 1:19.01[h:]min:sec. CPU time: user 62.71 sys 2.91 (83%). Peak memory: 764400KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+6_report                                 79            746                  N/A
