@@ -97,6 +97,7 @@ TONE or TUNING before DECAY or SNAPPY.
 from __future__ import annotations
 
 import hashlib
+import hashlib
 import math
 import os
 import sys
@@ -725,13 +726,15 @@ GRADED_CONTROL_ARMS = ("deg_tail75", "deg_tail50", "deg_snappy6", "deg_snappy12"
 # Which voices each degradation can possibly touch: rendering an arm for a
 # voice it cannot change would just duplicate `ours` and waste an hour.
 ARM_VOICES = {
-    "deg_nonoise": ("SD", "CP"),
+    "deg_nonoise": ("SD", "CP", "MA"),
     "deg_snappy6": ("SD",), "deg_snappy12": ("SD",),
-    "deg_tail75": ("BD", "SD", "LT", "HT", "CH", "OH"),
-    "deg_tail50": ("BD", "SD", "LT", "HT", "CH", "OH"),
-    "deg_qcoarse": ("SD", "CH", "OH", "CP", "CB"),
-    "deg_q6bit": ("SD", "CH", "OH", "CP", "CB"),
-    "deg_q5bit": ("SD", "CH", "OH", "CP", "CB"),
+    "deg_tail75": ("BD", "SD", "LT", "HT", "CH", "OH",
+                   "MT", "LC", "MC", "HC", "CY", "RS", "CL"),
+    "deg_tail50": ("BD", "SD", "LT", "HT", "CH", "OH",
+                   "MT", "LC", "MC", "HC", "CY", "RS", "CL"),
+    "deg_qcoarse": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
+    "deg_q6bit": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
+    "deg_q5bit": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
 }
 
 ARM_DOC = {
@@ -1179,6 +1182,24 @@ def zscore_per_voice(X, clips, fit_mask):
     return Z
 
 
+def stable_group_id(rec: str) -> int:
+    """A group id that does not move between processes.
+
+    THIS WAS `hash(rec) % (1 << 31)` AND THAT IS NOT REPRODUCIBLE. Python
+    salts `hash()` on str per process (PYTHONHASHSEED), so the group ids
+    handed to StratifiedGroupKFold were different on every run, the folds
+    were different, the C chosen by the inner CV was different, and the
+    published balanced accuracies moved between two runs of the identical
+    command on the identical cache. Caught 2026-09-18 by re-running the study
+    and getting pooled 0.868 once and 0.816 the next time with a byte-equal
+    split hash and byte-equal feature vectors.
+
+    Nothing about the distances moved, which is why it went unseen: a
+    knob-equivalent has no classifier in it. It is the accuracies, the CIs and
+    every ABX count that were unreproducible."""
+    return int(hashlib.sha256(rec.encode()).hexdigest()[:8], 16)
+
+
 def discriminate(clips, X, train_mask, test_mask, seed=0):
     """L2 logistic regression, C chosen by grouped inner CV on the training
     clips only (groups = the recording). Returns the held-out predictions and
@@ -1190,7 +1211,7 @@ def discriminate(clips, X, train_mask, test_mask, seed=0):
     assert set(np.unique(y)) <= {0, 1}, "the task must be binary"
     tr, te = np.where(train_mask)[0], np.where(test_mask)[0]
     assert_split_disjoint([clips[i] for i in tr], [clips[i] for i in te])
-    groups = np.array([hash(c.rec) % (1 << 31) for c in clips])
+    groups = np.array([stable_group_id(c.rec) for c in clips])
     # STRATIFIED and grouped. Grouping alone lets a fold hold only one class
     # -- sklearn then fails that fit, scores it nan, and C is chosen by
     # accident rather than by cross-validation. Stratifying keeps both classes
@@ -1889,3 +1910,19 @@ def test_the_extra_columns_append_and_never_reorder_the_original_320():
     assert sum(len(ix) for ix in g.values()) == len(n1)
     assert any(k.startswith("mpd.") for k in g) and any(k.startswith("cqt.") for k in g)
     assert "jit" in g and "ms.scale-difference" in g
+
+
+def test_the_cross_validation_grouping_does_not_move_between_processes():
+    """The defect that made this study's accuracies unreproducible: `hash()`
+    on a str is salted per process, so the grouped inner CV saw different
+    folds every run and chose a different C. The group id must be a function
+    of the recording name and nothing else.
+
+    The red form of this test is to put `hash(rec) % (1 << 31)` back and run
+    pytest twice with different PYTHONHASHSEED; the two ids differ (961059919
+    / 524828002 / 1741712856 for one recording at seeds 1/2/3)."""
+    known = {"real:BD:(0.0, 0.0)": stable_group_id("real:BD:(0.0, 0.0)"),
+             "ours:SD:(2.5, 7.5)": stable_group_id("ours:SD:(2.5, 7.5)")}
+    assert known["real:BD:(0.0, 0.0)"] == 0x01ffdc7c, hex(known["real:BD:(0.0, 0.0)"])
+    assert known["ours:SD:(2.5, 7.5)"] == stable_group_id("ours:SD:(2.5, 7.5)")
+    assert len({stable_group_id(f"r{i}") for i in range(500)}) == 500

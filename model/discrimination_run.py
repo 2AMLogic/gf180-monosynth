@@ -33,7 +33,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "audition"))
 import test_discrimination as td
 from test_discrimination import (ARM_DOC, ARM_VOICES, ARMS, EQUIV_MARGIN, EXP_EMULATION,
                                  EXP_SOUND_MATCHING, FIT_KNOBS, GRADED_CONTROL_ARMS,
-                                 POSITIVE_CONTROL_ARMS, TEST_KNOBS, V_NONE, Clip,
+                                 POSITIVE_CONTROL_ARMS, TEST_KNOBS, V_NONE, ALL_REF,
+                                 NO_KNOB, Clip,
                                  balanced_accuracy, clopper_pearson, condition,
                                  corpus_is_level_normalised, counts, cross_voice_control,
                                  discriminate, effect_sizes, features, fit_laws, frechet,
@@ -68,41 +69,43 @@ def split_hash(clips) -> str:
 
 
 # ---------------------------------------------------------------------------
-def _render_one(job):
-    voice, knobs, arm, laws, level_match, floor_clamp = job
-    x, sr = render(voice, knobs, laws, arm)
-    out = {}
-    for lm in ({True, False} if level_match is None else {level_match}):
-        seg = condition(x, sr, lm)
-        for fc in ({True, False} if floor_clamp is None else {floor_clamp}):
-            out[(lm, fc)] = features(seg, sr, fc)[0]
-    out["interp"] = td.interpretable_features(condition(x, sr, True), sr)
-    return (voice, knobs, arm), out
-
-
-def _real_one(job):
-    voice, knobs, path = job
-    x, sr = read_wav(path)
+def _featurise(x, sr, sets):
+    """Every (level-match, floor-clamp, feature-set) view of one signal, made
+    once. `sets` is the feature sets wanted: False is the study's original
+    320 columns, True those plus the 190 from discrimination_features."""
     out = {}
     for lm in (True, False):
         seg = condition(x, sr, lm)
         for fc in (True, False):
-            out[(lm, fc)] = features(seg, sr, fc)[0]
+            for ex in sets:
+                out[(lm, fc, ex)] = features(seg, sr, fc, ex)[0]
     out["interp"] = td.interpretable_features(condition(x, sr, True), sr)
-    return (voice, knobs, "real"), out
+    return out
 
 
-def build_cache(refs, arms, laws, jobs, names_holder):
+def _render_one(job):
+    voice, knobs, arm, laws, sets = job
+    x, sr = render(voice, knobs, laws, arm)
+    return (voice, knobs, arm), _featurise(x, sr, sets)
+
+
+def _real_one(job):
+    voice, knobs, path, sets = job
+    x, sr = read_wav(path)
+    return (voice, knobs, "real"), _featurise(x, sr, sets)
+
+
+def build_cache(refs, arms, laws, jobs, names_holder, sets=(False,)):
     """Render and featurise everything once, in parallel, into a cache keyed
     by (voice, knobs, side). Every downstream experiment reads this, so no
     signal is ever conditioned twice and the passes cannot drift apart."""
-    work_r = [(c.voice, c.knobs, c.path) for c in refs]
+    work_r = [(c.voice, c.knobs, c.path, sets) for c in refs]
     work_o = []
     for arm in arms:
         vs = ARM_VOICES.get(arm)
         for c in refs:
             if vs is None or c.voice in vs:
-                work_o.append((c.voice, c.knobs, arm, laws, None, None))
+                work_o.append((c.voice, c.knobs, arm, laws, sets))
     cache = {}
     with ProcessPoolExecutor(max_workers=jobs) as ex:
         for k, v in ex.map(_real_one, work_r, chunksize=4):
@@ -113,23 +116,25 @@ def build_cache(refs, arms, laws, jobs, names_holder):
             done += 1
             if done % 50 == 0:
                 print(f"    rendered {done}/{len(work_o)}", flush=True)
-    names_holder.append(features(np.zeros(int(td.WINDOW_S * 44100)), 44100)[1])
+    for ex in sets:
+        names_holder.append((ex, features(np.zeros(int(td.WINDOW_S * 44100)), 44100, True, ex)[1]))
     return cache
 
 
-def matrix(clips, cache, level_match, floor_clamp):
-    return np.asarray([cache[(c.voice, c.knobs, c.side)][(level_match, floor_clamp)]
+def matrix(clips, cache, level_match, floor_clamp, extra=False):
+    return np.asarray([cache[(c.voice, c.knobs, c.side)][(level_match, floor_clamp, extra)]
                        for c in clips])
 
 
 # ---------------------------------------------------------------------------
-def run_arm(refs, arm, cache, names, level_match=True, floor_clamp=True, seed=0):
+def run_arm(refs, arm, cache, names, level_match=True, floor_clamp=True, seed=0,
+            extra=False):
     """One arm against the real machine: fit on FIT_KNOBS settings, report on
     TEST_KNOBS settings. Always balanced accuracy, always grouped by setting."""
     vs = ARM_VOICES.get(arm)
     use = [c for c in refs if vs is None or c.voice in vs]
     clips = use + [Clip(c.voice, c.knobs, arm) for c in use]
-    X = matrix(clips, cache, level_match, floor_clamp)
+    X = matrix(clips, cache, level_match, floor_clamp, extra)
     fit = np.array([not c.is_test for c in clips])
     X = zscore_per_voice(X, clips, fit)
     if fit.sum() < 6 or (~fit).sum() < 4:
@@ -161,7 +166,7 @@ def run_arm(refs, arm, cache, names, level_match=True, floor_clamp=True, seed=0)
     return s
 
 
-def fd_rows(refs, arms, cache, seed=0):
+def fd_rows(refs, arms, cache, seed=0, extra=False):
     """FAD's construct, used the only way it is meaningful: comparatively,
     with encoder (this module's 320-d log-mel/MFCC), sample counts, voice
     balance and preprocessing identical across every row. Row 4 is the
@@ -183,7 +188,7 @@ def fd_rows(refs, arms, cache, seed=0):
     voices = [v for v in voices if len([c for c in refs if c.voice == v]) >= 5]
     per = 5
     R = bal(refs, per)
-    A = matrix(R, cache, True, True)
+    A = matrix(R, cache, True, True, extra)
     # one basis for every row, so the four numbers are on one scale
     basis = A.copy()
     rows = {}
@@ -193,8 +198,9 @@ def fd_rows(refs, arms, cache, seed=0):
         ref_pool = [c for c in R if vs is None or c.voice in vs]
         if len(pool) < 4:
             continue
-        rows[f"reference vs {arm}"] = frechet(matrix(ref_pool, cache, True, True),
-                                              matrix(pool, cache, True, True), basis=basis)
+        rows[f"reference vs {arm}"] = frechet(matrix(ref_pool, cache, True, True, extra),
+                                              matrix(pool, cache, True, True, extra),
+                                              basis=basis)
     # the dataset's own variability: disjoint halves of the reference, same counts
     halves = []
     for _ in range(12):
@@ -233,6 +239,117 @@ def fmt(s):
             f"[{s['ci'][0]:.2f},{s['ci'][1]:.2f}] n={s['n']}")
 
 
+def _feature_set_pass(a, refs, laws, cache, names, arms, curve_voices, extra, results):
+    """Everything downstream of the cache, for ONE feature set. Run twice when
+    --features both, so the cost of the extra columns is visible per voice
+    rather than asserted."""
+    tag = "plus" if extra else "base"
+    print(f"\n{'=' * 72}\n== FEATURE SET '{tag}': {len(names)} columns\n{'=' * 72}")
+    out = dict(n_features=len(names), arms={}, verdicts={}, controls={})
+
+    print("\n== controls ==")
+    cv = cross_voice_control(a.refs, {}, True, True, extra=extra)
+    for k, v in cv.items():
+        print(f"  cross-voice (real vs real, different voice) {k:12s} {fmt(v)}")
+    perm_clips = refs + [Clip(c.voice, c.knobs, "ours") for c in refs]
+    Xp = zscore_per_voice(matrix(perm_clips, cache, True, True, extra), perm_clips,
+                          np.array([not c.is_test for c in perm_clips]))
+    fitp = np.array([not c.is_test for c in perm_clips])
+    null = permutation_null(perm_clips, Xp, fitp, ~fitp, n_iter=200)
+    print(f"  label-permutation null      mean {null['mean']:.3f} "
+          f"[{null['p05']:.3f},{null['p95']:.3f}] over {null['n_iter']} shuffles")
+    rvr = real_vs_real_random(a.refs, {}, "BD", n_iter=20, extra=extra)
+    print(f"  real-vs-real random split   mean {rvr['mean']:.3f} "
+          f"[{rvr['p05']:.3f},{rvr['p95']:.3f}] over {rvr['n_iter']} draws")
+    curve = separation_curve(a.refs, {}, curve_voices, extra=extra)
+    for k, s in sorted(curve.items()):
+        print(f"  real-vs-real separation     {k[0]} {k[1]:7s} delta {k[-1]:4.1f}  {fmt(s)}")
+    out["controls"] = dict(cross_voice=cv, null=null, real_vs_real_random=rvr,
+                           separation_curve={"|".join(map(str, k)): s for k, s in curve.items()})
+    cv_ok = all(v["acc"] >= 0.9 for v in cv.values()) if cv else False
+    null_ok = null["p95"] < 0.75
+    print(f"  -> cross-voice control {'PASS' if cv_ok else 'FAIL'}; "
+          f"null calibration {'PASS' if null_ok else 'FAIL'}")
+
+    print("\n== arms: held-out (emulation) balanced accuracy, level-matched ==")
+    for arm in arms:
+        s = run_arm(refs, arm, cache, names, True, True, extra=extra)
+        if s is None:
+            print(f"  {arm:14s} {V_NONE} (not enough held-out settings)")
+            continue
+        out["arms"][arm] = s
+        print(f"  {arm:14s} {fmt(s)} settings={s['n_settings']} "
+              f"recordings={s['counts']['recordings']} ABX {s['abx']['correct']}/{s['abx']['n']}")
+    deg_ok = all(out["arms"].get(x, {}).get("bal_acc", 0) >= 0.9
+                 for x in POSITIVE_CONTROL_ARMS if x in out["arms"])
+    controls_ok = cv_ok and null_ok and deg_ok
+    print(f"  -> large-degradation control {'PASS' if deg_ok else 'FAIL'}; "
+          f"OVERALL {'usable' if controls_ok else 'NO VERDICT MAY BE DRAWN'}")
+    out["controls_ok"] = dict(cross_voice=cv_ok, null=null_ok, degradations=deg_ok,
+                              overall=controls_ok)
+
+    print("\n== ablations (arm 'ours') ==")
+    abl = {}
+    for lab, lm, fc in (("level-matched + floor clamp", True, True),
+                        ("UNMATCHED level", False, True),
+                        ("no floor clamp", True, False)):
+        s = run_arm(refs, "ours", cache, names, lm, fc, extra=extra)
+        if s:
+            abl[lab] = s
+            print(f"  {lab:28s} {fmt(s)}")
+    out["ablations"] = abl
+
+    print("\n== FD-mel (comparative; not FAD, not an absolute score) ==")
+    fd = fd_rows(refs, arms, cache, extra=extra)
+    for k, v in sorted(fd.items(), key=lambda kv: (kv[0].startswith("_"), 0)):
+        if not k.startswith("_"):
+            print(f"  {k:42s} {v:9.3f}")
+    print("  CAVEAT: rows whose arm covers fewer voices than `ours` are NOT on the same")
+    print("  scale as it -- the voice balance the construct needs is fixed only WITHIN a row.")
+    out["fd_mel"] = fd
+
+    print("\n== per-voice: knob-equivalent separation (arm 'ours', emulation) ==")
+    main_s = out["arms"].get("ours", {})
+    mfn = lambda cl: matrix(cl, cache, True, True, extra)
+    ver = {}
+    for v in sorted({c.voice for c in refs}):
+        nk = ALL_REF[v][2]
+        if nk == 0:
+            ver[v] = dict(knob_equivalent=None, verdict=f"REFUSED -- {v} has no knob, so the "
+                          "corpus holds one recording, there is no held-out setting and no "
+                          "yardstick to read a knob-equivalent off",
+                          n_settings=0, summary=None)
+            print(f"  {v:3s} REFUSED: no knob -> no held-out setting, no knob-equivalent")
+            continue
+        sv = main_s.get("per_voice", {}).get(v)
+        if sv is None:
+            ver[v] = dict(knob_equivalent=None, verdict=f"{V_NONE} (no held-out clip reached "
+                          "the classifier)", n_settings=0, summary=None)
+            print(f"  {v:3s} {V_NONE}: no held-out clip")
+            continue
+        fl = min((s["acc"] for k, s in curve.items() if k[0] == v and k[-1] == 2.5), default=None)
+        dc = td.distance_curve(a.refs, cache, v, mfn)
+        od = td.ours_distance(refs, cache, v, "ours", mfn)
+        ke = td.knob_equivalent_distance(od, dc)
+        ver[v] = dict(summary=sv, verdict=verdict(sv, controls_ok, fl), knob_equivalent=ke,
+                      ours_distance=od, n_settings=sv["n_settings"],
+                      distance_curve={f"{k[0]}|{k[1]}": val for k, val in dc.items()},
+                      floor_upper_bound=fl,
+                      top_features=list(main_s.get("eff", {}).get(v, {}).items())[:3])
+        top = max(dc.values()) if dc else float("nan")
+        print(f"  {v:3s} {fmt(sv)} settings={sv['n_settings']}  dist {od:5.1f} vs "
+              f"knob-10 {top:5.1f}  knob-equiv "
+              f"{'>=10 (at or past the end of the dial)' if np.isnan(ke) else f'{ke:.1f}'}"
+              f"  -> {ver[v]['verdict'][:52]}")
+    out["verdicts"] = ver
+
+    print("\n== what carries the discrimination (arm 'ours', held out) ==")
+    for g, d in list(main_s.get("importance", {}).items())[:12]:
+        print(f"  {g:26s} accuracy drop {d:+.3f} when shuffled")
+    results[tag] = out
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -241,27 +358,41 @@ def main(argv=None) -> int:
     ap.add_argument("--json", default="/tmp/discrimination.json")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 4) - 1))
     ap.add_argument("--arms", default=",".join(ARMS))
+    ap.add_argument("--sounds", choices=("8", "16"), default="8",
+                    help="8 reproduces the published study's voice set; 16 is every "
+                         "sound the kit now plays and the corpus holds")
+    ap.add_argument("--features", choices=("base", "plus", "both"), default="base",
+                    help="base = the study's 320 columns; plus = those and the 190 "
+                         "deterministic vocoder-discriminator columns; both = run each "
+                         "and report the difference")
     ap.add_argument("--no-pairs", action="store_true")
     a = ap.parse_args(argv)
     arms = [x for x in a.arms.split(",") if x]
+    all16 = a.sounds == "16"
+    sets = {"base": (False,), "plus": (True,), "both": (False, True)}[a.features]
     os.makedirs(a.out, exist_ok=True)
 
     rev = revision()
     print(f"revision {rev['described']} ({rev['commit'][:12]}), model sha {rev['model_sha256']}")
+    print(f"sounds: {'all sixteen' if all16 else 'the published eight'}; "
+          f"feature sets: {a.features}")
 
     norm = corpus_is_level_normalised(a.refs)
     print(f"\ncorpus level check: {norm['at_ceiling']}/{norm['n']} files within 1 % of the "
           f"ceiling, total range {norm['range_db']:.1f} dB "
           f"-> {'PEAK-LIMITED' if norm['normalised'] else 'not normalised'}")
 
-    refs = ref_clips(a.refs)
+    refs = ref_clips(a.refs, include_unmodelled=all16)
     print(f"reference clips: {len(refs)} over {len({c.voice for c in refs})} voices; "
           f"fit {sum(1 for c in refs if not c.is_test)}, held out "
           f"{sum(1 for c in refs if c.is_test)}")
     print(f"split hash {split_hash(refs)}")
+    nokn = sorted(v for v in {c.voice for c in refs} if ALL_REF[v][2] == 0)
+    print(f"voices with NO knob (no held-out setting possible, no knob-equivalent "
+          f"possible): {', '.join(nokn) if nokn else 'none'}")
 
     print("\nfitting the control law on FIT_KNOBS =", FIT_KNOBS, "only")
-    laws = fit_laws(a.refs)
+    laws = fit_laws(a.refs, all_sounds=all16)
     for k, v in sorted(laws.items()):
         if k.startswith("_meas"):
             print(f"  measured {k[6:]:22s} " +
@@ -269,132 +400,37 @@ def main(argv=None) -> int:
 
     print(f"\nrendering {len(arms)} arms on {a.jobs} workers...")
     names_holder = []
-    cache = build_cache(refs, arms, laws, a.jobs, names_holder)
-    names = names_holder[0]
+    cache = build_cache(refs, arms, laws, a.jobs, names_holder, sets)
+    names_by_set = dict(names_holder)
 
+    curve_voices = ("BD", "SD", "CY") if all16 else ("BD", "SD")
     results = dict(revision=rev, split_hash=split_hash(refs), corpus_level=norm,
+                   sounds=16 if all16 else 8, feature_sets=a.features,
                    fit_knobs=FIT_KNOBS, test_knobs=TEST_KNOBS, equiv_margin=EQUIV_MARGIN,
-                   n_for_margin=n_for_margin(), arms={}, arm_doc=ARM_DOC,
+                   n_for_margin=n_for_margin(), arm_doc=ARM_DOC, no_knob=nokn,
                    laws={k: repr(v) for k, v in laws.items() if not k.startswith("_")},
                    law_measurements={k[6:]: v for k, v in laws.items() if k.startswith("_meas")})
+    for ex in sets:
+        _feature_set_pass(a, refs, laws, cache, names_by_set[ex], arms, curve_voices,
+                          ex, results)
 
-    # ---- controls first. If they fail, nothing below is a verdict. ----------
-    print("\n== controls ==")
-    cv = cross_voice_control(a.refs, {}, True, True)
-    for k, v in cv.items():
-        print(f"  cross-voice (real vs real, different voice) {k:12s} {fmt(v)}")
-    perm_clips = refs + [Clip(c.voice, c.knobs, "ours") for c in refs]
-    Xp = zscore_per_voice(matrix(perm_clips, cache, True, True), perm_clips,
-                          np.array([not c.is_test for c in perm_clips]))
-    fitp = np.array([not c.is_test for c in perm_clips])
-    null = permutation_null(perm_clips, Xp, fitp, ~fitp, n_iter=200)
-    print(f"  label-permutation null      mean {null['mean']:.3f} "
-          f"[{null['p05']:.3f},{null['p95']:.3f}] over {null['n_iter']} shuffles")
-    rvr = real_vs_real_random(a.refs, {}, "BD", n_iter=20)
-    print(f"  real-vs-real random split   mean {rvr['mean']:.3f} "
-          f"[{rvr['p05']:.3f},{rvr['p95']:.3f}] over {rvr['n_iter']} draws")
-    curve = separation_curve(a.refs, {}, ("BD", "SD"))
-    for k, s in sorted(curve.items()):
-        print(f"  real-vs-real separation     {k[0]} {k[1]:7s} delta {k[-1]:4.1f}  {fmt(s)}")
-    results["controls"] = dict(cross_voice={k: v for k, v in cv.items()}, null=null,
-                               real_vs_real_random=rvr,
-                               separation_curve={"|".join(map(str, k)): s
-                                                 for k, s in curve.items()})
-
-    cv_ok = all(v["acc"] >= 0.9 for v in cv.values()) if cv else False
-    null_ok = null["p95"] < 0.75
-    print(f"  -> cross-voice control {'PASS' if cv_ok else 'FAIL'}; "
-          f"null calibration {'PASS' if null_ok else 'FAIL'}")
-
-    # ---- the arms ----------------------------------------------------------
-    print("\n== arms: held-out (emulation) balanced accuracy, level-matched ==")
-    for arm in arms:
-        s = run_arm(refs, arm, cache, names, True, True)
-        if s is None:
-            print(f"  {arm:14s} {V_NONE} (not enough held-out settings)")
-            continue
-        results["arms"][arm] = s
-        print(f"  {arm:14s} {fmt(s)} settings={s['n_settings']} "
-              f"recordings={s['counts']['recordings']} ABX {s['abx']['correct']}/{s['abx']['n']}")
-    deg_ok = all(results["arms"].get(x, {}).get("bal_acc", 0) >= 0.9
-                 for x in POSITIVE_CONTROL_ARMS if x in results["arms"])
-    controls_ok = cv_ok and null_ok and deg_ok
-    print(f"  -> large-degradation control {'PASS' if deg_ok else 'FAIL'}; "
-          f"OVERALL {'usable' if controls_ok else 'NO VERDICT MAY BE DRAWN'}")
-    results["controls_ok"] = dict(cross_voice=cv_ok, null=null_ok, degradations=deg_ok,
-                                  overall=controls_ok)
-
-    # ---- unmatched level, and the floor-clamp ablation ---------------------
-    print("\n== ablations (arm 'ours') ==")
-    abl = {}
-    for lab, lm, fc in (("level-matched + floor clamp", True, True),
-                        ("UNMATCHED level", False, True),
-                        ("no floor clamp", True, False)):
-        s = run_arm(refs, "ours", cache, names, lm, fc)
-        if s:
-            abl[lab] = s
-            print(f"  {lab:28s} {fmt(s)}")
-    if norm["normalised"]:
-        print("  NOTE: the reference pack is peak-limited, so the unmatched pass carries no "
-              "information about the machine's accent behaviour. Void, not a result.")
-    results["ablations"] = abl
-
-    # ---- FD-mel, comparative only -----------------------------------------
-    print("\n== FD-mel (comparative; not FAD, not an absolute score) ==")
-    fd = fd_rows(refs, arms, cache)
-    for k, v in sorted(fd.items(), key=lambda kv: (kv[0].startswith("_"), kv[1] if not kv[0].startswith("_") else 0)):
-        if not k.startswith("_"):
-            print(f"  {k:42s} {v:9.3f}")
-    print(f"  (voice-balanced, {fd['_n_per_voice']} per voice, {fd['_n_total']} clips per side)")
-    results["fd_mel"] = fd
-
-    # ---- interpretable diagnostics, on held-out settings only --------------
-    print("\n== interpretable diagnostics, HELD-OUT settings only (generalisation) ==")
-    rows = interpretable_table(refs + [Clip(c.voice, c.knobs, "ours") for c in refs],
-                              laws, a.refs, {("interp", f"real:{c.voice}:{c.knobs}"):
-                                             cache[(c.voice, c.knobs, "real")]["interp"]
-                                             for c in refs} |
-                              {("interp", f"ours:{c.voice}:{c.knobs}"):
-                               cache[(c.voice, c.knobs, "ours")]["interp"] for c in refs})
-    interp = {}
-    for v in sorted({c.voice for c in refs if c.is_test}):
-        g = interpretable_gap(rows, v, "ours")
-        interp[v] = g
-        worst = sorted(g.items(), key=lambda kv: -abs(kv[1]["abs_rel_err"]))[:3]
-        print(f"  {v:3s} n={list(g.values())[0]['n'] if g else 0}  " +
-              "  ".join(f"{k} {vv['mean_rel_err']*100:+.0f}%" for k, vv in worst))
-    results["interpretable"] = interp
-
-    # ---- per-voice verdicts ------------------------------------------------
-    print("\n== per-voice verdicts (arm 'ours', emulation, level-matched) ==")
-    main_s = results["arms"].get("ours", {})
-    ver = {}
-    mfn = lambda cl: matrix(cl, cache, True, True)
-    for v, sv in sorted(main_s.get("per_voice", {}).items()):
-        # the floor proxy is the WEAKEST knob at the smallest step -- the
-        # closest two genuinely distinct real recordings ever get, which is
-        # the best upper bound on take-to-take variation this corpus allows.
-        # Taking the strongest knob instead would make the comparison vacuous.
-        fl = min((s["acc"] for k, s in curve.items() if k[0] == v and k[-1] == 2.5),
-                 default=None)
-        dc = td.distance_curve(a.refs, cache, v, mfn)
-        od = td.ours_distance(refs, cache, v, "ours", mfn)
-        ke = td.knob_equivalent_distance(od, dc)
-        dv = results["arms"].get("docfix", {}).get("per_voice", {}).get(v, {}).get("acc")
-        ver[v] = dict(summary=sv, verdict=verdict(sv, controls_ok, fl),
-                      knob_equivalent=ke, ours_distance=od,
-                      distance_curve={f"{k[0]}|{k[1]}": val for k, val in dc.items()},
-                      floor_upper_bound=fl, docfix_acc=dv,
-                      top_features=list(main_s.get("eff", {}).get(v, {}).items())[:3])
-        print(f"  {v:3s} {fmt(sv)} settings={sv['n_settings']}  dist {od:5.1f} vs "
-              f"knob-10 {max(dc.values()) if dc else float('nan'):5.1f}  "
-              f"knob-equiv {'>10 (off the dial)' if np.isnan(ke) else f'{ke:.1f}'}"
-              f"  -> {ver[v]['verdict']}")
-    results["verdicts"] = ver
-
-    print("\n== what carries the discrimination (arm 'ours', held out) ==")
-    for g, d in list(main_s.get("importance", {}).items())[:6]:
-        print(f"  {g:22s} accuracy drop {d:+.3f} when shuffled")
+    if len(sets) == 2:
+        print(f"\n{'=' * 72}\n== WHAT THE EXTRA COLUMNS CHANGED\n{'=' * 72}")
+        b, pl = results["base"], results["plus"]
+        print(f"  {'voice':6s} {'ke base':>9s} {'ke plus':>9s} {'delta':>8s}   "
+              f"{'acc base':>9s} {'acc plus':>9s}")
+        for v in sorted(set(b["verdicts"]) | set(pl["verdicts"])):
+            kb = b["verdicts"].get(v, {}).get("knob_equivalent")
+            kp = pl["verdicts"].get(v, {}).get("knob_equivalent")
+            sb = (b["verdicts"].get(v) or {}).get("summary") or {}
+            sp = (pl["verdicts"].get(v) or {}).get("summary") or {}
+            f = lambda x: "  refused" if x is None else (">=10" if np.isnan(x) else f"{x:.1f}")
+            d = ("" if kb is None or kp is None or np.isnan(kb) or np.isnan(kp)
+                 else f"{kp - kb:+.1f}")
+            print(f"  {v:6s} {f(kb):>9s} {f(kp):>9s} {d:>8s}   "
+                  f"{sb.get('bal_acc', float('nan')):9.3f} {sp.get('bal_acc', float('nan')):9.3f}")
+        print("\n  A knob-equivalent that RISES with better features is a finding, not a")
+        print("  regression: it says the old columns could not see how far away we were.")
 
     if not a.no_pairs:
         made = write_pairs(refs, laws, a.out)
