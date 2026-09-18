@@ -1,0 +1,51 @@
+gf180mcu_fd_sc_mcu7t5v0, tt_025C_5v00, CELL area (yosys synth + abc -liberty,
+klt's recipe, no dont_use). NOT placed, NOT routed. Regenerate with
+GF180_PDK_REF=<pdk>/gf180mcuD/libs.ref fpga/scripts/mode_sweep.sh
+
+modal_dp -- the resonator bank alone (HR=0, OW=19)
+  MODES NUMS  MW   cells        um2  flops
+      4    4   4    8640   190165.8    646
+      8    6   4   10548   241979.1   1039
+      9    6   4   12531   321331.2   1656
+     11    6   4   13256   329730.0   1698
+     12    6   4   13187   325976.2   1656
+     14    6   4   13233   326924.6   1656
+     16    6   4   13271   329712.5   1656
+     16   11   4   14178   350652.5   1866
+     16   16   4   14639   377036.6   2076
+     17   11   5   19811   505245.0   3101
+     18   11   5   20002   516142.0   3143
+
+  MODES 9,12,14,16 all have 1656 flops: the state arrays (y1,y2,exc,h1,h2)
+  are mapped to a memory padded to a POWER OF TWO words. 9-16 cost the same;
+  17 needs MW=5 and doubles the state. NUMS is a slope, not a staircase:
+  42 flops (h1+h2) and ~4190 um2 per numerator slot.
+
+drum_kit -- the whole drum section (drum_dp + modal_dp)
+  MODES NUMS   cells        um2  flops
+      8    6   21314   519777.3   2400
+     11    6   24290   607141.8   3059
+     12    6   23797   603118.0   3017
+     14    6   23980   606843.3   3017
+     16    6   23977   607051.8   3017
+     16   11   24957   630432.9   3227
+     18   11   30909   792164.3   4504
+
+  SHIPPED kit is MODES=12 NUMS=6 (11 modes active: 6 filters, 5 bodies).
+  drum_dp alone: 10769 cells 272894.1 um2 1361 flops
+
+mode_cfg_regs -- STRAWMAN for the mode configuration storage, which does
+not exist in RTL (drum_kit takes a1/a2/amp/num as INPUT PORTS).
+  MODES   cells        um2  flops
+      4     912    27022.9    264
+      8    1852    52684.8    528
+     11    2391    73278.0    726
+     12    2535    77299.6    792
+     14    2951    90242.5    924
+     16    3549   103802.2   1056
+     18    3832   116246.8   1188
+
+  Linear: 66 flops and ~6400 um2 per mode. Inside the 9-16 bracket this is
+  the ENTIRE marginal cost of a mode -- the resonator itself is already paid for.
+
+AREA IS NOT CORRECTNESS. docs/verification-rules.md rule 3.

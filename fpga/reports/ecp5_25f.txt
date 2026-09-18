@@ -1,0 +1,56 @@
+=== ECP5 LFE5U-25F (CABGA381) : synth_top (fpga_top wrapper) ===
+
+-- FPGA synthesised (yosys technology mapping; NOT place-and-routed) --
+   828   CCU2C
+   155   L6MUX21
+   12   MULT18X18D
+   843   PFUMX
+   2932   TRELLIS_FF
+   total mapped cells: 9454
+
+-- FPGA place-and-route --
+  device utilisation:
+    Device utilisation:
+    	          TRELLIS_IO:       9/    197     4%
+    	                DCCA:       1/     56     1%
+    	              DP16KD:       0/     56     0%
+    	          MULT18X18D:      12/     28    42%
+    	              ALU54B:       0/     14     0%
+    	             EHXPLLL:       0/      2     0%
+    	             EXTREFB:       0/      1     0%
+    	                DCUA:       0/      1     0%
+    	           PCSCLKDIV:       0/      2     0%
+    	             IOLOGIC:       0/    128     0%
+    	            SIOLOGIC:       0/     69     0%
+    	                 GSR:       0/      1     0%
+    	               JTAGG:       0/      1     0%
+    	                OSCG:       0/      1     0%
+    	               SEDGA:       0/      1     0%
+    	                 DTR:       0/      1     0%
+    	             USRMCLK:       0/      1     0%
+    	             CLKDIVF:       0/      4     0%
+    	           ECLKSYNCB:       0/     10     0%
+    	             DLLDELD:       0/      8     0%
+    	              DDRDLL:       0/      4     0%
+    	             DQSBUFM:       0/      8     0%
+    	     TRELLIS_ECLKBUF:       0/      8     0%
+    	        ECLKBRIDGECS:       0/      2     0%
+    	                DCSC:       0/      2     0%
+    	          TRELLIS_FF:    2932/  24288    12%
+    	        TRELLIS_COMB:    6677/  24288    27%
+    	        TRELLIS_RAMW:       0/   3036     0%
+    Placed 9 cells based on constraints.
+
+  RESULT: routed.
+
+  achieved Fmax (nextpnr post-route STA, typical corner):
+    Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 34.33 MHz (PASS at 12.29 MHz)
+    Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 33.01 MHz (PASS at 12.29 MHz)
+    Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 3.33 ns
+    Max delay <async>                           -> posedge $glbnet$clk$TRELLIS_IO_IN: 1.37 ns
+    Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 2.89 ns
+
+  bitstream: ecp5.bit 582369 bytes
+
+  NOTE: this is a physical result only. It says nothing about whether the
+  design computes the right samples; see docs/verification-rules.md rule 3.

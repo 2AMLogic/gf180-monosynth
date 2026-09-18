@@ -1,0 +1,22 @@
+DONT_USE_CELLS A/B -- what excluding the *_1 drive strengths costs,
+per block. CELL area, gf180mcu_fd_sc_mcu7t5v0, tt_025C_5v00.
+SYNTHESISED, NOT placed, NOT routed.
+
+design                                       *_1 allowed  *_1 excluded       delta  penalty
+synth_top (PLACEHOLDER drums)                   656274.8      904435.6    248160.8    37.8%
+drum_section_placeholder                        158770.0      221684.5     62914.4    39.6%
+drum_kit MODES=8  NUMS=6                        519777.3      702569.4    182792.1    35.2%
+drum_kit MODES=12 NUMS=6  (shipped)             603118.0      799623.6    196505.5    32.6%
+drum_kit MODES=16 NUMS=11 (complete 808)        630432.9      846449.4    216016.5    34.3%
+
+"*_1 allowed"  = klt's recipe (docs/area-budget.md uses this).
+"*_1 excluded" = ORFS's stock gf180 DONT_USE_CELLS, 62 cells; the ORFS
+                 synth_top base netlist contains no *_1 cell at all.
+
+synth_top here contains drum_section_placeholder, NOT drum_kit. No
+synth_top on any branch instantiates the real drum section (contract 17.23).
+
+Blocks are synthesised standalone: no cross-boundary optimisation, so
+they do not sum to a top-level number. Adding them is a PROJECTION.
+
+AREA IS NOT CORRECTNESS. docs/verification-rules.md rule 3.

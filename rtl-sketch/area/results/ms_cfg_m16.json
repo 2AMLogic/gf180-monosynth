@@ -1,0 +1,43 @@
+{
+ "tag": "ms_cfg_m16",
+ "top": "mode_cfg_regs",
+ "track": "7",
+ "liberty": "gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib",
+ "chparam": [
+  "MODES=16"
+ ],
+ "defines": [],
+ "flatten": false,
+ "booth": false,
+ "total_area_um2": 103802.2272,
+ "total_cells": 3549,
+ "modules": [
+  {
+   "depth": 0,
+   "inst": "mode_cfg_regs",
+   "module": "mode_cfg_regs",
+   "own_cells": 3549,
+   "own_area_um2": 103802.2272,
+   "hier_cells": 3549,
+   "hier_area_um2": 103802.2272
+  }
+ ],
+ "cells_by_type": {
+  "mode_cfg_regs": {
+   "gf180mcu_fd_sc_mcu7t5v0__and2_1": 3,
+   "gf180mcu_fd_sc_mcu7t5v0__and3_1": 1,
+   "gf180mcu_fd_sc_mcu7t5v0__and4_1": 2,
+   "gf180mcu_fd_sc_mcu7t5v0__clkinv_1": 1082,
+   "gf180mcu_fd_sc_mcu7t5v0__dffq_1": 1056,
+   "gf180mcu_fd_sc_mcu7t5v0__nand2_1": 237,
+   "gf180mcu_fd_sc_mcu7t5v0__nand3_1": 21,
+   "gf180mcu_fd_sc_mcu7t5v0__nand4_1": 4,
+   "gf180mcu_fd_sc_mcu7t5v0__nor2_1": 6,
+   "gf180mcu_fd_sc_mcu7t5v0__nor3_1": 8,
+   "gf180mcu_fd_sc_mcu7t5v0__nor4_1": 13,
+   "gf180mcu_fd_sc_mcu7t5v0__oai21_1": 228,
+   "gf180mcu_fd_sc_mcu7t5v0__oai22_1": 876,
+   "gf180mcu_fd_sc_mcu7t5v0__or2_1": 12
+  }
+ }
+}

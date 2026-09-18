@@ -1,0 +1,35 @@
+=== modal bank occupancy of the shipped eight-stop kit (MODES=12 provisioned) ===
+  mode  0 M_HATBP     BP filter  amp=     0 ACTIVE
+  mode  1 M_OHHP      HP filter  amp= 29491 ACTIVE
+  mode  2 M_CHHP      HP filter  amp= 45220 ACTIVE
+  mode  3 M_SDN       BP filter  amp= 13494 ACTIVE
+  mode  4 M_CPBP      BP filter  amp=     0 ACTIVE
+  mode  5 M_CBBP      BP filter  amp=  1426 ACTIVE
+  mode  6 M_BD        RAW body   amp=   217 ACTIVE
+  mode  7 M_SDLO      RAW body   amp=   236 ACTIVE
+  mode  8 M_SDHI      RAW body   amp=   242 ACTIVE
+  mode  9 M_LT        RAW body   amp=   513 ACTIVE
+  mode 10 M_HT        RAW body   amp=  1068 ACTIVE
+  mode 11 M_SPARE     UNCONFIGURED
+
+  ACTIVE MODES: 11 of 12  (6 filters, 5 bodies)
+  spare: 1
+
+  named stops: 8 ('BD', 'SD', 'LT', 'HT', 'CH', 'OH', 'CP', 'CB')
+  envelopes configured: 12 of 12
+  paths configured: 14 of 16
+  oscillators: 6 of 6
+
+=== configuration storage the bank needs (register bits) ===
+  per mode: 2 x (CF+2)=26 coefficient + 16 amp + 2 num = 70 bits
+  MODES=11:   770 bits of mode configuration
+  MODES=12:   840 bits of mode configuration
+  MODES=14:   980 bits of mode configuration
+  MODES=15:  1050 bits of mode configuration
+  (envelopes 12 x (27+24+16) = 804 bits, paths 16 x 22 = 352 bits,
+   oscillators 6 x 24 = 144 bits, stops/accents 136 bits)
+  TOTAL drum-section configuration at MODES=12: 2276 bits
+
+  NONE OF THIS EXISTS IN RTL: drum_kit.v takes a1_bus/a2_bus/amp_bus/num_bus,
+  env_*_bus, path_bus, osc_inc_bus and accent_bus as INPUT PORTS. tb_drums.v
+  drives them from a file. No module in rtl-sketch/ holds them.

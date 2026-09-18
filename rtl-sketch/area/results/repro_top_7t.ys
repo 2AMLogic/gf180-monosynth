@@ -1,0 +1,15 @@
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/synth_top.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/spi_ctl.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/voice_dp.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/recip_div.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/ladder_dp_n.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/i2s_tx.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/modal_dp_rom.v
+read_verilog -sv /private/tmp/wt-fpga/rtl-sketch/modal_coef_rom_p8.v
+hierarchy -check -top synth_top
+synth -top synth_top
+dfflibmap -liberty /Users/joseph/dev/2amlogic/prep/tinytapeout/pdk/ciel/gf180mcu/versions/54435919abffb937387ec956209f9cf5fd2dfbee/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
+abc -liberty /Users/joseph/dev/2amlogic/prep/tinytapeout/pdk/ciel/gf180mcu/versions/54435919abffb937387ec956209f9cf5fd2dfbee/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
+opt_clean -purge
+tee -q -o /private/tmp/wt-fpga/rtl-sketch/build/area/repro_top_7t/stat.json stat -liberty /Users/joseph/dev/2amlogic/prep/tinytapeout/pdk/ciel/gf180mcu/versions/54435919abffb937387ec956209f9cf5fd2dfbee/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib -json -top synth_top
+write_verilog -noattr /private/tmp/wt-fpga/rtl-sketch/build/area/repro_top_7t/netlist.v

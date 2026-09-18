@@ -1,0 +1,24 @@
+# ULX3S (LFE5U-25F, CABGA381). 25 MHz on-board oscillator; see fpga/README.md
+# for the clock note -- this LPF feeds it straight in, which runs the
+# instrument at 97.7 kHz frame rate (an octave-and-a-bit sharp) unless a PLL
+# or an external 12.288 MHz source is used. The numbers in fpga/reports are
+# resource and Fmax numbers and do not depend on this choice.
+LOCATE COMP "clk"       SITE "G2";
+LOCATE COMP "btn_rst_n" SITE "D6";
+LOCATE COMP "sck"       SITE "B11";
+LOCATE COMP "mosi"      SITE "C11";
+LOCATE COMP "cs_n"      SITE "A10";
+LOCATE COMP "miso"      SITE "A11";
+LOCATE COMP "bclk"      SITE "C4";
+LOCATE COMP "lrclk"     SITE "B3";
+LOCATE COMP "sdata"     SITE "C3";
+IOBUF PORT "clk"       IO_TYPE=LVCMOS33;
+IOBUF PORT "btn_rst_n" IO_TYPE=LVCMOS33 PULLMODE=UP;
+IOBUF PORT "sck"       IO_TYPE=LVCMOS33;
+IOBUF PORT "mosi"      IO_TYPE=LVCMOS33;
+IOBUF PORT "cs_n"      IO_TYPE=LVCMOS33 PULLMODE=UP;
+IOBUF PORT "miso"      IO_TYPE=LVCMOS33;
+IOBUF PORT "bclk"      IO_TYPE=LVCMOS33;
+IOBUF PORT "lrclk"     IO_TYPE=LVCMOS33;
+IOBUF PORT "sdata"     IO_TYPE=LVCMOS33;
+FREQUENCY PORT "clk" 12.288 MHz;

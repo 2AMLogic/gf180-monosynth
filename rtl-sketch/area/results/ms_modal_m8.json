@@ -1,0 +1,64 @@
+{
+ "tag": "ms_modal_m8",
+ "top": "modal_dp",
+ "track": "7",
+ "liberty": "gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib",
+ "chparam": [
+  "MODES=8",
+  "NUMS=6",
+  "HR=0",
+  "OW=19"
+ ],
+ "defines": [],
+ "flatten": false,
+ "booth": false,
+ "total_area_um2": 241979.0912,
+ "total_cells": 10548,
+ "modules": [
+  {
+   "depth": 0,
+   "inst": "modal_dp",
+   "module": "modal_dp",
+   "own_cells": 10548,
+   "own_area_um2": 241979.0912,
+   "hier_cells": 10548,
+   "hier_area_um2": 241979.0912
+  }
+ ],
+ "cells_by_type": {
+  "modal_dp": {
+   "gf180mcu_fd_sc_mcu7t5v0__and2_1": 298,
+   "gf180mcu_fd_sc_mcu7t5v0__and3_1": 29,
+   "gf180mcu_fd_sc_mcu7t5v0__and4_1": 12,
+   "gf180mcu_fd_sc_mcu7t5v0__aoi211_1": 14,
+   "gf180mcu_fd_sc_mcu7t5v0__aoi21_1": 547,
+   "gf180mcu_fd_sc_mcu7t5v0__aoi221_1": 67,
+   "gf180mcu_fd_sc_mcu7t5v0__aoi222_1": 4,
+   "gf180mcu_fd_sc_mcu7t5v0__aoi22_1": 447,
+   "gf180mcu_fd_sc_mcu7t5v0__clkinv_1": 576,
+   "gf180mcu_fd_sc_mcu7t5v0__dffq_1": 1039,
+   "gf180mcu_fd_sc_mcu7t5v0__mux2_1": 128,
+   "gf180mcu_fd_sc_mcu7t5v0__mux4_1": 184,
+   "gf180mcu_fd_sc_mcu7t5v0__nand2_1": 2665,
+   "gf180mcu_fd_sc_mcu7t5v0__nand3_1": 213,
+   "gf180mcu_fd_sc_mcu7t5v0__nand4_1": 44,
+   "gf180mcu_fd_sc_mcu7t5v0__nor2_1": 845,
+   "gf180mcu_fd_sc_mcu7t5v0__nor3_1": 26,
+   "gf180mcu_fd_sc_mcu7t5v0__nor4_1": 3,
+   "gf180mcu_fd_sc_mcu7t5v0__oai211_1": 126,
+   "gf180mcu_fd_sc_mcu7t5v0__oai21_1": 1391,
+   "gf180mcu_fd_sc_mcu7t5v0__oai221_1": 52,
+   "gf180mcu_fd_sc_mcu7t5v0__oai22_1": 50,
+   "gf180mcu_fd_sc_mcu7t5v0__oai31_1": 17,
+   "gf180mcu_fd_sc_mcu7t5v0__oai32_1": 21,
+   "gf180mcu_fd_sc_mcu7t5v0__oai33_1": 6,
+   "gf180mcu_fd_sc_mcu7t5v0__or2_1": 233,
+   "gf180mcu_fd_sc_mcu7t5v0__or3_1": 20,
+   "gf180mcu_fd_sc_mcu7t5v0__or4_1": 1,
+   "gf180mcu_fd_sc_mcu7t5v0__xnor2_1": 453,
+   "gf180mcu_fd_sc_mcu7t5v0__xnor3_1": 122,
+   "gf180mcu_fd_sc_mcu7t5v0__xor2_1": 763,
+   "gf180mcu_fd_sc_mcu7t5v0__xor3_1": 152
+  }
+ }
+}

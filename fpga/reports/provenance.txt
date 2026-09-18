@@ -1,0 +1,68 @@
+# FPGA build provenance
+
+date        : 2026-09-18T10:23:44Z
+rtl commit  : da7cb93116bf7ecade5cbe672597c015046fc8c8
+rtl branch  : flow/fpga
+tree state  : 3 modified file(s) under rtl-sketch/ and fpga/
+yosys       : Yosys 0.69+post (git sha1 143eb14f9cc55d6f8927e68523b0c9d2166ed02c, Release, AppleClang clang++ 21.0.0.21000101)
+nextpnr-ice40: "nextpnr-ice40" -- Next Generation Place and Route (Version )
+nextpnr-ecp5 : "nextpnr-ecp5" -- Next Generation Place and Route (Version 3e53a0b)
+constraint  : 12.288 MHz (= 48 kHz x 256; the design is the I2S master)
+
+## source files
+  25f7cdf0cf0838b652024208fc448f4734d0a70c fpga/rtl/fpga_top.v
+  783e00d958140060514c112440ace1e0d4c0ebb9 rtl-sketch/synth_top.v
+  528744a7b781270e185b93bb45027267ca3d3984 rtl-sketch/spi_ctl.v
+  1f0ddc3dc1995866576905f1dff3eabba4d5d95f rtl-sketch/voice_dp.v
+  f6dd1b307ef9c857eac26a7afbbfd3ca852eecb6 rtl-sketch/recip_div.v
+  77fa1222f8b54809dd2b6cb950acfaac7bd0665f rtl-sketch/ladder_dp_n.v
+  9592bfb89b945f23aeef2745369b8e589e64dafa rtl-sketch/i2s_tx.v
+  8fdf481d3a3ae5a36e3b9beefc0a0a7dc8c646c1 rtl-sketch/modal_dp_rom.v
+  f700c16b04c8c0fec886fcbd1f9bd495bca52f77 rtl-sketch/modal_coef_rom_p8.v
+
+## the gf180 numbers this branch also reports
+The ORFS synthesis numbers in docs/integration-area.md section 1 were produced
+by the flow/synth-top-par run (commit acc9e8a7), not by this branch. All eight
+RTL source files are byte-identical between that worktree and this one --
+verified by sha256, recorded here so the comparison is not taken on trust:
+  0f338c9cec790c29  synth_top.v
+  96ba3bcf04612e67  spi_ctl.v
+  09c19672c81ee5ac  voice_dp.v
+  bf081a1b780d047d  recip_div.v
+  975a09b18f984e06  ladder_dp_n.v
+  c4e7c371a0bd47be  i2s_tx.v
+  9491fe558e83a460  modal_dp_rom.v
+  38c909b76ca7d1bf  modal_coef_rom_p8.v
+Its logs are copied verbatim into pnr/orfs/evidence/.
+
+The gf180 CELL-area numbers (docs/integration-area.md sections 1 C' and 3) were
+produced by this branch with rtl-sketch/area/synth_area.py against
+PDK gf180mcuD, ciel version 54435919abffb937387ec956209f9cf5fd2dfbee.
+Raw per-run results: rtl-sketch/area/results/.
+
+NOTHING IN THIS RECORD IS EVIDENCE OF CORRECTNESS. It is an area and timing
+record. See docs/verification-rules.md rule 3.
+
+## the gf180 numbers this branch also reports
+The ORFS synthesis numbers in docs/integration-area.md section 1 (A and B) were
+produced by the flow/synth-top-par run (commit acc9e8a7), not by this branch.
+All eight RTL source files are byte-identical between that worktree and this
+one -- verified by sha256 and recorded so the comparison is not taken on trust:
+  0f338c9cec790c29 synth_top.v      96ba3bcf04612e67 spi_ctl.v
+  09c19672c81ee5ac voice_dp.v       bf081a1b780d047d recip_div.v
+  975a09b18f984e06 ladder_dp_n.v    c4e7c371a0bd47be i2s_tx.v
+  9491fe558e83a460 modal_dp_rom.v   38c909b76ca7d1bf modal_coef_rom_p8.v
+Its logs are copied verbatim into pnr/orfs/evidence/.
+
+The gf180 CELL-area numbers (integration-area sections 1 C', 3 and 4) were
+produced by this branch with rtl-sketch/area/synth_area.py and
+fpga/scripts/x1_ab.sh against PDK gf180mcuD, ciel version
+54435919abffb937387ec956209f9cf5fd2dfbee. Raw per-run results:
+rtl-sketch/area/results/.
+
+SCOPE: every synth_top figure anywhere in this record is a chip with
+PLACEHOLDER DRUMS (synth_top.v:81 -- drum_section_placeholder, not drum_kit).
+Contract 17.23. No synth_top on any branch instantiates the real drum section.
+
+NOTHING HERE IS EVIDENCE OF CORRECTNESS. It is an area and timing record.
+See docs/verification-rules.md rule 3.

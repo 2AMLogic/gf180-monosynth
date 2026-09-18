@@ -1,0 +1,43 @@
+=== iCE40 UP5K (SG48) : synth_top (fpga_top wrapper) ===
+
+-- FPGA synthesised (yosys technology mapping; NOT place-and-routed) --
+   1464   SB_CARRY
+   5   SB_DFF
+   304   SB_DFFE
+   2561   SB_DFFESR
+   25   SB_DFFESS
+   33   SB_DFFSR
+   3   SB_DFFSS
+   5885   SB_LUT4
+   12   SB_MAC16
+   total mapped cells: 10301
+
+-- FPGA place-and-route --
+  device utilisation:
+    Device utilisation:
+    	         ICESTORM_LC:    8623/   5280   163%
+    	        ICESTORM_RAM:       0/     30     0%
+    	               SB_IO:       9/     39    23%
+    	               SB_GB:       8/      8   100%
+    	        ICESTORM_PLL:       0/      1     0%
+    	         SB_WARMBOOT:       0/      1     0%
+    	        ICESTORM_DSP:      12/      8   150%
+    	      ICESTORM_HFOSC:       0/      1     0%
+    	      ICESTORM_LFOSC:       0/      1     0%
+    	              SB_I2C:       0/      2     0%
+    	              SB_SPI:       0/      2     0%
+    	              IO_I3C:       0/      2     0%
+    	         SB_LEDDA_IP:       0/      1     0%
+    	         SB_RGBA_DRV:       0/      1     0%
+    	      ICESTORM_SPRAM:       0/      4     0%
+    Placed 9 cells based on constraints.
+
+  RESULT: DOES NOT FIT / did not complete.
+    ERROR: Unable to place cell 'u_synth.u_drums.u_modal.mr_SB_MAC16_O_DSP', no BELs remaining to implement cell type 'ICESTORM_DSP'
+
+  achieved Fmax (nextpnr post-route STA, typical corner):
+
+  bitstream: none (no routed design)
+
+  NOTE: this is a physical result only. It says nothing about whether the
+  design computes the right samples; see docs/verification-rules.md rule 3.
