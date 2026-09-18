@@ -2,27 +2,28 @@
   "engine": "fixed-model",
   "case_id": "F1A",
   "subject": "Cutoff response / low",
-  "source_commit": "25d6b9f",
-  "analysis_run": "run_case@f4977a1d7dbd + audio_measure@7386f4a9297f at 2026-09-18T21:55:48Z",
+  "source_commit": "0fc8cbf",
+  "analysis_run": "run_case@f4977a1d7dbd + audio_measure@7386f4a9297f at 2026-09-18T21:56:54Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "25d6b9f",
-      "described": "node/D-drums-bitexact-51-g25d6b9f-dirty",
+      "commit": "0fc8cbf",
+      "described": "node/D-drums-bitexact-53-g0fc8cbf",
       "branch": "refs-frozen-profile",
-      "dirty": true,
-      "uncommitted_sha256": "48b88debed0c8043",
+      "dirty": false,
+      "uncommitted_sha256": "e3b0c44298fc1c14",
       "untracked_files": 0
     },
     "base_check": {
       "checked": true,
-      "origin_main": "64e96ce12585",
-      "behind_commits": 0,
+      "origin_main": "8bfd45f1ab3b",
+      "behind_commits": 6,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
       "allow_stale": false,
-      "problems": []
+      "problems": [],
+      "note": "6 commit(s) behind origin/main, none of them touching an input this measurement depends on"
     },
     "command": "tools/run_case.py F1A",
     "config": {
@@ -35,15 +36,15 @@
       "inject": null
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T21:55:48Z",
+    "run_at": "2026-09-18T21:56:54Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
       "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
       "model/reference_rigs.py": "sha256:99b1c862857a34a8",
       "tools/run_case.py": "sha256:f4977a1d7dbd2538",
-      "tools/refprofile.py": "sha256:ce58b0eb5b9fe2f9",
-      "refprofile/profile.json": "sha256:4587cd6248ac7073",
+      "tools/refprofile.py": "sha256:454becc06bce5e03",
+      "refprofile/profile.json": "sha256:14cadf80da9f8293",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
       "frozen:surge-type2/lp-cut250-res0.00": "sha256:bd2279368babf5b6",
       "frozen:surge-type2/lp-open20k-res0.00": "sha256:ad30cebd73b77be3"
@@ -55,7 +56,7 @@
     "outcome_code": 0,
     "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
   },
-  "reference_profile": "surge-type2:surge-type2/lp-cut250-res0.00 (commanded 250 Hz, readback 250.0 Hz, resonance 0.0), frozen at 25d6b9f",
+  "reference_profile": "surge-type2:surge-type2/lp-cut250-res0.00 (commanded 250 Hz, readback 250.0 Hz, resonance 0.0), frozen at 170e6b1",
   "reference_identity": "1.2.3 org.surge-synth-team.surge-xt, binary sha256 2bc28ffe729965aa; LP Vintage Ladder subtype Type 2 = sst-filters VintageLadder::Huov, Huovilainen DAFx-04, the same paper DR 0001 implements. Rendered once through the qualified rig of #87 and frozen: this result did not run a plugin.",
   "render_run": "reference_rigs.OurLadder@99b1c862857a stepped tone, 32 frequencies 40-12000 Hz, amp 0.25 (-12.04 dBFS), cutoff 250 Hz, resonance 0.0 (k = 4*res, so this is our zero), 48000 Hz, no resampling anywhere",
   "audio": "reference surge-type2/lp-cut250-res0.00 (frozen, sha256 bd2279368bab); ours build/scorecard/F1A-ours-response.json",
