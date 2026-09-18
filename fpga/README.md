@@ -122,13 +122,13 @@ Three things are needed:
 3. **An SPI host** (DR 0007): mode 0, **48-bit** transactions framed by CS_N,
    SCK <= f_core/4. Four pins. Without a host the instrument powers up silent
    and stays silent: every coefficient, envelope and note arrives over this
-   link. There is no on-chip sequencer and no default kit in RTL. **No host
-   software exists in this repository yet** — see the note below.
+   link. There is no on-chip sequencer and no default kit in RTL. The host is
+   `fpga/spi_host.py` — see below.
 
 Total: 1 clock + 1 reset + 4 SPI + 3 I2S = **9 pins**, plus 8 LEDs and
 `wifi_gpio0` on the ULX3S wrapper.
 
-## The host, which is not here
+## The host (issue #81)
 
 Two of this instrument's voices are not fully in the RTL. The bass drum's 4 ms
 attack window and the toms' diode pitch drop are **timed coefficient writes
@@ -136,7 +136,58 @@ from the host** (`model/drums_fx.py`, contract 15.7.1) — sequences of register
 writes at named frames, not settings. A USB-MIDI bridge that loads the kit and
 forwards note-ons will not reproduce those voices.
 
-That host is deliberately **not** in this branch. It is deferred until the 808
-is complete (8 of 11 circuits today), so that it is written against the finished
-instrument rather than this one. Nothing in `fpga/` depends on it and nothing
-here claims it exists.
+`fpga/spi_host.py` is that host, and `fpga/verify_fixture.py` is the evidence
+that it works: **a musical fixture entering through the production control
+path and bit-compared against `model/synth_top_model.py`** — 288 forty-eight-bit
+transactions over CS_N, SCK and MOSI into `synth_top.v`, 8 378 I2S periods
+decoded off the wire, every one identical to the model. Nothing is poked.
+
+```sh
+make -C fpga budget          # the link budget, in absolute numbers
+make -C fpga host            # the unit tests, then the fixture at the pins
+make -C fpga host-controls   # every wrong stream that must turn it red
+make -C fpga play            # the demo: no keyboard attached
+```
+
+### The link budget, which decides the shape of the host
+
+| | DR 0007 max, SCK 2.0 MHz | `tb_top_bx`, SCK 1.536 MHz |
+|---|---:|---:|
+| transaction | 48 bits = **6 bytes** | 6 bytes |
+| on the wire | 24.000 µs | 31.648 µs |
+| + CS_N gap | **24.326 µs** | **32.348 µs** |
+| transactions/s | 41 109 | 30 914 |
+| writes per 20.833 µs frame | **0.856** | **0.644** |
+
+**A transaction is longer than a frame.** At most one register write lands per
+frame, so no burst arrives together — not at the contract's ceiling, not ever.
+That is not a limitation the host can design around; it is the shape of the
+problem.
+
+What survives it are the two sequences, which is what #81 asks about:
+
+- **BD attack window** — 4 ms = **192 frames** wide, 4 writes, 2 at the hit.
+  Those 2 need **2.34 frames**. Margin **189.7 frames (3.95 ms)**.
+- **tom pitch drop** — 60 ms = **2 880 frames**, 14 writes, steps 480 frames
+  apart. Margin **477.7 frames (9.95 ms)**.
+
+Both fit by two orders of magnitude. **The budget holds.** What it costs is
+simultaneity: the host sends each hit's setup ahead of the strike (up to
+**0.79 ms** with all eleven circuits struck at once) and keeps the strike on
+time. Two musical instants that want the same frame are quantised by one
+transaction — **42 µs** on the bench link — and that number is reported, not
+hidden.
+
+Per event, counted from the reference hosts' own write lists: note on 5 writes
+(30 bytes), note off 1, drum hit 3, **a BD hit with its window 7 (42 bytes)**,
+**a tom hit with its bend 17 (102 bytes)**, cutoff knob 1, resonance knob 3
+(the compensation lookup), BD decay knob 2. Boot is 182 writes = 4.43 ms of
+link time, once.
+
+### Known wrong, sent anyway
+
+The toms' pitch drop ships at ×1.7 (`drums_fx.TOM_DROP_RATIO`). Measurement
+against 99 hardware files puts it at **×1.06 / ×1.14 / ×1.24 by accent**
+(#110, merged); the correction is blocked on #99. The host sends whatever the
+current model specifies, because what is verified here is the **path**, not
+the value.

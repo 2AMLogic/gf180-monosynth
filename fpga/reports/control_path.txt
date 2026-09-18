@@ -1,0 +1,227 @@
+# The production control path: a musical fixture at the pins (issue #81)
+
+Generated from the runs themselves, at commit a932c7d.
+Reproduce: `make -C fpga budget`, `make -C fpga host`, `make -C fpga host-controls`.
+
+Nothing in this file is a recording. Every line is a bit-comparison of the
+I2S wire against model/synth_top_model.py, with no tolerance, for control data
+that entered the chip as 48-bit DR 0007 revision 2 SPI transactions.
+
+==============================================================================
+PART 1 -- THE RESULT
+==============================================================================
+
+  fixture   bar808 (fpga/fixtures.py): a bass line under a drum part --
+            11 strikes, 4 gate/trigger events, 7 knob turns, 3 BD attack
+            windows, 3 tom pitch drops. 288 transactions = 1 728 bytes,
+            landing in frames 2..7480.
+  path      fpga/fixtures.py -> fpga/spi_host.py -> 48-bit frames over CS_N,
+            SCK and MOSI -> rtl-sketch/tb_top_bx.v's master ->
+            rtl-sketch/synth_top.v -> BCLK, LRCLK, SDATA
+  compared  8 378 I2S periods (175 ms), decoded from the wire the way a DAC
+            does, against the model -- EVERY ONE IDENTICAL.
+
+  Preconditions, asserted from the bench's own report and not assumed:
+    datapath busy at a tick 0; overrun 0; link overflow 0; a sample strobed
+    in all 8 379 frames; every I2S slot 32 BCLK; L == R in every period.
+
+  THE ANTI-CIRCULARITY. The model was driven by frames fpga/spi_host.py
+  computed BEFORE iverilog ran. For all 288 transactions the host's own
+  prediction, the frame the CS_N PIN predicts, and the frame the write
+  actually drained in are the same number. A scheduler that is wrong about
+  the link therefore fails here even when the audio would have matched.
+
+  That check earned its keep on its first run. The host's timing model had
+  k_rst = 8, because rst_n_pad goes high at posedge 8. synth_top.v
+  synchronises the reset through two flops, so the core's `cyc` counts from
+  posedge 10. The model was right for 232 of 234 transactions and WRONG BY
+  ONE FRAME on the two that straddled a tick. A scheduler checked only
+  against its own arithmetic would still be wrong today.
+  Wrong-then-right on this branch: 1 of 1.
+
+==============================================================================
+PART 2 -- THE RED RUNS (docs/verification-rules.md rules 1 and 2)
+==============================================================================
+
+Each sends a DELIBERATELY WRONG transaction stream while the model keeps the
+correct schedule. Every one must turn the comparison red, and every one did.
+
+transaction stream  verdict    core frames differ  error RMS  vs signal
+-----------------------------------------------------------------------
+(baseline)          bit-exact           0 of 8379          -          -
+no-coef-seq         CAUGHT           5496 of 6099    14560.7    +5.9 dB
+drop-restore        CAUGHT           7588 of 8379     6002.0    -1.6 dB
+late-window         CAUGHT           7589 of 8379     8921.5    +1.8 dB
+no-tom-bend         CAUGHT           4695 of 6099     8175.8    +0.9 dB
+drop-tom-step       CAUGHT           6019 of 8379     1726.5   -12.5 dB
+burst               CAUGHT           1055 of 1347    20601.0   +15.3 dB
+
+  no-coef-seq    THE BRIDGE #81 WARNS ABOUT: the kit is loaded, triggers are
+                 forwarded, and the 54 timed coefficient writes of contract
+                 15.7.1 are simply absent. +5.9 dB of error against the
+                 signal -- a different instrument, not a degraded one.
+  drop-restore   the BD attack window opens at 130 Hz / Q 6 and never closes
+  late-window    it closes at 20 ms instead of 4 ms
+  no-tom-bend    the toms lose the diode pitch drop entirely
+  drop-tom-step  ONE step out of the middle of one 60 ms bend -- the smallest
+                 of these defects at -12.5 dB, and still caught with no
+                 tolerance, in 6 019 of 8 379 frames
+  burst          no schedule at all: every transaction sent back to back.
+                 This is what a host that ignores the link budget produces,
+                 and it is the loudest failure here at +15.3 dB.
+
+==============================================================================
+PART 3 -- THE LINK BUDGET, measured before the host was written
+==============================================================================
+
+  ==============================================================================
+  SPI LINK BUDGET -- absolute numbers, contract 5.4 / DR 0007 revision 2
+  ==============================================================================
+
+  The frame is 20.833 us (48000 Hz, 256 cycles of 12.288 MHz).
+  One transaction is 48 bits = 6 bytes: {F, 6'b0, SEC, A[7:0], D[31:0]}.
+
+  link                             SCK    tx span    +CS gap     tx/s  writes/frame
+  ---------------------------------------------------------------------------------
+  DR 0007 maximum 2.0 MHz      2.000 M    24.000u    24.326u    41109        0.8564
+  tb_top_bx 1.536 MHz          1.536 M    31.648u    32.348u    30914        0.6440
+
+    DR 0007 maximum 2.0 MHz: one write every 1.168 frames (24.326 us). A transaction is LONGER THAN A FRAME, so at most ONE write lands per frame
+    tb_top_bx 1.536 MHz: one write every 1.553 frames (32.348 us). A transaction is LONGER THAN A FRAME, so at most ONE write lands per frame
+
+    -> no burst arrives together. Two writes are 48.7 us apart at best (2.34 frames), 64.7 us on the bench link.
+
+  ==============================================================================
+  BYTES PER EVENT (counted from the reference hosts' own write lists)
+  ==============================================================================
+  event                                    writes  bytes   at 2.0 MHz  on the bench
+  ---------------------------------------------------------------------------------
+  note on (3 osc + track + gate)                5     30      121.6us       161.7us
+                                            voice_fx.KeyHost, glide off
+  note off                                      1      6       24.3us        32.3us
+                                            GATE_OFF
+  retrigger under a held key                    1      6       24.3us        32.3us
+                                            TRIG
+  drum hit, no sequence                         3     18       73.0us        97.0us
+                                            accent + STOPS on + STOPS off
+  BD hit WITH the 4 ms attack window            7     42      170.3us       226.4us
+                                            +4 timed coefficient writes (15.7.1)
+  tom hit WITH the 60 ms pitch drop            17    102      413.5us       549.9us
+                                            +14 timed coefficient writes (15.7.1)
+  knob: cutoff                                  1      6       24.3us        32.3us
+                                            CUT_LO
+  knob: resonance                               3     18       73.0us        97.0us
+                                            K + GAIN + OGAIN, the compensation lookup
+  knob: BD decay                                2     12       48.7us        64.7us
+                                            mode 6 a1, a2
+  boot: the whole patch image                  21    126      510.8us       679.3us
+                                            voice_fx.patch_regs through the map
+  boot: the reference kit                     158    948     3843.4us      5111.0us
+                                            drums_fx.kit_808 (147) + 11 accents
+
+  ==============================================================================
+  THE TWO TIMED SEQUENCES OF 15.7.1 -- the gate #81 says to stop on
+  ==============================================================================
+
+    DR 0007 maximum 2.0 MHz:
+      BD attack window (15.7.1, reference 2)
+        window 4 ms = 192 frames; 4 writes, 2 of them at the hit
+        those 2 take 48.7 us (2.34 frames) -- FITS, margin 189.7 frames (3.95 ms)
+      tom diode pitch drop (15.7.1, reference 4)
+        window 60 ms = 2880 frames; 14 writes, 2 of them at the hit
+        those 2 take 48.7 us (2.34 frames) -- FITS, margin 477.7 frames (9.95 ms)
+
+    tb_top_bx 1.536 MHz:
+      BD attack window (15.7.1, reference 2)
+        window 4 ms = 192 frames; 4 writes, 2 of them at the hit
+        those 2 take 64.7 us (3.11 frames) -- FITS, margin 188.9 frames (3.94 ms)
+      tom diode pitch drop (15.7.1, reference 4)
+        window 60 ms = 2880 frames; 14 writes, 2 of them at the hit
+        those 2 take 64.7 us (3.11 frames) -- FITS, margin 476.9 frames (9.94 ms)
+
+  ==============================================================================
+  WORST CASE: EVERY CIRCUIT RETRIGGERED IN ONE FRAME, both sequences running
+  ==============================================================================
+
+    DR 0007 maximum 2.0 MHz: 20 writes wanted in ONE frame (all 11 circuits at once, both sequences running)
+      serialised they occupy 486.5 us = 23.4 frames, so the host sends the setup 38 frames (792 us = 0.79 ms) AHEAD of the strike
+      the strike itself is on time: 0 anchor conflict(s)
+
+    tb_top_bx 1.536 MHz: 20 writes wanted in ONE frame (all 11 circuits at once, both sequences running)
+      serialised they occupy 647.0 us = 31.1 frames, so the host sends the setup 38 frames (792 us = 0.79 ms) AHEAD of the strike
+      the strike itself is on time: 0 anchor conflict(s)
+
+  ==============================================================================
+  A REAL FIXTURE: the reference 808 pattern, 118 bpm, 2 bars
+  ==============================================================================
+
+    DR 0007 maximum 2.0 MHz:
+      42 hits -> 356 transactions = 2136 bytes over 4.12 s (197932 frames)
+      of those, 182 are the one-off boot load (4.43 ms of link time) and 174 are the music
+      mean 42.2 transactions/s against a link that carries 41109/s; link busy 0.2 % of the time
+      peak demand in any ONE frame: 8 writes (52 frames want more than one)
+      after spreading: 0 anchor conflict(s), 0 musical write(s) late
+        the boot load lands over 213 frames (4.44 ms), once, before a note is played
+        each hit's setup goes at most 14 frames (292 us = 0.29 ms) EARLY; no strike is late
+
+    tb_top_bx 1.536 MHz:
+      42 hits -> 356 transactions = 2136 bytes over 4.12 s (197932 frames)
+      of those, 182 are the one-off boot load (5.89 ms of link time) and 174 are the music
+      mean 42.2 transactions/s against a link that carries 30914/s; link busy 0.3 % of the time
+      peak demand in any ONE frame: 8 writes (52 frames want more than one)
+      after spreading: 0 anchor conflict(s), 0 musical write(s) late
+        the boot load lands over 283 frames (5.90 ms), once, before a note is played
+        each hit's setup goes at most 14 frames (292 us = 0.29 ms) EARLY; no strike is late
+
+  ==============================================================================
+  VERDICT: THE BUDGET HOLDS.
+    The link cannot deliver a burst atomically and never could -- a
+    transaction is longer than a frame. What #81 asks about is the two
+    TIMED SEQUENCES, and both fit with orders of magnitude to spare: the
+    BD attack window is 192 frames wide and needs 2.34 of them.
+    The cost is not the deadline, it is SIMULTANEITY: a hit's setup writes
+    have to be sent before the strike, and the host is what decides that.
+  ==============================================================================
+
+==============================================================================
+PART 4 -- THE RUNS, VERBATIM
+==============================================================================
+
+==============================================================================
+PASS           103.0s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --outdir build/fx-base
+                sim: tb_top_bx: datapath busy at a tick: 0 (must be 0); overrun 0; overflow 0
+              verify_fixture: every one of 288 transactions arrived intact and in the frame spi_host predicted, confirmed at the CS_N pin and at the drain
+              verify_fixture: model peak |sample| 22014 of 32768, RMS 7250 (-13.1 dBFS); drums |dmix| max 18291, |body| max 46389
+              verify_fixture: PASS -- 8378 I2S periods (175 ms of audio) decoded from the wire, every one identical to the model. A musical fixture entered through the production control path -- 288 48-bit transactions, 3 attack window(s) and 3 pitch drop(s) among them -- and came out bit-exact.
+PASS            83.0s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong no-coef-seq   --expect-fail --outdir build/fx-nocoef
+                first wire mismatch at period 604 (12.6 ms): model -865, wire -864, error +1 LSB
+                worst |error| 28777 LSB; error RMS 14560.7 LSB vs signal RMS 7391.4 LSB (+5.9 dB)
+                the core's own sample stream: 5496 of 6099 frames differ
+              verify_fixture: wrong stream 'no-coef-seq' CAUGHT (comparison failed as required)
+PASS           103.1s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong drop-restore  --expect-fail --outdir build/fx-droprest
+                first wire mismatch at period 791 (16.5 ms): model 1890, wire 1891, error +1 LSB
+                worst |error| 14373 LSB; error RMS 6002.0 LSB vs signal RMS 7250.2 LSB (-1.6 dB)
+                the core's own sample stream: 7588 of 8379 frames differ
+              verify_fixture: wrong stream 'drop-restore' CAUGHT (comparison failed as required)
+PASS           103.2s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong late-window   --expect-fail --outdir build/fx-late
+                first wire mismatch at period 791 (16.5 ms): model 1890, wire 1891, error +1 LSB
+                worst |error| 27413 LSB; error RMS 8921.5 LSB vs signal RMS 7250.2 LSB (+1.8 dB)
+                the core's own sample stream: 7589 of 8379 frames differ
+              verify_fixture: wrong stream 'late-window' CAUGHT (comparison failed as required)
+PASS            82.2s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong no-tom-bend   --expect-fail --outdir build/fx-notom
+                first wire mismatch at period 1404 (29.2 ms): model -5102, wire -5101, error +1 LSB
+                worst |error| 20568 LSB; error RMS 8175.8 LSB vs signal RMS 7391.4 LSB (+0.9 dB)
+                the core's own sample stream: 4695 of 6099 frames differ
+              verify_fixture: wrong stream 'no-tom-bend' CAUGHT (comparison failed as required)
+PASS           103.9s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong drop-tom-step --expect-fail --outdir build/fx-tomstep
+                first wire mismatch at period 2360 (49.2 ms): model -4487, wire -4484, error +3 LSB
+                worst |error| 4940 LSB; error RMS 1726.5 LSB vs signal RMS 7250.2 LSB (-12.5 dB)
+                the core's own sample stream: 6019 of 8379 frames differ
+              verify_fixture: wrong stream 'drop-tom-step' CAUGHT (comparison failed as required)
+PASS            26.0s  /Users/joseph/dev/2amlogic/gf180-monosynth/.venv/bin/python fpga/verify_fixture.py --wrong burst         --expect-fail --outdir build/fx-burst
+                first wire mismatch at period 293 (6.1 ms): model 0, wire -35, error -35 LSB
+                worst |error| 37702 LSB; error RMS 20601.0 LSB vs signal RMS 3543.8 LSB (+15.3 dB)
+                the core's own sample stream: 1055 of 1347 frames differ
+              verify_fixture: wrong stream 'burst' CAUGHT (comparison failed as required)
+==============================================================================
+7/7 passed

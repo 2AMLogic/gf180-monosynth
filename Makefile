@@ -25,11 +25,12 @@ help:
 ## Everything a push should run.
 verify:
 	@$(RUN) \
-	  "$(PY) -m pytest model/ spec/ tools/ -q" \
+	  "$(PY) -m pytest model/ spec/ tools/ fpga/ -q" \
 	  "$(PY) rtl-sketch/verify_ladder.py" \
 	  "$(PY) rtl-sketch/verify_modal.py" \
 	  "$(PY) rtl-sketch/verify_ctl.py" \
 	  "$(PY) rtl-sketch/verify_synth_top.py" \
+	  "$(PY) fpga/verify_fixture.py --outdir build/fx-base" \
 	  "$(PY) rtl-sketch/verify_voice.py --set quick"
 
 verify-fast: verify
@@ -37,11 +38,12 @@ verify-fast: verify
 ## Adds the runs that take an hour. Still one turn.
 verify-full:
 	@$(RUN) --timeout 7200 \
-	  "$(PY) -m pytest model/ spec/ tools/ -q" \
+	  "$(PY) -m pytest model/ spec/ tools/ fpga/ -q" \
 	  "$(PY) rtl-sketch/verify_ladder.py" \
 	  "$(PY) rtl-sketch/verify_modal.py" \
 	  "$(PY) rtl-sketch/verify_ctl.py" \
 	  "$(PY) rtl-sketch/verify_synth_top.py" \
+	  "$(PY) fpga/verify_fixture.py --outdir build/fx-base" \
 	  "$(PY) rtl-sketch/verify_voice.py --set full" \
 	  "$(PY) rtl-sketch/verify_drums.py"
 
@@ -101,6 +103,12 @@ controls:
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_STOPS8 --expect-fail --outdir build/top-stops8" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_BUS_STALE --expect-fail --outdir build/top-busstale" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_DONE_NOWAIT --expect-fail --outdir build/top-nowait" \
+	  "$(PY) fpga/verify_fixture.py --wrong no-coef-seq --expect-fail --outdir build/fx-nocoef" \
+	  "$(PY) fpga/verify_fixture.py --wrong drop-restore --expect-fail --outdir build/fx-droprest" \
+	  "$(PY) fpga/verify_fixture.py --wrong late-window --expect-fail --outdir build/fx-late" \
+	  "$(PY) fpga/verify_fixture.py --wrong no-tom-bend --expect-fail --outdir build/fx-notom" \
+	  "$(PY) fpga/verify_fixture.py --wrong drop-tom-step --expect-fail --outdir build/fx-tomstep" \
+	  "$(PY) fpga/verify_fixture.py --wrong burst --expect-fail --outdir build/fx-burst" \
 	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D01A --results build/case-detune --expect fail" \
 	  "$(PY) tools/run_case.py --inject REF_MISSING D01A --results build/case-noref --expect 'no verdict'" \
 	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect fail" \
@@ -108,7 +116,7 @@ controls:
 	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A --results build/case-badhash --expect 'no verdict'"
 
 test:
-	@$(PY) -m pytest model/ spec/ tools/ -q
+	@$(PY) -m pytest model/ spec/ tools/ fpga/ -q
 
 dag:
 	@$(PY) tools/compile_dag.py --run && $(PY) tools/compile_dag.py
