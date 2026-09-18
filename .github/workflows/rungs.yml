@@ -1,0 +1,54 @@
+# The capability ladder's permanent regression gate -- docs/capability-ladder.md.
+#
+# Every stamped rung's test set runs here, on every push, with NO path filter.
+# That is the point: the existing `moog-acceptance` workflow only fires on
+# changes under model/, audition/ and spec/, so an RTL or flow change cannot
+# turn it red. A rung is a promise that something keeps working, and a promise
+# conditioned on which directory you edited is not one.
+#
+# Rungs are added here when they are stamped, and are never removed.
+name: rungs
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  rungs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+
+      # Runs first on purpose: every rung above measures with these estimators,
+      # so an acceptance suite built on untested analysers measures the
+      # analysers rather than the synth.
+      - name: measurement ground truth
+        run: python -m pytest model/test_audio_measure.py -q
+
+      - name: R2 -- the voice is musically a Minimoog
+        run: python -m pytest model/test_moog_acceptance.py -q
+
+      - name: everything else that is green on main
+        run: python -m pytest model/ spec/ -q
+
+      # A green run must be capable of being red. If the ladder's own guard
+      # cannot fail, the ladder is decoration.
+      - name: the suite can still fail
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, sys
+          p = pathlib.Path("model/audio_measure.py")
+          orig = p.read_text()
+          # Break one estimator every rung above R0 depends on.
+          p.write_text(orig.replace("def rms(", "def rms(_unused=None, ", 1))
+          r = subprocess.run([sys.executable, "-m", "pytest",
+                              "model/test_audio_measure.py", "-q"],
+                             capture_output=True)
+          p.write_text(orig)
+          if r.returncode == 0:
+              sys.exit("ground-truth suite passed with a broken estimator")
+          print("negative control OK -- broken estimator turns the suite red")
+          PY
