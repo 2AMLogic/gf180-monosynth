@@ -33,13 +33,13 @@ pull() { # tag fam
     $2=="SB_CARRY" || $2=="CCU2C"      {cy+=$1}
     END {printf "%6d %6d %5d %5d %6d", lut, ff, dsp, bram, cy}' "$f"
 }
-TOPSRC="$F/rtl/fpga_top.v $R/synth_top.v $R/spi_ctl.v $R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v $R/i2s_tx.v $R/modal_dp_rom.v $R/modal_coef_rom_p8.v"
+TOPSRC="$F/rtl/fpga_top.v $R/synth_top.v $R/spi_ctl.v $R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v $R/i2s_tx.v $R/drum_regs.v $R/drum_kit.v $R/drum_dp.v $R/modal_dp.v"
 run_all() {
   fam="$1"
   one top       fpga_top     $fam ""                                           "$TOPSRC"
   one voice     voice_dp     $fam ""                                           "$R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v"
   one ladderN2  ladder_dp_n  $fam "-set NCH 2 -set OW 19"                      "$R/ladder_dp_n.v"
-  one modalrom4 modal_dp_rom $fam "-set MODES 4 -set PRESETS 8"                "$R/modal_dp_rom.v $R/modal_coef_rom_p8.v"
+  one dregs     drum_regs    $fam "-set ENVS 12 -set PATHS 16 -set MODES 12"  "$R/drum_regs.v"
   one spi       spi_ctl      $fam ""                                           "$R/spi_ctl.v"
   one i2s       i2s_tx       $fam ""                                           "$R/i2s_tx.v"
   one recip     recip_div    $fam ""                                           "$R/recip_div.v"
@@ -56,19 +56,23 @@ lbl "synth_top (whole chip)"        top
 lbl "  voice_dp"                    voice
 lbl "    ladder_dp_n NCH=2"         ladderN2
 lbl "    recip_div"                 recip
-lbl "  modal_dp_rom M=4 P=8"        modalrom4
+lbl "  drum_regs E=12 P=16 M=12"    dregs
 lbl "  spi_ctl"                     spi
 lbl "  i2s_tx"                      i2s
-lbl "drum_kit M=12 N=6 (NOT in top)" drumkit12
+lbl "  drum_kit M=12 N=6 (IN top)"  drumkit12
 lbl "  drum_dp E=12 P=16 M=12"      drumdp12
 lbl "  modal_dp M=12 N=6"           modal12n6
 lbl "  modal_dp M=18 N=11"          modal18n11
 cat <<'NOTE'
 
-synth_top's drum section is drum_section_placeholder + a FOUR-mode modal_dp_rom.
-drum_kit / drum_dp / modal_dp M=12 are the REAL drum section and are instantiated
-by NO synth_top on any branch; modal_dp M=18 N=11 is the bank a complete 808
-needs (docs/integration-area.md section 3).
+synth_top's drum section is now the REAL one: drum_regs + drum_kit (drum_dp +
+modal_dp) at MODES=12 NUMS=6, and the `synth_top (whole chip)` row above is a
+chip that contains them. There is no drum_section_placeholder and no
+modal_dp_rom in the top level any more.
+modal_dp M=18 N=11 is kept as the row for a LARGER bank than this build has --
+the eight drums here are 8 of the 808's 11 circuits, and completing it grows
+the bank (docs/integration-area.md section 3). That row is the headroom check,
+not part of this build.
 Blocks are synthesised standalone, so they do not sum to the top-level row.
 Device capacity: UP5K 5280 LC / 30 BRAM(4k) / 8 DSP ; ECP5 25F 24288 LUT / 56 BRAM(18k) / 28 DSP
 FPGA numbers only. Nothing here is evidence that anything computes correctly.

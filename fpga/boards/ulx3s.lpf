@@ -1,24 +1,71 @@
-# ULX3S (LFE5U-25F, CABGA381). 25 MHz on-board oscillator; see fpga/README.md
-# for the clock note -- this LPF feeds it straight in, which runs the
-# instrument at 97.7 kHz frame rate (an octave-and-a-bit sharp) unless a PLL
-# or an external 12.288 MHz source is used. The numbers in fpga/reports are
-# resource and Fmax numbers and do not depend on this choice.
-LOCATE COMP "clk"       SITE "G2";
-LOCATE COMP "btn_rst_n" SITE "D6";
-LOCATE COMP "sck"       SITE "B11";
-LOCATE COMP "mosi"      SITE "C11";
-LOCATE COMP "cs_n"      SITE "A10";
-LOCATE COMP "miso"      SITE "A11";
-LOCATE COMP "bclk"      SITE "C4";
-LOCATE COMP "lrclk"     SITE "B3";
-LOCATE COMP "sdata"     SITE "C3";
-IOBUF PORT "clk"       IO_TYPE=LVCMOS33;
-IOBUF PORT "btn_rst_n" IO_TYPE=LVCMOS33 PULLMODE=UP;
-IOBUF PORT "sck"       IO_TYPE=LVCMOS33;
-IOBUF PORT "mosi"      IO_TYPE=LVCMOS33;
-IOBUF PORT "cs_n"      IO_TYPE=LVCMOS33 PULLMODE=UP;
-IOBUF PORT "miso"      IO_TYPE=LVCMOS33;
-IOBUF PORT "bclk"      IO_TYPE=LVCMOS33;
-IOBUF PORT "lrclk"     IO_TYPE=LVCMOS33;
-IOBUF PORT "sdata"     IO_TYPE=LVCMOS33;
-FREQUENCY PORT "clk" 12.288 MHz;
+# ULX3S v2.0 / v3.x, LFE5U-25F-6BG381C.  Sites taken from the board's own
+# constraint file (emard/ulx3s doc/constraints/ulx3s_v20.lpf) -- not guessed.
+#
+# The clock here is the board's 25 MHz oscillator and it is declared as 25 MHz,
+# which is what the pin actually carries. fpga/rtl/ulx3s_top.v turns it into
+# 12.288136 MHz with an EHXPLLL and nextpnr derives that constraint from the
+# PLL's FREQUENCY_PIN_CLKOS attribute; the core clock is NOT constrained here,
+# because a constraint on this pin would describe the wrong net. The previous
+# revision of this file declared `FREQUENCY PORT "clk" 12.288 MHz` on a pin
+# carrying 25 MHz and instantiated no PLL at all (routed report: EHXPLLL 0/2).
+# The design met a timing constraint for a clock the board does not supply. At
+# 25 MHz the core makes fs = 97656.25 Hz and every voice plays 1229.6 cents
+# sharp -- an octave plus 29.6 cents. See docs/fpga-clock.md.
+#
+# Header pins are the two rows of the GP/GN connector nearest the USB socket:
+#   GP0 GP1 GP2  -> I2S out to an external DAC   (bclk, lrclk, sdata)
+#   GN0 GN1 GN2 GN3 -> SPI control in            (sck, mosi, miso, cs_n)
+# See docs/board-requirements.md for what to plug into them.
+
+LOCATE COMP "clk_25mhz"  SITE "G2";
+IOBUF  PORT "clk_25mhz"  PULLMODE=NONE IO_TYPE=LVCMOS33;
+FREQUENCY PORT "clk_25mhz" 25 MHZ;
+
+# FIRE1: idle low, pressed high -> manual reset
+LOCATE COMP "btn_fire1"  SITE "R1";
+IOBUF  PORT "btn_fire1"  PULLMODE=DOWN IO_TYPE=LVCMOS33;
+
+# The ESP32 shares pins with the FPGA on this board and boots into its
+# bootloader if GPIO0 is low. Held high; not optional.
+LOCATE COMP "wifi_gpio0" SITE "L2";
+IOBUF  PORT "wifi_gpio0" PULLMODE=UP IO_TYPE=LVCMOS33 DRIVE=4;
+
+LOCATE COMP "led[0]" SITE "B2";
+LOCATE COMP "led[1]" SITE "C2";
+LOCATE COMP "led[2]" SITE "C1";
+LOCATE COMP "led[3]" SITE "D2";
+LOCATE COMP "led[4]" SITE "D1";
+LOCATE COMP "led[5]" SITE "E2";
+LOCATE COMP "led[6]" SITE "E1";
+LOCATE COMP "led[7]" SITE "H3";
+IOBUF PORT "led[0]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[1]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[2]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[3]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[4]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[5]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[6]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[7]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+
+# --- audio out (contract 13), header GP0..GP2 ------------------------------
+# NOT the on-board 3.5 mm jack: that jack is a 4-bit resistor ladder on
+# audio_l[3:0] = B3, C3, D3, E4. The previous revision of this file put lrclk
+# on B3 and sdata on C3, i.e. drove two bits of that ladder with raw I2S
+# framing -- a buzz into the headphone socket and no LRCLK on the header at
+# all. These three sites are GPIO.
+LOCATE COMP "i2s_bclk"   SITE "B11";   # GP0
+LOCATE COMP "i2s_lrclk"  SITE "A10";   # GP1
+LOCATE COMP "i2s_sdata"  SITE "A9";    # GP2
+IOBUF  PORT "i2s_bclk"   PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;
+IOBUF  PORT "i2s_lrclk"  PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;
+IOBUF  PORT "i2s_sdata"  PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;
+
+# --- control link (DR 0007), header GN0..GN3 -------------------------------
+LOCATE COMP "spi_sck"    SITE "C11";   # GN0
+LOCATE COMP "spi_mosi"   SITE "A11";   # GN1
+LOCATE COMP "spi_miso"   SITE "B10";   # GN2
+LOCATE COMP "spi_cs_n"   SITE "C10";   # GN3
+IOBUF  PORT "spi_sck"    PULLMODE=DOWN IO_TYPE=LVCMOS33;
+IOBUF  PORT "spi_mosi"   PULLMODE=DOWN IO_TYPE=LVCMOS33;
+IOBUF  PORT "spi_miso"   PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;
+IOBUF  PORT "spi_cs_n"   PULLMODE=UP   IO_TYPE=LVCMOS33;
