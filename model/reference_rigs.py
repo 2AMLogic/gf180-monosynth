@@ -269,6 +269,30 @@ class _Plugin:
             self.pb = None
             self.eng.load_graph([(self.p, [])])
         self.setup()
+        self.qualify()
+
+    def qualify(self):
+        """Render once, then hold every pinned setting to its NAME and its
+        READBACK. Both halves are needed and neither is decoration:
+
+          * a plugin's parameter text does not update until the processor has
+            run, which is how a Diva cutoff appeared stuck at 90 for a session
+          * Surge's oscillator 1 parameters 259-267 change MEANING with the
+            oscillator type while dawdreamer keeps reporting the Classic
+            oscillator's names, so index 265 is 'A Osc 1 Unison Voices' under
+            every type and reads '1 voice' for a Classic and '14.28 Hz' for an
+            Audio In, where it is the High Cut. Only the readback separates
+            them, and pinning 265 to 0 as "1 voice" would have put a high cut
+            on every measurement
+
+        A rig that cannot prove its own settings refuses to be built."""
+        if self.have_input:
+            self.pb.set_data(np.zeros((2, int(0.05 * SR)), dtype=np.float32))
+        self.p.clear_midi()
+        self.eng.render(0.05)
+        bad = self.check_pins()
+        if bad:
+            raise RuntimeError(f"{self.name}: pinned settings did not hold: {bad}")
 
     # -- helpers -------------------------------------------------------------
     def set(self, idx, v):
@@ -386,19 +410,34 @@ class SurgeRig(_Plugin):
         (227, 0.5, 'Character', 'Neutral'),       # a pre-filter tone control on the
                                                   # oscillators. Was never set.
         (234, 0.0, 'A Osc Drift', '0.00 %'),
-        (259, 0.5, 'A Osc 1 Audio In Channel', None),
-        (260, 0.5, 'A Osc 1 Audio In Gain', '0.00 dB'),
-        # 264/265 are the Audio In oscillator's own Low Cut and High Cut. They
-        # read 29.14 Hz and 13.75 Hz -- the extremes of their ranges, which is
-        # how Surge shows a DEACTIVATED cut. They are pinned by name only, with
-        # no value written: writing 0 to 265 would set a 13.75 Hz high cut and
-        # silence the input. `flat_path_db` measures that the path really is
-        # flat rather than taking the readback's word for it.
-        (264, None, 'A Osc 1 Low Cut', None),
-        (265, None, 'A Osc 1 High Cut', None),
+        # 259/260/264/265 are the Audio In oscillator's Channel, Gain, Low Cut
+        # and High Cut -- but dawdreamer's VST3 view reports them under the
+        # CLASSIC oscillator's names whatever the type is loaded, so the names
+        # below are the ones the plugin actually hands back and the NAME check
+        # cannot see the renumbering at all. The READBACK can: 265 reads
+        # '14.28 Hz' here and '1 voice' under a Classic oscillator, and that
+        # difference is the whole of the hazard this rig was bitten by.
+        # 264/265 read the extremes of their ranges, which is how Surge shows
+        # a DEACTIVATED cut; no value is written, because writing 0 to 265
+        # would set a high cut and silence the input. `flat_path_db` measures
+        # that the path really is flat rather than taking the readback's word.
+        (259, 0.5, 'A Osc 1 Shape', '0.00 % (Stereo)'),
+        (260, 0.5, 'A Osc 1 Width 1', '0.00 dB'),
+        (264, None, 'A Osc 1 Unison Detune', '29.14 Hz'),
+        (265, None, 'A Osc 1 Unison Voices', '14.28 Hz'),
         (277, 0.0, 'A Osc 2 Unison Voices', '1 voice'),
         (289, 0.0, 'A Osc 3 Unison Voices', '1 voice'),
         (18, 1.0, 'FX Chain Bypass', 'All FX Off'),
+        # Every FX slot, pinned by READBACK. `setup` already wrote these to Off
+        # and nothing checked that they stayed there -- and an effect in the
+        # path is not always visible in the signal: Surge's Phaser is a chain
+        # of allpasses, so at its default mix it moves phase and leaves every
+        # harmonic amplitude where it was. A spectral check cannot refuse that
+        # one. A pin can.
+        (19, 0.0, 'FX A1 FX Type', 'Off'),
+        (32, 0.0, 'FX A2 FX Type', 'Off'),
+        (45, 0.0, 'FX B1 FX Type', 'Off'),
+        (58, 0.0, 'FX B2 FX Type', 'Off'),
         (12, 1.0, 'Global Volume', '0.00 dB'),
         (316, 0.5, 'A Pre-Filter Gain', '0.00 dB'),
         (246, 0.5, 'A VCA Gain', '0.00 dB'),
@@ -483,36 +522,137 @@ class SurgeRig(_Plugin):
         y = self.render(x, 0.70)
         return y[int(0.42 * SR):int(0.65 * SR)]
 
-    # Surge's Classic oscillator: Shape morphs saw -> pulse, Width sets the
-    # duty. There is no triangle, so Surge has no counterpart for ours -- that
-    # is a finding about the comparison, not an error in it.
-    WAVES = {"saw": (0.0238, 0.0, 0.5), "square": (0.0238, 1.0, 0.5),
-             "pulse25": (0.0238, 1.0, 0.25), "sine": (0.0938, None, None)}
+    # ---- oscillator 1, for the waveform study -----------------------------
+    # Surge's Classic oscillator sums TWO saws whose separation is set by
+    # Width, and Shape mixes between one saw and the pair. Shape is BIPOLAR.
+    # `--stage shape` sweeps it and identifies each result by
+    # `audio_measure.waveform_id` -- time domain first, duty measured, nulls
+    # checked against that measured duty -- and the whole sweep is in
+    # docs/surge-shape-sweep.txt. What it measured, at A2 = 110 Hz:
+    #
+    #   Shape  reads       Width 50 %                  Width 25 %
+    #   0.00   -100.00 %   pulse, duty 50.0 %          pulse, duty 25.0 %
+    #   0.25    -50.00 %   pulse + a partial 2nd saw   (not a named waveform)
+    #   0.50      0.00 %   SAW  (Width has no effect)  SAW, bit-identical
+    #   0.75    +50.00 %   (not a named waveform)      (not a named waveform)
+    #   1.00   +100.00 %   4 midpoint crossings: a     4 midpoint crossings
+    #                      saw at 2*f0, fundamental
+    #                      cancelled
+    #
+    # The mapping that shipped had saw at 0.0 and square at 1.0, i.e. it asked
+    # for a 50 % PULSE and called it a saw, and for the DUAL SAW and called it
+    # a square. Every Surge oscillator row of docs/reference-voice-report.txt
+    # before this change is of a different waveform from the one it is
+    # labelled with. There is no triangle on this oscillator, so Surge has no
+    # counterpart for ours -- a finding about the comparison, not an error.
+    # ---- oscillator 1, for the waveform study -----------------------------
+    # Surge's Classic oscillator sums TWO saws whose separation is set by
+    # Width, and Shape mixes between one saw and the pair. Shape is BIPOLAR.
+    # `--stage shape` sweeps it and identifies each result by
+    # `audio_measure.waveform_id` -- time domain first, duty measured, nulls
+    # checked against that measured duty -- and the whole sweep is in
+    # docs/surge-shape-sweep.txt. What it measured, at A2 = 110 Hz:
+    #
+    #   Shape  reads       Width 50 %                  Width 25 %
+    #   0.00   -100.00 %   pulse, duty 50.0 %          pulse, duty 25.0 %
+    #   0.125   -75.00 %   pulse, duty 50.0 %          pulse, duty 25.0 %
+    #   0.25    -50.00 %   rectangle + a partial saw   pulse, duty 25.1 %
+    #   0.50      0.00 %   SAW  (Width has no effect)  SAW, the same waveform
+    #   0.75    +50.00 %   8 midpoint crossings        6 midpoint crossings
+    #   1.00   +100.00 %   a saw at 2*f0: the          6 midpoint crossings
+    #                      fundamental is cancelled
+    #
+    # The mapping that shipped had saw at 0.00 and square at 1.00: it asked for
+    # a 50 % PULSE and called it a saw, and for the DUAL SAW and called it a
+    # square. Every Surge oscillator row of docs/reference-voice-report.txt
+    # before this change is of a different waveform from the one it is
+    # labelled with. There is no triangle on this oscillator, so Surge has no
+    # counterpart for ours -- a finding about the comparison, not an error.
+    #
+    # The SINE is a separate oscillator type and it needs pinning just as hard:
+    # 259 is a wave SELECTOR there (28 shapes) and 260 is Feedback, and the
+    # mapping that shipped wrote neither, so Surge's "sine" was whatever the
+    # previously measured waveform happened to leave behind. At 260 = 0.0 that
+    # is -400 % feedback and h3 sits at -3.4 dB.
+    V_CLASSIC, V_SINE = 0.0238, 0.0938
+    # (oscillator type, Shape, Width, the readback BOTH must show). The
+    # readback is the mapping: a normalised value means nothing on its own,
+    # and the same index is Shape/Width for a Classic oscillator and
+    # Wave/Feedback for a Sine one.
+    WAVES = {
+        "saw":     ("Classic", 0.5, 0.5, ('0.00 %', '50.00 %')),
+        "square":  ("Classic", 0.0, 0.5, ('-100.00 %', '50.00 %')),
+        "pulse25": ("Classic", 0.0, 0.25, ('-100.00 %', '25.00 %')),
+        "sine":    ("Sine", 0.0, 0.5, ('Wave 1 (TX 1)', '0.00 %')),
+    }
+
+    # Surge's oscillator 1 parameters 259-267 change MEANING with the type and
+    # dawdreamer does NOT rename them, so only the readback text can tell the
+    # types apart -- and it does not update until the processor has run. 265 is
+    # the one that matters: 'Unison Voices' for Classic and Sine, the Audio In
+    # HIGH CUT for Audio In. It is asserted, never written; a rig that finds
+    # unison switched on refuses rather than measuring three detuned saws.
+    OSC_TYPE = {"Classic": V_CLASSIC, "Sine": V_SINE, "Audio In": V_AUDIO_IN}
+    OSC_READBACK = {
+        "Audio In": {259: '0.00 % (Stereo)', 260: '0.00 dB',
+                     264: '29.14 Hz', 265: '14.28 Hz'},
+        "Classic": {264: '10.00 cents', 265: '1 voice'},
+        "Sine": {264: '10.00 cents', 265: '1 voice'},
+    }
+
+    def select_osc(self, kind):
+        """Oscillator 1 -> `kind`, filter OFF, and REFUSE unless the plugin
+        agrees it is that oscillator with unison off. The render is what makes
+        the readbacks current; writing Shape immediately after a type change
+        writes it into the previous type's parameter, which is how the first
+        run of this probe reported a "square" with h2 at +79.6 dB."""
+        self.set(self.I['osc1_type'], self.OSC_TYPE[kind])
+        self.set(self.I['f1_type'], 0.0)                 # filter OFF
+        # settle with NO note. `render` adds a MIDI note every time it is
+        # called, so using it to make the readbacks current stacks note-ons and
+        # leaves the previous oscillator's voice decaying into the next
+        # measurement -- which is how the sine that follows a 1760 Hz pulse
+        # read as a 50.3 % rectangle while the same setting measured on its own
+        # read as a sine.
+        self.silence_state(0.25)
+        got = self.text(self.I['osc1_type'])
+        if got != kind:
+            raise RuntimeError(f"{self.name}: oscillator 1 reads {got!r}, wanted {kind!r}")
+        bad = [(i, w, self.text(i)) for i, w in self.OSC_READBACK[kind].items()
+               if self.text(i) != w]
+        if bad:
+            raise RuntimeError(
+                f"{self.name}: oscillator 1 is {kind!r} but its parameters read {bad} "
+                f"-- (index, wanted, got)")
+
+    def osc_raw(self, kind, shape, width, note, seconds=0.5, expect=None):
+        """One oscillator, FILTER OFF, flat gate, at a COMMANDED Shape and
+        Width -- the primitive `--stage shape` sweeps. Returns the audio and
+        what the plugin says the two controls read, so the sweep table records
+        Surge's own numbers and not ours. `expect`, when given, REFUSES a
+        readback that is not the one the mapping was measured at."""
+        self.select_osc(kind)
+        reads = (None, None)
+        if shape is not None:
+            self.set(259, shape)
+            self.set(260, width)
+            self.silence_state(0.10)
+            reads = (self.text(259), self.text(260))
+            if expect is not None and reads != tuple(expect):
+                raise RuntimeError(
+                    f"{self.name}: oscillator 1 Shape/Width read {reads}, "
+                    f"the mapping was measured at {tuple(expect)}")
+        self.note = int(note)
+        y = self.render(np.zeros(1), seconds + 0.25)
+        return y[int(0.2 * SR):int(0.2 * SR) + int(seconds * SR)], reads
 
     def osc_tone(self, wave, note, seconds=0.5):
         """One oscillator, FILTER OFF, flat gate: the waveform as the
         instrument makes it, with nothing else in the path."""
         if wave not in self.WAVES:
             raise NotImplementedError(f"Surge's Classic oscillator has no {wave!r}")
-        typ, shape, width = self.WAVES[wave]
-        self.set(self.I['osc1_type'], typ)
-        self.set(self.I['f1_type'], 0.0)                 # filter OFF
-        # Surge RENAMES parameters 259-267 with the oscillator type, and the
-        # new names are not in effect until the processor has run. Writing
-        # Shape and Width immediately after the type change writes them into
-        # the PREVIOUS type's parameters -- which is why the first run of this
-        # probe reported a "square" with h2 at +79.6 dB.
-        self.render(np.zeros(1), 0.05)
-        if shape is not None:
-            got = (self.p.get_parameter_name(259), self.p.get_parameter_name(260))
-            want = ('A Osc 1 Shape', 'A Osc 1 Width 1')
-            if got != want:
-                raise RuntimeError(f"Surge osc 1 parameters are {got}, expected {want}")
-            self.set(259, shape)
-            self.set(260, width)
-        self.note = int(note)
-        y = self.render(np.zeros(1), seconds + 0.25)
-        return y[int(0.2 * SR):int(0.2 * SR) + int(seconds * SR)]
+        kind, shape, width, expect = self.WAVES[wave]
+        return self.osc_raw(kind, shape, width, note, seconds, expect)[0]
 
     def noise_tone(self, seconds=6.0, colour=0.5):
         """Surge's noise source alone, filter OFF. `colour` is its own

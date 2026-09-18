@@ -1,0 +1,92 @@
+SURGE'S WAVEFORM MAPPING, SETTLED BY MEASUREMENT
+
+  .venv/bin/python model/reference_voice.py --stage shape     # the sweep below
+  .venv/bin/python model/reference_voice.py --stage controls  # the controls below
+
+Why this file exists: model/reference_rigs.py asked Surge for a saw, received a
+50 % pulse, and published it as a saw for a whole study. The request and the
+label agreed with each other and nothing compared either with the signal. The
+sweep is the derivation of the corrected mapping; the controls are the
+demonstration that the check which now guards it rejects a wrong setup.
+
+  shape 0.000 (-100.00 %) width 50.00 %: pulse:50.0%
+  shape 0.125 (-75.00 %) width 50.00 %: pulse:50.1%
+  shape 0.250 (-50.00 %) width 50.00 %: UNQUALIFIED: 6 discontinuities in one period -- neither a ramp nor a rectangle
+  shape 0.375 (-25.00 %) width 50.00 %: UNQUALIFIED: one discontinuity per period but not a saw: h2 -10.2 dB, model expects -6.0..-6.0 dB
+  shape 0.500 (0.00 %) width 50.00 %: saw
+  shape 0.625 (25.00 %) width 50.00 %: UNQUALIFIED: one discontinuity per period but not a saw: h2 -1.4 dB, model expects -6.0..-6.0 dB
+  shape 0.750 (50.00 %) width 50.00 %: UNQUALIFIED: harmonics above the fundamental at [2]
+  shape 0.875 (75.00 %) width 50.00 %: UNQUALIFIED: 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+  shape 1.000 (100.00 %) width 50.00 %: UNQUALIFIED: no component within 50 cents of the commanded 110.00 Hz (the strongest nearby is 79.98 Hz, -551.7 cents)
+  shape 0.000 (-100.00 %) width 25.00 %: pulse:25.0%
+  shape 0.125 (-75.00 %) width 25.00 %: pulse:25.0%
+  shape 0.250 (-50.00 %) width 25.00 %: UNQUALIFIED: 3 discontinuities in one period -- neither a ramp nor a rectangle
+  shape 0.375 (-25.00 %) width 25.00 %: saw
+  shape 0.500 (0.00 %) width 25.00 %: saw
+  shape 0.625 (25.00 %) width 25.00 %: saw
+  shape 0.750 (50.00 %) width 25.00 %: UNQUALIFIED: one discontinuity per period but not a saw: h2 -12.8 dB, model expects -6.0..-6.0 dB
+  shape 0.875 (75.00 %) width 25.00 %: UNQUALIFIED: 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+  shape 1.000 (100.00 %) width 25.00 %: UNQUALIFIED: 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+  Sine oscillator: sine
+
+====================================================================================================
+SURGE CLASSIC OSCILLATOR: what each Shape value ACTUALLY produces
+====================================================================================================
+  A2 = 110 Hz, filter OFF, unison asserted at 1 voice, every FX slot off.
+   Shape       reads    Width   resid  x/per  jumps   rect    duty  identified as
+   0.000   -100.00 %  50.00 %    0.04      2      2    0.4  50.0 %  pulse:50.0%
+   0.125    -75.00 %  50.00 %    0.04      2      2    0.5  50.1 %  pulse:50.1%
+   0.250    -50.00 %  50.00 %    0.04      2      6    0.6     ---  -- 6 discontinuities in one period -- neither a ramp nor a rectangle
+   0.375    -25.00 %  50.00 %    0.04      2      1    0.6     ---  -- one discontinuity per period but not a saw: h2 -10.2 dB, model expects -6.0..-6.0 dB
+   0.500      0.00 %  50.00 %    0.04      2      1    0.6     ---  saw
+   0.625     25.00 %  50.00 %    0.03      2      1    0.6     ---  -- one discontinuity per period but not a saw: h2 -1.4 dB, model expects -6.0..-6.0 dB
+   0.750     50.00 %  50.00 %    0.03      2    ---    0.5     ---  -- harmonics above the fundamental at [2]
+   0.875     75.00 %  50.00 %    0.02      4    ---    0.5     ---  -- 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+   1.000    100.00 %  50.00 %     ---    ---    ---    ---     ---  -- no component within 50 cents of the commanded 110.00 Hz (the strongest nearby is 79.98 Hz, -551.7 cents)
+   0.000   -100.00 %  25.00 %    0.03      2      2    0.5  25.0 %  pulse:25.0%
+   0.125    -75.00 %  25.00 %    0.03      2      2    0.8  25.0 %  pulse:25.0%
+   0.250    -50.00 %  25.00 %    0.03      2      3    0.8     ---  -- 3 discontinuities in one period -- neither a ramp nor a rectangle
+   0.375    -25.00 %  25.00 %    0.03      2      1    0.8     ---  saw
+   0.500      0.00 %  25.00 %    0.04      2      1    0.6     ---  saw
+   0.625     25.00 %  25.00 %    0.04      2      1    0.5     ---  saw
+   0.750     50.00 %  25.00 %    0.04      2      1    0.5     ---  -- one discontinuity per period but not a saw: h2 -12.8 dB, model expects -6.0..-6.0 dB
+   0.875     75.00 %  25.00 %    0.04      4    ---    0.4     ---  -- 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+   1.000    100.00 %  25.00 %    0.04      4    ---    0.4     ---  -- 4 midpoint crossings in one period -- the record holds 2 cycles of something, not one waveform
+              (Sine oscillator type)    0.00      2      0    0.7     ---  sine
+
+  WHAT THE MAPPING TAKES FROM THIS:
+    saw      Shape 0.50 (0.00 %)    -- the CENTRE of a bipolar control, and Width
+                                       has no effect there at all
+    square   Shape 0.00 (-100.00 %) with Width 50 %
+    pulse25  Shape 0.00 (-100.00 %) with Width 25 %
+    sine     the Sine oscillator type; the Classic one has no sine and no triangle
+  The mapping that shipped had saw at 0.00 and square at 1.00: it asked for a
+  50 % PULSE and labelled it a saw, and for the DUAL SAW and labelled it a square.
+  surge/saw as saw (the corrected mapping): ACCEPTED (--) -- saw
+  a 50 % pulse labelled 'saw': REJECTED (the waveform) -- asked for 'saw' (saw), measured pulse:50.0%
+  the dual saw labelled 'square': REJECTED (the pitch or the period) -- no component within 50 cents of the commanded 110.00 Hz (the strongest nearby is 79.98 Hz, -551.8 cents)
+    (unison voices now read '3 voices')
+  unison left on behind a 'saw' label: REJECTED (the pitch or the period) -- the record does not repeat at 111.5 Hz (per-period residual 169.0 % of the cycle)
+    and the rig's own pin check says: [(259, 'VALUE', '0.00 % (Stereo)', '0.00 %'), (260, 'VALUE', '0.00 dB', '50.00 %'), (264, 'VALUE', '29.14 Hz', '10.00 cents'), (265, 'VALUE', '14.28 Hz', '3 voices')]
+  an effect (Distortion) left in the path: REJECTED (pin readback) -- saw
+    the FX slot pin says: [(19, 'VALUE', 'Off', 'Distortion')]
+  an effect (Phaser) left in the path: REJECTED (pin readback) -- saw
+    the FX slot pin says: [(19, 'VALUE', 'Off', 'Phaser')]
+
+  the construction-time pin check, with oscillator 1 left on Classic:
+    [(259, 'VALUE', '0.00 % (Stereo)', '0.00 %'), (260, 'VALUE', '0.00 dB', '50.00 %'), (264, 'VALUE', '29.14 Hz', '10.00 cents'), (265, 'VALUE', '14.28 Hz', '1 voice')]
+
+====================================================================================================
+QUALIFICATION CONTROLS
+====================================================================================================
+  [ok ] surge/saw as saw (the corrected mapping)         want accept got accepted  by --
+  [ok ] a 50 % pulse labelled 'saw'                      want reject got rejected  by the waveform
+  [ok ] the dual saw labelled 'square'                   want reject got rejected  by the pitch or the period
+  [ok ] unison left on behind a 'saw' label              want reject got rejected  by the pitch or the period
+  [ok ] an effect (Distortion) left in the path          want reject got rejected  by pin readback
+  [ok ] an effect (Phaser) left in the path              want reject got rejected  by pin readback
+  [ok ] pins under the wrong oscillator type             want reject got rejected  by pin readback
+  'by' is WHICH refusal fired. They are different instruments and an apparatus
+  needs both: an allpass effect changes no harmonic amplitude, so only the pin
+  readback can see a Phaser left switched on.
+  7/7 controls behaved as required.

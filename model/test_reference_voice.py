@@ -335,3 +335,325 @@ def test_envelope_ripple_band_limit_attenuates_the_hilbert_artefact():
 
 def test_envelope_ripple_refuses_silence():
     assert not am.envelope_ripple_db(np.zeros(SR), SR).ok
+
+
+# ===========================================================================
+# 8. WHICH WAVEFORM IS IT?  the qualification `reference_rigs.py` lacked
+#
+# `model/reference_rigs.py` asked Surge for a saw, got a 50 % pulse, and
+# published it as a saw for a whole study -- because the request and the label
+# agreed with each other and nothing compared either with the signal.
+#
+# The qualification is time-domain first, and these tests are why. "Odd
+# harmonics only" is a test for 50 % DUTY, not for "square"; two saws do not
+# always make a comb; and a rule of thumb dressed as a test is the failure this
+# project keeps repeating. The last group is the one that matters: DELIBERATELY
+# WRONG setups that the qualification has to reject, because a check that has
+# only ever seen correct configurations has not been shown to reject anything.
+# ===========================================================================
+def dual_saw(f0: float, n: int, offset: float = 0.5, sr: int = SR,
+             detune: float = 0.0, kmax: int = 200) -> np.ndarray:
+    """Two saws `offset` of a period apart -- Surge's Classic oscillator at
+    Shape +100 %. At offset 0.5 the odd harmonics cancel and the result is a
+    saw at 2*f0; at offset 0 and no detune it is simply a saw at twice the
+    amplitude. NEITHER is a comb, which is why a comb test cannot find one."""
+    t = np.arange(n) / sr
+    y = np.zeros(n)
+    for k in range(1, kmax + 1):
+        if k * f0 >= sr / 2:
+            break
+        if k * f0 * (1 + detune) < sr / 2:
+            y += np.sin(2 * math.pi * k * f0 * (1 + detune) * t
+                        + 2 * math.pi * k * offset) / k
+        y += np.sin(2 * math.pi * k * f0 * t) / k
+    return y
+
+
+def shark(f0: float, n: int, sr: int = SR, mix: float = 0.5) -> np.ndarray:
+    """A saw/triangle hybrid -- Mini V3's 'saw-triangular'. It has no closed
+    form here, so the qualification must REFUSE it rather than hand back
+    whichever named waveform is least wrong."""
+    return mix * ideal("saw", f0, n, sr) + (1 - mix) * ideal("tri", f0, n, sr)
+
+
+# -- the time-domain descriptors, against shapes whose answer is arithmetic ---
+@pytest.mark.parametrize("f0", [55.0, 110.0, 440.0, 1760.0])
+@pytest.mark.parametrize("shape,duty,want_rect,discontinuous", [
+    ("saw", 0.5, 0.42, True), ("tri", 0.5, 0.51, False), ("square", 0.5, 0.98, True),
+    ("pulse", 0.25, 0.98, True),
+])
+def test_cycle_descriptors_match_the_geometry_of_each_shape(f0, shape, duty, want_rect,
+                                                            discontinuous):
+    """Both descriptors have to hold over the study's whole pitch range: at
+    1760 Hz a period is 27 samples and every threshold expressed as a fraction
+    of the peak-to-peak stops working."""
+    x = ideal(shape, f0, SR, duty=duty)
+    cyc, jit = am.cycle_average(x, f0, SR)
+    assert jit < 0.005, jit
+    assert abs(am.rectangularity(cyc) - want_rect) < 0.06, am.rectangularity(cyc)
+    assert am.midpoint_crossings(cyc) == 2, am.midpoint_crossings(cyc)
+    r = am.step_ratio(x)
+    assert (r >= 4.0) == discontinuous, (shape, f0, r)
+
+
+@pytest.mark.parametrize("d", [0.10, 0.25, 0.40, 0.50, 0.52, 0.75])
+def test_duty_is_measured_in_the_time_domain_to_a_percent(d):
+    """The quantity the whole mapping turned on. A spectrum cannot tell d from
+    1 - d; the period can."""
+    f0 = 110.0
+    cyc, _ = am.cycle_average(ideal("pulse", f0, SR, duty=d), f0, SR)
+    got = am.duty_cycle(cyc)
+    assert min(abs(got - d), abs(got - (1 - d))) < 0.01, (d, got)
+
+
+# -- identification ----------------------------------------------------------
+@pytest.mark.parametrize("shape,duty,fam", [
+    ("saw", 0.5, "saw"), ("tri", 0.5, "tri"), ("square", 0.5, "pulse"),
+    ("pulse", 0.25, "pulse"), ("pulse", 0.10, "pulse"), ("pulse", 1 / 3, "pulse"),
+])
+def test_identifies_each_ideal_waveform_and_reports_its_duty(shape, duty, fam):
+    f0 = 110.0
+    w = am.waveform_id(ideal(shape, f0, SR, duty=duty), f0, SR)
+    assert w.ok and w.family == fam, w
+    if fam == "pulse":
+        assert min(abs(w.duty - duty), abs(w.duty - (1 - duty))) < 0.01, w
+
+
+def test_identifies_a_sine_from_one_line():
+    f0 = 110.0
+    w = am.waveform_id(np.sin(2 * math.pi * f0 * np.arange(SR) / SR), f0, SR)
+    assert w.ok and w.label == "sine", w
+
+
+def test_a_forty_nine_percent_square_is_still_a_square():
+    """The reason the qualification cannot be "odd harmonics only": a 49 %
+    square HAS even harmonics, at -30 dB. It is still a square, and a test
+    that refused it would be testing duty, not shape."""
+    f0 = 110.0
+    s = am.harmonic_signature(ideal("pulse", f0, SR, duty=0.49), SR, f0=f0, kmax=9)
+    assert s["h2"] is not None, "a 49 % square does have an even harmonic"
+    w = am.waveform_id(ideal("pulse", f0, SR, duty=0.49), f0, SR)
+    assert w.ok and w.family == "pulse" and abs(w.duty - 0.49) < 0.01, w
+    assert am.waveform_matches(w, "square")[0]
+
+
+def test_the_analogue_squares_fifty_two_percent_duty_is_measured_not_refused():
+    """Mini V3 models the Model D's hand-trimmed square at ~52 %, h2 at about
+    -24 dB. The duty is the finding; refusing the row would throw away the
+    reference this study exists to use."""
+    f0 = 110.0
+    w = am.waveform_id(ideal("pulse", f0, SR, duty=0.52), f0, SR)
+    assert w.ok and abs(w.duty - 0.52) < 0.01, w
+    assert am.waveform_matches(w, "square")[0], am.waveform_matches(w, "square")
+
+
+# -- the refusals ------------------------------------------------------------
+def test_a_fifty_percent_pulse_does_not_qualify_as_a_saw():
+    """THE BUG, in one assertion. Surge's Classic Shape is bipolar, so the
+    normalised 0.0 that `WAVES` used for "saw" is -100 %: a pulse at the Width
+    setting. Both are 1/n series."""
+    f0 = 110.0
+    w = am.waveform_id(ideal("square", f0, SR), f0, SR)
+    assert w.family == "pulse" and abs(w.duty - 0.5) < 0.01, w
+    ok, why = am.waveform_matches(w, "saw")
+    assert not ok and "measured pulse:" in why, why
+    assert am.waveform_matches(w, "square")[0], "and it IS a square"
+
+
+def test_a_dual_saw_half_a_period_apart_is_refused_as_a_subharmonic_claim():
+    """Surge's Shape +100 % at 50 % width. The odd harmonics cancel, so the
+    record is a saw at 2*f0 -- and the commanded f0 is not its fundamental."""
+    f0 = 110.0
+    w = am.waveform_id(dual_saw(f0, SR, offset=0.5), f0, SR)
+    assert not w.ok and "repeats at" in w.reason, w
+
+
+def test_a_dual_saw_a_quarter_period_apart_is_refused_by_its_two_ramps():
+    """No comb, no cancelled fundamental -- and two ramps per period. Only the
+    time domain sees this one."""
+    f0 = 110.0
+    w = am.waveform_id(dual_saw(f0, SR, offset=0.25), f0, SR)
+    assert not w.ok and "midpoint crossings" in w.reason, w
+
+
+def test_two_aligned_saws_are_a_saw_and_are_reported_as_one():
+    """The control on the control. At zero offset and zero detune two saws sum
+    to a saw, so the honest answer is "saw" -- a qualification that refused it
+    would be pattern-matching the setup, not the signal."""
+    f0 = 110.0
+    w = am.waveform_id(dual_saw(f0, SR, offset=0.0), f0, SR)
+    assert w.ok and w.label == "saw", w
+
+
+def test_a_shark_tooth_is_refused_rather_than_named():
+    f0 = 110.0
+    w = am.waveform_id(shark(f0, SR), f0, SR)
+    assert not w.ok, w
+    assert not am.waveform_matches(w, "shark")[0]
+
+
+def test_refuses_when_too_few_harmonics_fit_in_the_qualification_band():
+    """At 4 kHz the band holds two harmonics, and a 1/3 pulse is
+    indistinguishable from a saw until the 3rd. No answer is the answer."""
+    f0 = 4000.0
+    w = am.waveform_id(ideal("saw", f0, SR), f0, SR)
+    assert not w.ok and "harmonics below" in w.reason, w
+
+
+@pytest.mark.parametrize("note_hz,want", [(110.0, True), (1760.0, True)])
+def test_a_band_limited_saw_is_still_a_saw_at_the_top_of_the_range(note_hz, want):
+    """The rule the 12 kHz band exists for. Our own saw at 1760 Hz is 3.2 dB
+    down in h9 at 15.8 kHz -- the band-limiting the aliasing study is there to
+    measure -- and it is still a saw."""
+    x = _osc("saw", 93 if note_hz > 1000 else 45)
+    w = am.waveform_id(x, note_hz, SR)
+    assert w.ok == want and w.label == "saw", w
+
+
+# -- deliberately wrong SETUPS, which are the controls that matter -----------
+def unison(f0: float, n: int, voices: int = 3, cents: float = 7.0, sr: int = SR):
+    """A saw with detuned partners -- the "Unison Voices" left on that this
+    repository has already been bitten by once."""
+    y = np.zeros(n)
+    for i in range(voices):
+        det = (i - (voices - 1) / 2) * cents / 1200.0
+        y += ideal("saw", f0 * 2 ** det, n, sr)
+    return y
+
+
+def chorused(x, sr: int = SR, depth_ms: float = 3.0, rate: float = 0.6):
+    """A modulated delay in the path -- an FX slot nobody switched off."""
+    n = len(x)
+    t = np.arange(n) / sr
+    d = (depth_ms * 1e-3 * sr) * (1.0 + np.sin(2 * math.pi * rate * t)) / 2 + 2
+    return 0.5 * (x + np.interp(np.arange(n) - d, np.arange(n), x, left=0.0))
+
+
+def notched(f0: float, n: int, sr: int = SR, k_cut: int = 2,
+            depth: float = 0.30) -> np.ndarray:
+    """A saw through an EQ that takes 10 dB out of its 2nd harmonic. Every
+    time-domain test passes -- it repeats exactly, it crosses its midpoint
+    twice, it still has its discontinuity -- and the harmonic series is the
+    only thing that can refuse it."""
+    t = np.arange(n) / sr
+    y = np.zeros(n)
+    for k in range(1, 201):
+        if k * f0 >= sr / 2:
+            break
+        y += np.sin(2 * math.pi * k * f0 * t) * (depth if k == k_cut else 1.0) / k
+    return y
+
+
+def test_unison_left_on_is_rejected_by_the_repetition_precondition():
+    f0 = 110.0
+    y = unison(f0, SR)
+    assert am.waveform_id(ideal("saw", f0, SR), f0, SR).ok, "control: the clean saw qualifies"
+    w = am.waveform_id(y, f0, SR)
+    assert not w.ok and "does not repeat" in w.reason, w
+
+
+def test_an_effect_left_in_the_path_is_rejected_by_the_repetition_precondition():
+    f0 = 110.0
+    w = am.waveform_id(chorused(ideal("saw", f0, SR)), f0, SR)
+    assert not w.ok and "does not repeat" in w.reason, w
+
+
+def test_a_periodic_but_filtered_path_is_rejected_by_the_spectral_check():
+    """The one a repetition test cannot see. An EQ does not disturb the period
+    at all; the harmonic series is what refuses it."""
+    f0 = 110.0
+    y = notched(f0, SR)
+    cyc, jit = am.cycle_average(y, f0, SR)
+    assert jit < 0.01, "an EQ leaves the record perfectly periodic"
+    assert am.midpoint_crossings(cyc) == 2 and am.step_ratio(y) >= 4.0, \
+        "and leaves it one ramp per period"
+    w = am.waveform_id(y, f0, SR)
+    assert not w.ok and "not a saw" in w.reason, w
+
+
+def dc_blocked(x, sr: int = SR, fc: float = 40.0) -> np.ndarray:
+    """One-pole high pass: what Surge does to its Classic oscillator. A square
+    through it is no longer flat-topped -- each half decays from 0.283 to
+    0.087 before the next edge -- so a "fraction of the period near the two
+    levels" test reads 0.43 for it and would call a perfectly good square
+    something else."""
+    a = math.exp(-2 * math.pi * fc / sr)
+    y = np.empty_like(np.asarray(x, dtype=float))
+    prev_x = prev_y = 0.0
+    for i, v in enumerate(x):
+        prev_y = a * (prev_y + v - prev_x)
+        prev_x = v
+        y[i] = prev_y
+    return y
+
+
+def test_a_dc_blocked_square_is_still_a_square():
+    """The measurement that forced the family test to count JUMPS instead of
+    flatness. This is not hypothetical: it is what Surge's Classic oscillator
+    actually hands back."""
+    f0 = 110.0
+    y = dc_blocked(ideal("square", f0, SR))[SR // 4:]
+    cyc, _ = am.cycle_average(y, f0, SR)
+    assert am.rectangularity(cyc) < 0.60, \
+        "a flatness test would not recognise this, which is the point"
+    assert len(am.pulse_edges(cyc)) == 2 and am.step_ratio(y) >= 4.0
+    w = am.waveform_id(y, f0, SR)
+    assert w.ok and w.family == "pulse" and abs(w.duty - 0.5) < 0.02, w
+
+
+def test_a_dc_blocked_narrow_pulse_keeps_its_measured_duty():
+    """The duty comes from the two jump positions, not from a midpoint, so a
+    tilt that moves every level does not move the answer."""
+    f0 = 110.0
+    y = dc_blocked(ideal("pulse", f0, SR, duty=0.25))[SR // 4:]
+    cyc, _ = am.cycle_average(y, f0, SR)
+    got = am.duty_cycle(cyc)
+    assert min(abs(got - 0.25), abs(got - 0.75)) < 0.02, got
+    assert am.waveform_matches(am.waveform_id(y, f0, SR), "pulse25")[0]
+
+
+@pytest.mark.parametrize("shape,duty,want", [
+    ("saw", 0.5, 1), ("square", 0.5, 2), ("pulse", 0.25, 2), ("pulse", 0.10, 2),
+])
+def test_jump_count_is_the_family_and_it_survives_a_dc_block(shape, duty, want):
+    f0 = 110.0
+    for y in (ideal(shape, f0, SR, duty=duty),
+              dc_blocked(ideal(shape, f0, SR, duty=duty))[SR // 4:]):
+        cyc, _ = am.cycle_average(y, f0, SR)
+        assert am.step_ratio(y) >= 4.0
+        assert len(am.pulse_edges(cyc)) == want, (shape, am.pulse_edges(cyc))
+
+
+# -- the fundamental is measured, not assumed --------------------------------
+@pytest.mark.parametrize("cents", [0.0, 0.14, -3.0, 20.0])
+def test_refine_f0_recovers_a_small_mistuning(cents):
+    """Mini V3 plays +0.14 cents sharp. That is inaudible and it is the whole
+    difference between a 0.6 % per-period residual and a 25 % one."""
+    f0 = 440.0
+    f = f0 * 2 ** (cents / 1200.0)
+    x = ideal("saw", f, SR)
+    e = am.refine_f0(x, f0, SR)
+    assert e.ok, e
+    assert abs(1200 * math.log2(e.value / f)) < 0.02, (cents, e.value, f)
+
+
+def test_refine_f0_refuses_a_rig_playing_the_wrong_note():
+    """The Mini V3 'Range' default is the Model D's sub-audio octave. A rig an
+    octave out is not a measurement with an offset, it is a different note."""
+    f0 = 440.0
+    e = am.refine_f0(ideal("saw", 220.0, SR), f0, SR)
+    assert not e.ok and "fundamental is below the commanded" in e.reason, e
+    # and a note that is simply mistuned, not transposed, refuses differently
+    e2 = am.refine_f0(ideal("saw", f0 * 2 ** (80 / 1200), SR), f0, SR)
+    assert not e2.ok and "cents from the commanded" in e2.reason, e2
+
+
+def test_the_mistuning_that_breaks_repetition_is_repaired_by_measuring_it():
+    """End to end: a saw 0.14 cents sharp fails the repetition precondition at
+    the COMMANDED pitch and passes at the measured one, with the same audio."""
+    f0 = 1760.0
+    x = ideal("saw", f0 * 2 ** (0.14 / 1200.0), SR)
+    assert not am.waveform_id(x, f0, SR).ok
+    f = am.refine_f0(x, f0, SR).require("refine")
+    w = am.waveform_id(x, f, SR)
+    assert w.ok and w.label == "saw", w
