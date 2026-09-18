@@ -206,6 +206,68 @@ def stage_demo(devices, seconds, out, source="smooth"):
     return rows
 
 
+# ===========================================================================
+# run-to-run variance
+# ===========================================================================
+VAR_CUTS = [100.0, 400.0, 1600.0, 6400.0]
+
+
+def _tracking_once(name, cache):
+    """f_osc / commanded cutoff at each cutoff, at maximum resonance -- the
+    quantity behind "7.92 percentage points against Surge Type 2's 0.62"."""
+    import reference_compare as rc
+    dev = None if name == "ours" else rc.build(name)
+    try:
+        errs = {}
+        for hz in VAR_CUTS:
+            if name == "ours":
+                y = rr.OurLadder().ring(hz, 2.0, seconds=0.8)
+                cmd = hz
+            else:
+                cs, chz = rc.cut_setting_for(dev, name, hz, cache)
+                y = dev.ring(cs, rc.res_grid(name)[-1], seconds=0.8)
+                cmd = chz if chz is not None else hz
+            e = am.dominant_frequency(y, hz * 0.3, hz * 2.5, SR)
+            z = am.zero_crossing_frequency(y, SR)
+            f = (z.value if (z.ok and e.ok and abs(z.value - e.value) / e.value < 0.02)
+                 else (e.value if e.ok else None))
+            errs[hz] = None if not f else (f / cmd - 1) * 100
+        return errs
+    finally:
+        del dev
+
+
+def stage_variance(devices, repeats):
+    """Repeat the same configuration from a FRESH plugin instance and report
+    the spread. Until this exists no difference between two references is
+    interpretable, because nobody knows what a difference of zero looks like.
+
+    `ours` is the control: it is deterministic, so its spread must be exactly
+    zero. A nonzero spread there would mean the harness, not the instrument."""
+    import reference_compare as rc
+    cache = {}
+    out = {}
+    for name in devices:
+        runs = [_tracking_once(name, cache) for _ in range(repeats)]
+        out[name] = runs
+        print(f"\n-- {name}: {repeats} repeats, fresh instance each", flush=True)
+        print(f"   {'cutoff':>8} {'mean err %':>11} {'spread pp':>10} {'sd pp':>8}", flush=True)
+        for hz in VAR_CUTS:
+            v = [r[hz] for r in runs if r.get(hz) is not None]
+            if not v:
+                print(f"   {hz:8.0f}  no self-oscillation"); continue
+            print(f"   {hz:8.0f} {np.mean(v):+11.3f} {max(v) - min(v):10.4f} "
+                  f"{np.std(v):8.4f}", flush=True)
+        drifts = [max(x for x in r.values() if x is not None)
+                  - min(x for x in r.values() if x is not None)
+                  for r in runs if any(x is not None for x in r.values())]
+        if drifts:
+            print(f"   DRIFT ACROSS THE RANGE (the quoted statistic): "
+                  f"{np.mean(drifts):.2f} pp, run-to-run spread {max(drifts) - min(drifts):.3f} pp",
+                  flush=True)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

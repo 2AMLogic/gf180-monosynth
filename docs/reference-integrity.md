@@ -134,6 +134,32 @@ evidence the capability it would buy is already available free from Surge.
 
 ---
 
+## 5. Run-to-run variance: the differences we have quoted ARE interpretable
+
+There were no repeated renders anywhere in this harness, so
+"7.92 percentage points against Surge Type 2's 0.62" had been quoted without
+anyone knowing what a difference of *zero* looks like. Five repeats of the
+self-oscillation tracking measurement, **a fresh plugin instance each time**:
+
+| | 100 Hz | 400 Hz | 1.6 kHz | 6.4 kHz | drift statistic | run-to-run spread of it |
+|---|---|---|---|---|---|---|
+| **ours** | −8.301 % | −7.453 | −5.650 | −0.380 | **7.92 pp** | **0.000 pp** |
+| Surge Type 1 (RK) | −2.178 | −2.240 | −2.488 | −3.457 | **1.28 pp** | **0.000 pp** |
+| Mini V3 | +0.043 | +0.543 | −0.470 | −0.250 | **1.01 pp** | **0.003 pp** |
+
+Per-cutoff spread is **exactly 0.0000 pp** for ours and for Surge — both are
+deterministic with drift pinned off — and **0.006–0.010 pp** for Mini V3,
+whose analogue-variation modelling is not quite deterministic.
+
+`ours` is the control here: it is a deterministic integer model, so a nonzero
+spread would have meant the harness rather than the instrument. It is zero.
+
+**So the 6.6 pp gap between ours and either reference is about two thousand
+times the measurement's own noise.** The comparison stands, and now it stands
+with an error bar rather than without one.
+
+---
+
 ## 4. ⚠️ Moog's own Model D instantiates but renders digital silence
 
 `/Library/Audio/Plug-Ins/VST3/Model D.vst3` and
@@ -147,9 +173,17 @@ velocity 127, all six oscillator ranges, with `enable_all_buses()`.
 Surge and Mini V3 render normally in the same harness, so this is not the
 harness. The likely cause is an **authorisation check that fails in a headless
 host** — the plugin reports no error and simply outputs nothing, where Diva
-prints a licence error and Surge needs no licence. **It needs to be opened
-once in a GUI host and authorised**, after which the rig
-(`reference_rigs.ModelDRig`, written and pin-checked) should work unchanged.
+prints a licence error and Surge needs no licence. **Opening it in a GUI host does not fix it.** `Model D.app` was launched and
+left running (confirmed, PID 56816) and the headless render was retried
+immediately: still `rms 0.00000000`, in both VST3 and AU. No preferences or
+Application Support files appeared. Whatever authorisation the standalone app
+holds is not visible to the plugin in a host called "Python".
+
+**Model D is therefore not usable headlessly**, and a reference that needs a
+manual step before every session could not go in a nightly job anyway. The rig
+(`reference_rigs.ModelDRig`) is written and its pin check passes; it is left
+in place so that if a future version or a licensed plugin host changes this,
+nothing needs rebuilding.
 
 The rig is complete and its pin check passes; only audio is missing. Model D
 has **0 audio input channels**, so when it does run it is an
