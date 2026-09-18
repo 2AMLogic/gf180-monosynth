@@ -24,9 +24,9 @@
   }
  },
  "built": {
-  "at": "2026-09-18T21:56:25Z",
+  "at": "2026-09-18T21:59:08Z",
   "worktree": {
-   "commit": "170e6b1",
+   "commit": "b95bfcc",
    "branch": "refs-frozen-profile",
    "dirty": false,
    "uncommitted_sha256": "e3b0c44298fc1c14",
