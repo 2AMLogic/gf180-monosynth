@@ -399,3 +399,67 @@ def test_the_profile_states_its_estimator_floors():
     assert floors, "a profile with no stated floors"
     for name, f in floors.items():
         assert f.get("basis"), f"{name} states a floor with no basis"
+
+
+# --- non-finite audio, found by review ------------------------------------
+#
+# A matching sha256 says the bytes are the ones the profile describes. It says
+# NOTHING about whether those bytes are numbers. NaN and Inf both compare False
+# against the silence threshold, so they defeated the one content check there
+# was and loaded as references.
+
+@pytest.mark.parametrize("name,fill", [
+    ("all NaN", np.nan),
+    ("all +Inf", np.inf),
+    ("all -Inf", -np.inf),
+])
+def test_non_finite_audio_is_refused_even_though_it_hashes_correctly(
+        profile, name, fill):
+    prof, dest = profile
+    y = np.full(prof["clips"]["fake/clip"]["frames"], fill, dtype=np.float32)
+    rp.write_clip(dest, y)
+    # re-freeze the integrity fields so ONLY finiteness can refuse it
+    meta = json.loads((rp.PROFILE_DIR / "profile.json").read_text())
+    c = meta["clips"]["fake/clip"]
+    c["bytes"], c["sha256"] = dest.stat().st_size, rp.file_sha256(dest)
+    (rp.PROFILE_DIR / "profile.json").write_text(json.dumps(meta))
+
+    with pytest.raises(rp.Refused) as e:
+        rp.load_clip("fake/clip")
+    assert "non-finite" in str(e.value), f"{name}: refused for the wrong reason"
+
+
+def test_one_non_finite_sample_among_good_audio_is_refused(profile):
+    """Not just wholly-bad files. A single NaN mid-clip poisons every estimator
+    downstream and is exactly what a partial write or a denormal blow-up looks
+    like."""
+    prof, dest = profile
+    y = _tone().astype(np.float32)
+    y[len(y) // 2] = np.nan
+    rp.write_clip(dest, y)
+    meta = json.loads((rp.PROFILE_DIR / "profile.json").read_text())
+    c = meta["clips"]["fake/clip"]
+    c["bytes"], c["sha256"] = dest.stat().st_size, rp.file_sha256(dest)
+    (rp.PROFILE_DIR / "profile.json").write_text(json.dumps(meta))
+
+    with pytest.raises(rp.Refused) as e:
+        rp.load_clip("fake/clip")
+    assert "non-finite" in str(e.value)
+    assert "index" in str(e.value), "the refusal should say WHERE"
+
+
+def test_ordinary_audio_and_silence_are_unaffected_by_the_finite_check(profile):
+    """The control in the other direction: the new check must not change the
+    two verdicts that already worked."""
+    _, dest = profile
+    y, sr, meta = rp.load_clip("fake/clip")          # ordinary tone still loads
+    assert np.abs(y).max() == pytest.approx(0.25, abs=1e-6)
+
+    rp.write_clip(dest, np.zeros(meta["frames"], dtype=np.float32))
+    m = json.loads((rp.PROFILE_DIR / "profile.json").read_text())
+    c = m["clips"]["fake/clip"]
+    c["bytes"], c["sha256"] = dest.stat().st_size, rp.file_sha256(dest)
+    (rp.PROFILE_DIR / "profile.json").write_text(json.dumps(m))
+    with pytest.raises(rp.Refused) as e:
+        rp.load_clip("fake/clip")
+    assert "silent" in str(e.value), "silence must still refuse AS silence"

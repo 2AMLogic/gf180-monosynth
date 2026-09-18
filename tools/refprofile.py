@@ -425,6 +425,20 @@ def load_clip(clip_id: str, profile: dict | None = None) -> tuple[np.ndarray, in
         raise Refused(f"{clip_id!r} is at {sr} Hz, the profile says {meta['sr']}")
     if len(y) != meta["frames"]:
         raise Refused(f"{clip_id!r} holds {len(y)} frames, the profile says {meta['frames']}")
+    # BEFORE the silence test, because a non-finite sample DEFEATS it: NaN and
+    # Inf both compare False against the threshold, so `all NaN` and `all Inf`
+    # audio passed every check here -- profile membership, byte count, sha256,
+    # rate, frame count and silence -- and loaded as a reference.
+    #
+    # A matching hash says the bytes are the ones the profile describes. It says
+    # nothing about whether those bytes are numbers. Found by review, reproduced
+    # against this function before it was fixed.
+    bad = int(np.count_nonzero(~np.isfinite(y)))
+    if bad:
+        where = int(np.argmax(~np.isfinite(y)))
+        raise Refused(f"{clip_id!r} holds {bad} non-finite samples "
+                      f"(first at index {where}): the file hashes correctly, so "
+                      f"this is what was frozen -- it is not usable as audio")
     if float(np.abs(y).max()) <= 1e-9:
         raise Refused(f"{clip_id!r} is silent")
     return y, sr, meta
