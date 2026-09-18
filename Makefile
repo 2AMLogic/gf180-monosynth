@@ -50,6 +50,18 @@ verify-full:
 ## Every injected control that must turn something red, together.
 ## A run where these do not fire is a broken run, not a quiet one.
 ##
+## THE TWO CASE CONTROLS MOVED FROM D01A TO D06A, and the reason is a control
+## design point rather than a convenience. #118's length guard refuses the bass
+## drum REFERENCE's decay -- its record holds 1.57 T20s past the -25 dB point
+## and the guard wants 2 -- so D01A now comes back `no verdict` whatever is
+## injected into it. REF_F0_20PCT could then never turn it red, and worse,
+## REF_MISSING would have gone on "passing" against a case that was already a
+## no-verdict for an unrelated reason: a control that would fire with the
+## injection removed is a false green, which is the only failure mode a control
+## exists to catch. D06A (mid conga) has a direct `Pitch` metric at the 10 %
+## frequency tolerance, so a 20 % shift is twice it, and every one of its
+## metrics is measurable: injected it comes back fail at worst 2.43.
+##
 ## THE THREE FILTER CONTROLS need the frozen reference cache, which most hosts
 ## do not have -- and on those they REFUSE rather than fail, which `--expect`
 ## reads as a control that did not fire. That is the correct reading: a control
