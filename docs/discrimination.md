@@ -26,7 +26,7 @@ the Minimoog half (§8).
 
 | | |
 |---|---|
-| model revision rendered | `d9921a4` + `model/drums_fx.py`, `model/modal_fixed.py` from `origin/drums` `1e638ac` (the drums merge into main was still in flight; see §9). **Superseded: contract revision 6 changed five of the eight voices** — the snare's noise band and level, the cowbell's gating, tail and band-pass, the kick's f0 and its attack window, and the toms' pitch drop (`docs/drum-verification.md` §8, DR 0009, DR 0010). Every number below describes the kit as it was before those, so **re-run this study before quoting it**. Its conclusion that the attack carries most of the separability is what makes contract 17.20 — the excitation shape — the next thing to do, and none of these changes touch that. |
+| model revision rendered | `d9921a4` + `model/drums_fx.py`, `model/modal_fixed.py` from `origin/drums` `1e638ac` (the drums merge into main was still in flight; see §9). **Superseded: contract revision 6 changed five of the eight voices** — the snare's noise band and level, the cowbell's gating, tail and band-pass, the kick's f0 and its attack window, and the toms' pitch drop (`docs/drum-verification.md` §8, DR 0009, DR 0010). Every number below describes the kit as it was before those, so **re-run this study before quoting it**. Its conclusion that the attack carries most of the separability is what makes contract 17.20 — the excitation shape — the next thing to do, and none of these changes touch that. **Re-run 2026-09-18 on revisions 6 and 7**, same corpus, same split hash, arm `ours` only: knob-equivalent **SD 7.6 → 3.4** (balanced accuracy 1.000 → 0.938), BD 2.5, LT 6.7, OH 6.9, HT 7.2 (`docs/drum-verification.md` §8.6). So SD 8.8 was revision 5's snare, 7.6 is revision 6's, and 3.4 is revision 7's — the snare is no longer the worst voice, it is the second best. |
 | reference | Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 **s/n 103852**, individual voice outputs, 16-bit/44.1 kHz |
 | unique source recordings | **68** (the 8 voices we implement), of 116 in the set |
 | unique knob settings | 68 — the corpus has **exactly one take per setting** |
@@ -74,7 +74,7 @@ three fit positions, not assumed:
 |---|---|---|---|
 | BD | DECAY | body τ (f0 does **not** move: 50.0 Hz on all 25 files) | 17.5 / 241 / 541 ms |
 | BD | TONE | click energy above 300 Hz in the first 10 ms | 1.29 / 1.67 / 1.93 % |
-| SD | TONE | body ring, *not* pitch (168/172 Hz throughout) | 28.5 / 27.4 / 13.6 ms |
+| SD | TONE | ~~body ring, *not* pitch (168/172 Hz throughout)~~ — **WITHDRAWN 2026-09-18**; the two partials' amplitude **ratio**, and neither mode's decay | 0.0015 / 0.0839 / 2.205 (energy, upper over lower) |
 | SD | SNAPPY | noise share above 700 Hz | 0.00 / 51.7 / 92.5 % |
 | LT | TUNING | f0 | 80.0 / 90.0 / 100.0 Hz |
 | HT | TUNING | f0 | 170.0 / 186.7 / 213.3 Hz |
@@ -83,6 +83,17 @@ three fit positions, not assumed:
 Each law is a three-parameter interpolant through exactly those three points
 (log link for τ and f0, logit for energy shares). CH, CP and CB have no knob,
 so they have no law and — see §7 — no possible held-out setting.
+
+> **The SD TONE row was wrong, and it was the fifth instance of this voice's
+> recurring error.** "28.5 / 27.4 / 13.6 ms" is one τ fitted to a sum of two
+> modes that decay at different rates; fitted separately the machine's modes
+> are 29–39 ms and 5–11 ms at *every* TONE position and what moves is their
+> ratio, by 31.7 dB. Roland says the same thing ("the output ratio of the
+> two", SN p.6). Reproduced from a construction with the decays held fixed in
+> `test_discrimination.test_a_single_tau_on_two_modes_reads_a_balance_change_as_a_decay_change`,
+> and it mattered: `kit_at` wrote that τ into **both** our body modes, so the
+> study was driving our snare wrongly and part of the SD distance it reported
+> was its own. Corrected 2026-09-18 (`docs/drum-verification.md` §8.6).
 
 ---
 
@@ -233,11 +244,16 @@ with an impulse where the machine uses a pulse shaped over ~10 ms.
 Ordered by knob-equivalent separation — how far our render sits from the
 machine in the machine's own units.
 
-1. **SD — 8.8 / 10.** The snappy path. Noise carries 1.2 % of the energy
+1. ~~**SD — 8.8 / 10.** The snappy path. Noise carries 1.2 % of the energy
    where the machine's carries 47–92 % depending on SNAPPY, and it is flat to
-   Nyquist where the machine humps at 3–5 kHz. Confirmed to generalise across
-   the whole knob, so this is mechanism, not calibration. Biggest win
-   available.
+   Nyquist where the machine humps at 3–5 kHz.~~ **SUPERSEDED — SD is now
+   3.4 / 10, second only to the kick.** The "1.2 % against 47–92 %" pair
+   is the withdrawn whole-span Hann split on both sides (§8.0 of
+   `docs/drum-verification.md`); measured honestly the share was never far
+   off. What was really wrong: the noise *band* (fixed in revision 6), then
+   the snappy burst's *length* (τ 15 → 30 ms) and the two partials'
+   *balance* (0.394 → 1.42), both fixed in revision 7 (§8.6). What remains at
+   3.4 has not been identified and is spread thinly rather than concentrated.
 2. **LT / HT — 7.1 and 6.0 / 10.** The missing pink-noise path (§4 of the
    reference): ours have *zero* energy in 0.7–5 kHz against the machine's.
    Cheap to add. **Underpowered verdict — the corpus has 2 held-out settings

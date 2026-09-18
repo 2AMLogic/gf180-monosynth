@@ -410,9 +410,27 @@ high at 336 Hz (Q 10) [later units], or 238/476 Hz (Q 17/11) [early units].
 Excite the low mode with the 1 ms pulse; excite the high mode from the low
 mode's output ×1/38 (or, if the bank cannot chain, from the same pulse — the
 loss is small). TONE = crossfade of the two mode amplitudes (Roland: "output
-ratio of the two"). Noise: white LFSR × exponential envelope (τ ≈ 15 ms,
-amplitude = SNAPPY × accent) → 2-pole high-pass 2.75 kHz Q 0.7 → add. Total:
-2 resonator modes + 1 noise biquad + 1 envelope.
+ratio of the two"). Noise: white LFSR × exponential envelope → 2-pole filter
+at 2.75 kHz Q 0.7 → add. Total: 2 resonator modes + 1 noise biquad + 1
+envelope.
+
+> **AMENDED 2026-09-18 from hardware** (`docs/drum-verification.md` §8.1,
+> §8.6; contract 17.22, 17.24, 17.25). Three numbers in this section are
+> right and three readings of them are not:
+>
+> - the noise filter is a **band-pass** on the stated pole, not a high-pass.
+>   The pole (2.75 kHz, Q 0.7) is kept exactly; only the numerator changes. A
+>   high-pass on that pole is flat to Nyquist, and the machine's snare noise
+>   peaks at 3–5 kHz and falls above (band-pass 1.9 dB weighted rms against
+>   the high-pass's 5.2);
+> - the noise envelope's decay is **τ ≈ 30 ms**, not the 15.5 ms of
+>   R186 × C51 — which is the *charge* path. The machine's burst measures T20
+>   63–78 ms over six files, and this section's own prose ("the snap is a
+>   30–40 ms burst") agrees with the measurement rather than with the RC;
+> - TONE's crossfade has a **measured value at 12 o'clock**: the upper partial
+>   sits at **1.42×** the lower, the same with the snappy path up and down.
+>   What is *not* solved is that ratio from R191/R192/VR8/R200; it is measured,
+>   not derived.
 
 ---
 

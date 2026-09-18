@@ -73,14 +73,15 @@ def _peak_addr(e):
     return dx.A_ENV + e * dx.ENV_STRIDE + 1
 
 
-def _true_share():
+def _true_share(override=None):
     """Exact: the snare's tonal path and its noise path are separate paths into
     separate modes with LIN nonlinearities, so rendering each alone and summing
     reproduces the full render bit for bit, and the true noise share is
     arithmetic rather than an estimate."""
-    full = _render_sd()
-    tone = _render_sd({_peak_addr(dx.E_SDN): 0})
-    noise = _render_sd({_peak_addr(dx.E_SDX): 0})
+    override = dict(override or {})
+    full = _render_sd(override)
+    tone = _render_sd({**override, _peak_addr(dx.E_SDN): 0})
+    noise = _render_sd({**override, _peak_addr(dx.E_SDX): 0})
     assert np.allclose(full, tone + noise, atol=2e-3), "the two paths are not additive"
     i = max(0, int(np.argmax(np.abs(full) > 0.02 * np.abs(full).max())) - int(5e-4 * SR))
     n = int(0.25 * SR)
@@ -96,21 +97,57 @@ def test_separator_matches_the_exact_share_of_our_own_render():
     assert abs(got - truth) < 0.01, f"truth {truth:.4f}, separator {got:.4f}"
 
 
-def test_the_whole_span_hann_split_is_the_artefact_it_is_recorded_as():
-    """The control. The withdrawn method -- power above and below 700 Hz of a
-    Hann-windowed 500 ms span, `drum_verify.measure`'s body/air split -- must
-    under-report our snare's noise by more than a factor of five. If this ever
-    stops failing, the diagnosis in docs/drum-verification.md section 8 is
-    wrong and the numbers there have to be re-derived."""
-    truth, full = _true_share()
-    x = df.trim_onset(full, SR)[:int(0.5 * SR)]
+# The snare's snappy envelope exactly as revision 6 shipped it: tau 15 ms,
+# peak 0.5. A literal, so the control below keeps measuring the case section
+# 8.0 was written from however the kit moves afterwards.
+REV6_SNAPPY = {dx.A_ENV + dx.E_SDN * dx.ENV_STRIDE + 1: dx.peak_reg(0.5),
+               dx.A_ENV + dx.E_SDN * dx.ENV_STRIDE + 2: dx.rate_reg(15e-3)}
+
+
+def _hann_split(x):
+    """The withdrawn method verbatim: power above and below 700 Hz of a
+    Hann-windowed 500 ms span, `drum_verify.measure`'s body/air split."""
+    x = df.trim_onset(x, SR)[:int(0.5 * SR)]
     S = np.abs(np.fft.rfft(x * np.hanning(len(x)), 1 << 18)) ** 2
     f = np.fft.rfftfreq(1 << 18, 1.0 / SR)
-    tot = S[(f > 20) & (f < 16000)].sum()
-    split = float(S[(f >= 700) & (f < 16000)].sum() / tot)
+    return float(S[(f >= 700) & (f < 16000)].sum() / S[(f > 20) & (f < 16000)].sum())
+
+
+def test_the_whole_span_hann_split_is_the_artefact_it_is_recorded_as():
+    """The control, in the exact case section 8.0 was written from: revision
+    6's snappy envelope, where the noise decays faster than the tone and the
+    split therefore under-reports by more than a factor of five. The snappy
+    registers are pinned here as literals so this keeps testing THAT case, not
+    whatever the kit happens to hold. If it ever stops failing, the diagnosis
+    in docs/drum-verification.md section 8 is wrong and its numbers have to be
+    re-derived."""
+    truth, full = _true_share(REV6_SNAPPY)
+    split = _hann_split(full)
     assert split < truth / 5.0, (
         f"the whole-span Hann split reported {split * 100:.2f} % against a true "
         f"{truth * 100:.2f} %; it was supposed to be wrong by more than 5x")
+
+
+def test_the_withdrawn_split_reverses_when_the_noise_outlasts_the_tone():
+    """The same method on the CURRENT kit, and the sharper statement of what
+    is wrong with it. Revision 7's snappy envelope (tau 30 ms) outlasts the
+    upper body mode, so the whole-span Hann window now lands on noise rather
+    than on tone and the split OVER-reports -- on the same voice, by the same
+    code, in the opposite direction.
+
+    That is the mechanism section 8.0 names ("it reports whichever component
+    decays slowest") shown rather than argued, and it is why the replacement
+    is a separator and not a re-tuned split: no choice of split frequency
+    fixes a window that weights t = 10 ms by 0.0039 against t = 250 ms by 1.0.
+    """
+    truth, full = _true_share()
+    split = _hann_split(full)
+    assert split > truth * 1.4, (
+        f"on the current kit the split reported {split * 100:.2f} % against a true "
+        f"{truth * 100:.2f} %; it was supposed to over-report by at least 1.4x")
+    rev6_truth, rev6_full = _true_share(REV6_SNAPPY)
+    assert _hann_split(rev6_full) < rev6_truth, \
+        "the same method must still under-report revision 6's snare: the direction is the claim"
 
 
 @pytest.mark.parametrize("target", (0.05, 0.2766, 0.50))

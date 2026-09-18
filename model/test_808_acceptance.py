@@ -845,6 +845,115 @@ def test_sd_noise_filter_is_a_band_pass_on_the_reference_s_pole():
         f"peaks in 3-5 kHz (docs/drum-verification.md section 8.1)")
 
 
+# --- the snappy burst's LENGTH and the two partials' BALANCE (section 8.6) ---
+# Revision 6 fixed the snappy path's BAND and its LEVEL. Two quantities it did
+# not touch, both measured on the same machine and both wrong by a wide
+# margin, are asserted below. They are separate tests because they are
+# separate registers and separate mechanisms: one is an envelope rate, the
+# other a mode amplitude, and a single "does the snare match" assertion would
+# have let either hide inside the other.
+SD_NOISE_T20_MS = (55.0, 90.0)      # machine: 63.2 / 67.4 / 67.5 / 67.6 / 69.3 / 77.9
+SD_PARTIAL_RATIO = 1.42             # machine, TONE 5.0: a(336 Hz) / a(173 Hz)
+SD_NOISE_BAND = (1500.0, 8000.0)    # where both machines' snare noise lives
+
+
+def sd_noise_t20(x, sr: int = SR) -> float:
+    """T20 of the snappy burst: the last time its short-time RMS stands above
+    -20 dB of its own peak, band-limited to where the noise lives.
+
+    A SHORT-TIME RMS, not the analytic envelope, because this is a broadband
+    voice (docs/verification-rules.md's third measurement lesson, and
+    test_audio_measure.test_rms_envelope_is_the_right_envelope_for_a_broadband_voice).
+    T20 and not a fitted tau, because the residual floor of a 16-bit recording
+    sits close enough under the burst that a fit reads partly floor: the
+    fitted tau is only trustworthy on the files where the noise dominates, and
+    those agree with this (29-34 ms, which is this T20 band)."""
+    x = np.asarray(x, dtype=np.float64)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1.0 / sr)
+    X[(f < SD_NOISE_BAND[0]) | (f > SD_NOISE_BAND[1])] = 0.0
+    env = am.rms_envelope(np.fft.irfft(X, len(x)), ms=3.0, sr=sr)
+    pk = float(env.max())
+    if pk <= 0:
+        raise am.InsufficientEvidence("no snappy burst to measure")
+    ldb = 20 * np.log10(np.maximum(env / pk, 1e-12))
+    i0 = int(np.argmax(env))
+    above = np.nonzero(ldb[i0:] > -20.0)[0]
+    return 1e3 * (float(above[-1]) / sr) if len(above) else 0.0
+
+
+def sd_partial_amps(x, sr: int = SR):
+    """(low, high) initial amplitudes of the two bridged-T partials, from the
+    validated separator's own damped-sinusoid fit -- amplitude at t = 0, so
+    the number does not depend on an analysis window the way an integrated
+    band energy does."""
+    import drum_fit as df
+    m = df.noise_share(np.asarray(x, dtype=np.float64), sr, df.VOICE_MODES["SD"])["modes"]
+    return m[0]["amp"], m[1]["amp"]
+
+
+def test_sd_snappy_burst_lasts_as_long_as_the_machine_s():
+    """[hardware-measured: docs/drum-verification.md section 8.6, the same
+    TR-808 serial 103852, six files spanning both knobs]
+
+    The snappy envelope is a decay, and how long it lasts is not the same
+    claim as how much energy it carries. Revision 6 set the LEVEL from the
+    machine's SNAPPY curve and the BAND from its noise spectrum; both are
+    right, and the burst is still over about twice as early as the machine's.
+
+    This is the failure `docs/reduced-808-precedent.md` names as the hazard of
+    a modal bank with per-voice envelopes -- the volca beats' digital envelope
+    into a VCA, cut short "because without them the decay of the bridged
+    t-network would be too long" -- appearing here on the one path of this
+    voice that really is an envelope into a VCA. The bridged-T side is
+    innocent: our two body modes ring at 29.8 / 9.8 ms against the machine's
+    31.9 / 9.7 (section 8.6).
+
+    The machine measures T20 63.2-77.9 ms over TONE 2.5-10 and SNAPPY 5-10.
+    Asserted as 55-90 ms: wider than the spread, because one machine's RC is
+    not every machine's, and far inside the 34 ms revision 6 shipped.
+
+    Ground truth: test_audio_measure.test_rms_envelope_recovers_a_noise_burst_decay
+    """
+    r = one_hit(dx.SD, 1.0, 0.5)
+    t20 = sd_noise_t20(r.after_hit(0, 0.4, "body"))
+    lo, hi = SD_NOISE_T20_MS
+    assert lo <= t20 <= hi, (
+        f"the snappy burst is over at T20 = {t20:.1f} ms; the same machine's "
+        f"lasts 63-78 ms (docs/drum-verification.md section 8.6). The snappy "
+        f"envelope's rate register is the whole of this.")
+
+
+def test_sd_two_partials_are_balanced_as_the_machine_balances_them():
+    """[hardware-measured: docs/drum-verification.md section 8.6, SD5050 and
+    SD5000 -- the TONE 5.0 condition every preset in kit_808() claims]
+
+    TONE is the two resonators' output RATIO (SN p.6: "The output ratio of the
+    two can be changed by VR8"), so at the 12 o'clock preset the ratio is a
+    number the machine states. It measures a(336) / a(173) = 1.43 with the
+    snappy path up and 1.41 with it down -- the same, which is what says the
+    quantity belongs to the resonators and not to the noise.
+
+    Revision 6 shipped 0.394, which is 11 dB of the snare's upper partial
+    missing. That is the "front end" the T-8 review and the volca workaround
+    are both about, and it is one amp register.
+
+    Asserted in dB, +-3 dB, which is wider than the machine's own spread
+    across the two files (0.1 dB) and narrower than the error.
+
+    Ground truth: test_audio_measure.test_analytic_envelope_of_a_damped_sinusoid_is_the_exponential,
+    test_drum_fit.test_separator_recovers_the_modes_it_subtracts
+    """
+    r = one_hit(dx.SD, 1.0, 0.5)
+    a_lo, a_hi = sd_partial_amps(r.after_hit(0, 0.4, "body"))
+    got = 20 * math.log10(max(a_hi, 1e-12) / max(a_lo, 1e-12))
+    want = 20 * math.log10(SD_PARTIAL_RATIO)
+    assert abs(got - want) <= 3.0, (
+        f"the snare's two partials sit at {got:+.1f} dB (high over low); the same "
+        f"machine at TONE 5.0 sits at {want:+.1f} dB (docs/drum-verification.md "
+        f"section 8.6). The upper partial is {want - got:+.1f} dB out.")
+
+
 # ===========================================================================
 # LT / HT -- toms
 # ===========================================================================
@@ -1476,6 +1585,41 @@ def test_meta_tom_pitch_check_passes_when_a_drop_is_written():
     assert first / settled >= 1.05, f"the pitch-drop check cannot pass even so: {first/settled:.3f}x"
     assert 1.2 <= first / settled <= 2.0, \
         f"the magnitude check cannot pass even so: {first/settled:.3f}x"
+
+
+def test_meta_sd_snappy_burst_check_rejects_the_shipped_fifteen_millisecond_tail():
+    """[meta] The injected-bug control for the snappy burst's length
+    (docs/verification-rules.md rule 2). The defect is the one revision 6
+    shipped and is written here as a literal, so it stays fixed when the kit
+    moves: E_SDN at tau 15 ms, everything else the kit's. The same measurement
+    test_sd_snappy_burst_lasts_as_long_as_the_machine_s makes must reject it.
+
+    Without this the T20 band is only ever seen passing, and a band wide
+    enough to pass anything would look identical."""
+    if STUB:
+        pytest.skip("a negative control is meaningless against a stub")
+    # only the rate register moves; T20 is normalised to the burst's own peak,
+    # so the kit's SNAPPY level is left exactly where it is
+    kit = kit_with(regs={dx.A_ENV + dx.E_SDN * dx.ENV_STRIDE + 2: dx.rate_reg(15e-3)})
+    r = one_hit(dx.SD, 1.0, 0.5, kit=kit, name="SD-snappy-tau-15ms")
+    t20 = sd_noise_t20(r.after_hit(0, 0.4, "body"))
+    assert t20 < SD_NOISE_T20_MS[0], \
+        f"the 15 ms tail measures T20 {t20:.1f} ms, inside the band -- the check cannot fail"
+
+
+def test_meta_sd_partial_balance_check_rejects_the_shipped_amp():
+    """[meta] The injected-bug control for the two partials' balance. The
+    defect is again the shipped one as a literal -- M_SDHI's amp 0.00369
+    against M_SDLO's 0.0036 -- and the same measurement must reject it."""
+    if STUB:
+        pytest.skip("a negative control is meaningless against a stub")
+    kit = kit_with(regs={a: v for a, v in dx.mode_writes(dx.M_SDHI, 336.0, 9.9, 0.00369)})
+    r = one_hit(dx.SD, 1.0, 0.5, kit=kit, name="SD-partials-rev6")
+    a_lo, a_hi = sd_partial_amps(r.after_hit(0, 0.4, "body"))
+    got = 20 * math.log10(max(a_hi, 1e-12) / max(a_lo, 1e-12))
+    want = 20 * math.log10(SD_PARTIAL_RATIO)
+    assert abs(got - want) > 3.0, \
+        f"the shipped amp measures {got:+.1f} dB, inside the band -- the check cannot fail"
 
 
 def test_meta_bd_tau_column_rejects_the_chart_s_f0():
