@@ -55,10 +55,8 @@ jobs:
           git config user.name  "dag-bot"
           git config user.email "noreply@anthropic.com"
           git add README.md docs/dag-results.json
-          git commit -m "[dag] regenerate the roadmap from evidence
-
-Automated. Every node's status is derived by running its evidence, not asserted
-by anyone. See tools/compile_dag.py and docs/failure-modes.md."
+          git commit -m "[dag] regenerate the roadmap from evidence" \
+                     -m "Automated. Status is derived by running each node's evidence, not asserted. See tools/compile_dag.py."
           git push
 
       - name: report what the roadmap says

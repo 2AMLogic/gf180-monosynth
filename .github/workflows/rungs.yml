@@ -16,7 +16,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - run: python -m pip install --upgrade pip numpy scipy pytest pyyaml
+
+      # The checking machinery is the one artefact nothing checked, and four CI
+      # defects landed in one session because of it. An unparseable workflow is
+      # not a failed build -- GitHub silently does not register it, so it looks
+      # exactly like one that passed.
+      - name: the workflows themselves parse and can run
+        run: python tools/check_workflows.py
 
       # The roadmap is compiled from evidence, not maintained by hand. This
       # document twice carried findings that had already been fixed -- the

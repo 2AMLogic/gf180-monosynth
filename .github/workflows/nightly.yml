@@ -124,12 +124,29 @@ jobs:
       # weekly tier.
       - name: the report can still go red
         run: |
-          python model/sound_report.py --inject sd-noise-6db  > /tmp/i1.txt 2>&1 || true
-          python model/sound_report.py --inject ladder-2pole  > /tmp/i2.txt 2>&1 || true
-          for f in /tmp/i1.txt /tmp/i2.txt; do
-            grep -qiE "\b(MISS|FAIL|MOVED)" "$f" || { echo "injection did not move the report: $f"; exit 1; }
+          # An injection that CRASHES is not a caught defect. This previously
+          # swallowed the status with `|| true` and grepped for MISS/FAIL/MOVED,
+          # so a traceback mentioning any of those words counted as success --
+          # a tool that could not run looked exactly like a control that worked.
+          set -u
+          for inj in sd-noise-6db ladder-2pole; do
+            out="/tmp/inj-$inj.txt"
+            set +e
+            python model/sound_report.py --inject "$inj" > "$out" 2>&1
+            rc=$?
+            set -e
+            # 0 = nothing moved (the control did NOT fire); 1 = it moved.
+            # Anything else means the tool did not run: no verdict, not a pass.
+            if [ "$rc" -gt 1 ]; then
+              echo "::error::$inj -- sound_report exited $rc; the control did not run"
+              tail -20 "$out"; exit 1
+            fi
+            if ! grep -qE "^ *MOVED" "$out"; then
+              echo "::error::$inj ran but moved no property -- the control does not fire"
+              tail -20 "$out"; exit 1
+            fi
+            echo "$inj moved the report"
           done
-          echo "both injections moved the report"
 
       - uses: actions/upload-artifact@v4
         if: always()
