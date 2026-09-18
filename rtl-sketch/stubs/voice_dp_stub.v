@@ -43,7 +43,7 @@ module voice_dp #(
     reg signed [24:0] ma = 25'bx;
     reg signed [20:0] mb = 21'bx;
     reg [15:0] g = 16'bx;
-    reg signed [19:0] out_v = 20'bx;
+    reg signed [35:0] macc = 36'bx;   // tb_voice taps macc >>> 15 for the out_v column
     reg [23:0] level_a = 24'bx, level_f = 24'bx;
     reg [1:0]  seg_a = 2'bx, seg_f = 2'bx;
     integer i;
