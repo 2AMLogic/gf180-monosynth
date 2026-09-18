@@ -1,0 +1,62 @@
+# The Minimoog voice's acceptance suite, in CI.
+#
+# `model/test_moog_acceptance.py` asks one question per claimed musical
+# property -- does res = 1 still start the self-oscillation everywhere, does
+# the stopband still fall at 24 dB/octave, does a high-resonance note still
+# end -- with each claim cited to its decision record. Its last group injects
+# the defects those records were written from and requires the matching
+# property to go red, so a green run means the suite could have failed.
+#
+# `model/test_808_acceptance.py` does the same for the drum section against
+# `docs/tr808-reference.md` and `docs/drum-verification.md`. It needs
+# `model/drums_fx.py`, which is still on the `drums` branch, so its step runs
+# only once that file exists -- and runs for real the moment it does.
+#
+# `model/test_audio_measure.py` is the ground truth for every estimator both
+# suites measure with. It runs first: an acceptance suite built on untested
+# analysers measures the analysers.
+name: acceptance
+
+on:
+  push:
+    paths:
+      - 'model/**'
+      - 'audition/**'
+      - 'spec/**'
+      - '.github/workflows/moog-acceptance.yml'
+  pull_request:
+    paths:
+      - 'model/**'
+      - 'audition/**'
+      - 'spec/**'
+      - '.github/workflows/moog-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # scipy: model/test_discrimination.py (#19) reads WAVs and filters with it.
+      # Without it that module fails to import and the catch-all step below
+      # collects nothing at all, which is how this workflow went red on main.
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - name: measurement ground truth
+        run: python -m pytest model/test_audio_measure.py -q
+      - name: acceptance properties, and the proof they can fail
+        run: python -m pytest model/test_moog_acceptance.py -q
+      - name: the TR-808 acceptance suite
+        run: |
+          if [ -f model/drums_fx.py ]; then
+            python -m pytest model/test_808_acceptance.py -q
+          else
+            echo "model/drums_fx.py is not on this branch (PR #14), so the TR-808"
+            echo "acceptance suite has nothing to render. It is NOT being skipped"
+            echo "silently: this step runs it, and fails, the moment that file exists."
+          fi
+      - name: the rest of the model suite
+        run: python -m pytest model spec -q --ignore=model/test_808_acceptance.py

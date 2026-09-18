@@ -1,0 +1,896 @@
+#!/usr/bin/env python3
+"""Ground truth for `model/audio_measure.py`.
+
+Every estimator is exercised against signals built from a closed form, so the
+right answer is known before the measurement is made. This file exists because
+on 2026-09-18 four "defects" in this repository turned out to be measurement
+errors: analysis code that had never been run against a signal whose answer was
+known. An acceptance suite built on untested analysers measures the analysers.
+
+    .venv/bin/python -m pytest model/test_audio_measure.py -q
+
+The awkward cases are deliberate and each one is a real failure that happened:
+tau shorter than the carrier period, a window holding less than one cycle,
+several hits at unequal amplitudes, a strong attack over a weak long tail,
+stationary noise (which has no decay time at all), silence, clipping and a
+signal down at the quantisation floor.
+"""
+from __future__ import annotations
+
+import math
+import os
+import sys
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import audio_measure as am
+from audio_measure import InsufficientEvidence
+
+SR = 48000
+
+
+# ---------------------------------------------------------------------------
+# signal generators -- closed forms, so the answer is known
+# ---------------------------------------------------------------------------
+def damped(f, tau, seconds=1.0, amp=1.0, phase=0.0, sr=SR):
+    t = np.arange(int(seconds * sr)) / sr
+    return amp * np.exp(-t / tau) * np.sin(2 * math.pi * f * t + phase)
+
+
+def two_pole_ir(f0, q, n=4096, numerator="raw", sr=SR):
+    """The impulse response of exactly the modal bank's recursion:
+    y[n] = x[n] + a1 y[n-1] + a2 y[n-2], r = exp(-pi f0/(Q fs)), and the
+    numerator the bank selects. Its magnitude response is known in closed form,
+    which `analytic_response` computes."""
+    r = math.exp(-math.pi * f0 / (q * sr))
+    w = 2 * math.pi * f0 / sr
+    a1, a2 = 2 * r * math.cos(w), -r * r
+    x = np.zeros(n)
+    if numerator == "raw":
+        x[0] = 1.0
+    elif numerator == "bp":                      # 1 - z^-2
+        x[0], x[2] = 1.0, -1.0
+    elif numerator == "hp":                      # (1 - z^-1)^2
+        x[0], x[1], x[2] = 1.0, -2.0, 1.0
+    y = np.zeros(n)
+    for i in range(n):
+        acc = x[i]
+        if i >= 1:
+            acc += a1 * y[i - 1]
+        if i >= 2:
+            acc += a2 * y[i - 2]
+        y[i] = acc
+    return y, (a1, a2)
+
+
+def analytic_response(f0, q, numerator="raw", sr=SR, npts=200001):
+    """|H(e^jw)| of the same filter, evaluated directly. Ground truth for the
+    transfer-response estimators."""
+    r = math.exp(-math.pi * f0 / (q * sr))
+    w0 = 2 * math.pi * f0 / sr
+    a1, a2 = 2 * r * math.cos(w0), -r * r
+    f = np.linspace(0, sr / 2, npts)
+    z = np.exp(-2j * math.pi * f / sr)
+    num = {"raw": 1.0 + 0 * z, "bp": 1 - z ** 2, "hp": (1 - z) ** 2}[numerator]
+    return f, np.abs(num / (1 - a1 * z - a2 * z ** 2))
+
+
+def noise(n, seed, sr=SR):
+    return np.random.default_rng(seed).normal(0.0, 1.0, n)
+
+
+def band_noise(n, lo, hi, seed, sr=SR):
+    """White noise masked to [lo, hi] in the frequency domain: stationary, with
+    a known band and no line structure."""
+    x = noise(n, seed)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(n, 1 / sr)
+    X[(f < lo) | (f > hi)] = 0
+    return np.fft.irfft(X, n)
+
+
+def square_mix(freqs, seconds=1.0, sr=SR, seed=0):
+    """A sum of square waves at `freqs` with random phases -- the shape of the
+    808's six-Schmitt-trigger bank."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(seconds * sr)) / sr
+    return sum(np.sign(np.sin(2 * math.pi * f * t + rng.uniform(0, 2 * math.pi))) for f in freqs)
+
+
+# ===========================================================================
+# tau, T20, and the two conventions
+# ===========================================================================
+def test_t20_is_ln10_times_tau():
+    """The conversion itself, checked against a measured -20 dB crossing rather
+    than against the formula it came from. tau = 39.5 ms is a T20 of 91 ms, not
+    a "50 ms decay": confusing the two is how a decay control was declared
+    broken."""
+    tau = 0.0395
+    t = np.arange(int(0.5 * SR)) / SR
+    env = np.exp(-t / tau)
+    t20 = float(t[np.argmax(env <= 0.1)])
+    assert abs(t20 - am.t20_from_tau(tau)) <= 1e-4, f"T20 {t20*1e3:.2f} ms vs {am.t20_from_tau(tau)*1e3:.2f}"
+    assert abs(am.t20_from_tau(tau) - 0.0910) <= 0.0005
+    assert abs(am.tau_from_t20(am.t20_from_tau(tau)) - tau) <= 1e-12
+
+
+@pytest.mark.parametrize("f,tau", [
+    (56.0, 0.029), (56.0, 0.127), (56.0, 0.352),        # the 808 bass drum's three DECAY settings
+    (90.0, 0.092), (185.0, 0.044), (173.0, 0.030),      # toms and snare
+    (540.0, 0.025), (3450.0, 0.010), (7100.0, 0.003),   # cowbell, cymbal band, hat band
+])
+def test_decay_tau_recovers_a_known_time_constant(f, tau):
+    """The central case: an exponentially damped sinusoid of known f and tau.
+    +-5 %, which is far tighter than any tolerance the 808 suite applies, so
+    the estimator is never the limiting factor there."""
+    x = damped(f, tau, seconds=max(8 * tau, 0.05))
+    e = am.decay_tau(x, SR)
+    got = e.require("decay_tau")
+    assert abs(got / tau - 1) <= 0.08, f"f={f} tau={tau*1e3:.1f} ms measured {got*1e3:.2f} ms ({e})"
+
+
+def test_decay_tau_refuses_when_the_carrier_is_too_low_to_have_an_envelope():
+    """56 Hz decaying with tau = 5 ms is 0.28 of a cycle: the decay's own
+    bandwidth is wider than the carrier, so there is no envelope to fit and the
+    analytic envelope ripples at twice the carrier. The estimator must refuse
+    and hand the caller to `damped_sinusoid`, which is exact there -- a
+    plausible number would be silently 15 % wrong."""
+    x = damped(56.0, 0.005, seconds=0.6)
+    e = am.decay_tau(x, SR)
+    assert not e.ok, f"returned {e} for a decay shorter than its own carrier period"
+    d = am.damped_sinusoid(x, SR)
+    assert abs(d.tau.require("tau") / 0.005 - 1) <= 0.05
+    assert abs(d.freq.require("freq") / 56.0 - 1) <= 0.05
+
+
+@pytest.mark.parametrize("f,tau", [(56.0, 0.002), (56.0, 0.005), (130.0, 0.004), (90.0, 0.003)])
+def test_damped_sinusoid_works_when_tau_is_shorter_than_the_period(f, tau):
+    """tau shorter than one carrier period: 2 ms at 56 Hz is 0.11 of a cycle.
+    An FFT cannot resolve the frequency and an envelope fit has almost nothing
+    to fit, but the two-pole recursion is exact here -- this is the case that
+    produced a wrong answer, and it is the case the bass drum's 4 ms / 130 Hz
+    attack lives in."""
+    x = damped(f, tau, seconds=0.05)
+    d = am.damped_sinusoid(x, SR)
+    assert abs(d.freq.require("freq") / f - 1) <= 0.02, f"f {d.freq} vs {f}"
+    assert abs(d.tau.require("tau") / tau - 1) <= 0.05, f"tau {d.tau} vs {tau}"
+
+
+def test_damped_sinusoid_works_on_less_than_one_cycle():
+    """A 4 ms window at 130 Hz holds half a cycle. Ground truth for the check
+    the bass-drum attack test makes."""
+    x = damped(130.0, 0.015, seconds=0.004)
+    d = am.damped_sinusoid(x, SR)
+    assert abs(d.freq.require("freq") / 130.0 - 1) <= 0.05, f"{d.freq} vs 130 Hz on half a cycle"
+
+
+def test_damped_sinusoid_matches_the_coefficients_that_generated_it():
+    """The control path and the audio path must agree when nothing is wrong:
+    `poles_to_freq_tau` on the written coefficients and `damped_sinusoid` on
+    the rendered ring give the same answer. When they disagree, the defect is
+    downstream of the coefficients."""
+    for f0, q in ((56.0, 22.3), (185.0, 25.0), (336.0, 9.9)):
+        ir, (a1, a2) = two_pole_ir(f0, q, n=int(0.6 * SR))
+        cf, ct = am.poles_to_freq_tau(a1, a2, SR)
+        d = am.damped_sinusoid(ir[8:], SR)
+        assert abs(d.freq.require() / cf.require() - 1) <= 0.01
+        assert abs(d.tau.require() / ct.require() - 1) <= 0.02
+        assert abs(ct.require() - q / (math.pi * f0)) <= 0.05 * q / (math.pi * f0)
+
+
+def test_decay_tau_refuses_stationary_noise():
+    """Noise has no decay time. An estimator that returns one anyway will
+    happily report a decay for a voice that never decays."""
+    for seed in (1, 2, 3):
+        e = am.decay_tau(noise(int(0.5 * SR), seed), SR)
+        assert not e.ok, f"seed {seed}: reported tau {e.value} for stationary noise"
+
+
+def test_decay_tau_refuses_silence():
+    e = am.decay_tau(np.zeros(SR), SR)
+    assert not e.ok and "silent" in e.reason
+    with pytest.raises(InsufficientEvidence):
+        e.require("silence")
+
+
+def test_decay_tau_refuses_two_exponentials_and_measures_the_tail_when_told_where():
+    """A strong short attack over a weak long tail is two exponentials. Fitted
+    from the peak it is neither, and the estimator must refuse rather than
+    return the average of the two. Given the tail's window it must get the tail
+    right -- this is the clap, and the cowbell's two-slope envelope."""
+    t = np.arange(int(0.6 * SR)) / SR
+    carrier = np.sin(2 * math.pi * 300 * t)
+    x = (1.0 * np.exp(-t / 0.004) + 0.10 * np.exp(-t / 0.120)) * carrier
+    whole = am.decay_tau(x, SR)
+    assert not whole.ok, f"fitted a single exponential to two: {whole}"
+    tail = am.decay_tau(x, SR, start_s=0.045).require("tail")
+    assert abs(tail / 0.120 - 1) <= 0.10, f"tail tau {tail*1e3:.1f} ms, truth 120 ms"
+
+
+def test_decay_tau_reports_a_clipped_decay_as_not_exponential():
+    """A clipped decay is flat then exponential. `clipped_fraction` sees it, and
+    the fit must not quietly return a longer tau."""
+    x = damped(120.0, 0.100, seconds=0.6, amp=4.0)
+    xc = np.clip(x, -1.0, 1.0)
+    assert am.clipped_fraction(xc, 1.0) > 0.01, "the test signal is not actually clipped"
+    assert am.clipped_fraction(xc * 0.4, 1.0) == 0.0, "an unclipped signal must not be flagged"
+    assert not am.decay_tau(xc, SR).ok, "a clipped decay was fitted as a single exponential"
+    assert abs(am.decay_tau(xc, SR, start_s=0.25, end_s=0.55).require("tail") / 0.100 - 1) <= 0.08
+
+
+def test_quantisation_floor_is_reported():
+    """A signal a few LSB tall carries no usable spectrum, and saying so is part
+    of the estimator's job."""
+    x = np.round(damped(200.0, 0.05, seconds=0.3) * 2.0)
+    assert am.quantisation_floor(x, 1.0) < 12.0
+    assert am.quantisation_floor(damped(200.0, 0.05, seconds=0.3) * 20000, 1.0) > 80.0
+
+
+# ===========================================================================
+# the moving-average envelope: the specific failure of 2026-09-18
+# ===========================================================================
+def test_an_unsmoothed_envelope_reproduces_the_false_decay_defect():
+    """The measurement error that was reported as a broken DECAY control.
+
+    A 127 ms bass-drum ring at 56 Hz, fitted on the RAW |x| envelope, measures
+    3.8 ms: the peak-finder lands on a carrier excursion and the fit never
+    leaves the first cycle. Add the 1 ms click that sits on the drum section's
+    mix bus and it measures 40 ms -- and 40 ms again at every other DECAY
+    setting, because what is being measured is the click, not the drum. That is
+    the "tau = 39.5 ms at all three settings" report.
+
+    The analytic estimator must never silently return a wrong number here: it
+    either refuses (a click plus a ring is two things, not one exponential) or
+    it is right. Told where the ring starts, it is right."""
+    t = np.arange(int(1.2 * SR)) / SR
+    ring = np.exp(-t / 0.127) * np.sin(2 * math.pi * 56.0 * t)
+    click = np.zeros_like(ring)
+    click[:int(0.001 * SR)] = 1.0
+    def naive(env):
+        p = int(np.argmax(env)); pk = env[p]; tail = env[p:]
+        b = np.where(tail < pk * 10 ** (-35 / 20.0))[0]
+        fit = np.maximum(tail[:(b[0] if len(b) else len(tail))], pk * 1e-9)
+        tt = np.arange(len(fit)) / SR
+        w = fit / fit.max()
+        A = np.vstack([tt, np.ones_like(tt)]).T
+        sol, *_ = np.linalg.lstsq(A * w[:, None], np.log(fit) * w, rcond=None)
+        return -1.0 / sol[0]
+    assert naive(np.abs(ring)) < 0.010, "the raw-|x| fit was accurate here; re-derive this warning"
+    assert 0.030 < naive(np.abs(ring + click)) < 0.050, "the click-dominated fit no longer lands near 40 ms"
+    got = am.decay_tau(ring + click, SR)
+    assert not got.ok, f"the analytic fit accepted a click plus a ring as one exponential: {got}"
+    told = am.decay_tau(ring + click, SR, start_s=0.005).require("ring after the click")
+    assert abs(told / 0.127 - 1) <= 0.08, f"told where the ring is, measured {told*1e3:.1f} ms"
+    assert abs(am.decay_tau(ring, SR).require("clean ring") / 0.127 - 1) <= 0.08
+
+
+def test_moving_average_envelope_ripples_where_the_analytic_one_does_not():
+    """A 5 ms moving average spans 0.28 of a cycle at 56 Hz. The analytic
+    envelope of a damped sinusoid is the exponential itself to a fraction of a
+    dB; the moving average ripples at twice the carrier by several dB, which is
+    what puts a peak-finder on the wrong sample."""
+    t = np.arange(int(0.6 * SR)) / SR
+    truth = np.exp(-t / 0.127)
+    x = truth * np.sin(2 * math.pi * 56.0 * t)
+    n0, n1 = int(0.004 * SR), int(0.38 * SR)                 # down to about -30 dB
+    a = am.analytic_envelope(x)[n0:n1]
+    m = am.moving_average_envelope(x, 5.0, SR)[n0:n1] * (math.pi / 2)   # mean|sin| correction
+    ref = truth[n0:n1]
+    err_a = float(np.max(np.abs(20 * np.log10(a / ref))))
+    err_m = float(np.max(np.abs(20 * np.log10(np.maximum(m, 1e-12) / ref))))
+    assert err_a <= 1.0, f"analytic envelope off by {err_a:.2f} dB"
+    assert err_m >= 3.0, f"the moving average only rippled {err_m:.2f} dB; re-derive the guidance"
+
+
+def test_analytic_envelope_of_a_damped_sinusoid_is_the_exponential():
+    for f in (40.0, 56.0, 300.0, 7100.0):
+        t = np.arange(int(0.3 * SR)) / SR
+        truth = np.exp(-t / 0.05)
+        e = am.analytic_envelope(truth * np.sin(2 * math.pi * f * t))
+        n0, n1 = int(0.005 * SR), int(0.17 * SR)      # to about -30 dB; below that the
+        err = float(np.max(np.abs(20 * np.log10(e[n0:n1] / truth[n0:n1]))))   # transform's own
+        assert err <= 1.5, f"f={f}: analytic envelope off by {err:.2f} dB"    # ringing dominates
+
+
+# ===========================================================================
+# onsets
+# ===========================================================================
+def test_onsets_finds_hits_at_unequal_amplitudes():
+    """Three hits at 1.0, 0.22 and 0.55 -- a solo render at accent 1.0, 0.6 and
+    1.4. An absolute threshold misses the quiet one; measuring from the first
+    onset to the global peak across all three invents an attack time of
+    hundreds of ms, which is exactly what was reported for seven of eight
+    voices."""
+    n = int(2.4 * SR)
+    x = np.zeros(n)
+    truth = [0.05, 0.75, 1.45]
+    for t0, amp in zip(truth, (1.0, 0.22, 0.55)):
+        seg = damped(90.0, 0.08, seconds=0.6, amp=amp)
+        i = int(t0 * SR)
+        x[i:i + len(seg)] += seg
+    got = am.onsets(x, SR, min_gap_s=0.1)
+    assert len(got) == 3, f"found {len(got)} onsets at {[round(i/SR,3) for i in got]}, truth {truth}"
+    for g, t0 in zip(got, truth):
+        # 10 ms, which is what the Hilbert precursor leaves: enough to tell one
+        # hit from another, nowhere near enough to measure an attack time.
+        assert abs(g / SR - t0) <= 0.010, f"onset {g/SR:.4f} s vs {t0} s"
+
+
+def test_onsets_are_not_hidden_by_the_hilbert_precursor():
+    """The analytic envelope rises tens of ms BEFORE a sharp strike, because
+    the Hilbert transform is not causal. With a 10 ms run-in before the first
+    hit that precursor flattens the rise enough to hide it: the analytic
+    detector found two onsets, in the wrong places, where the RMS detector
+    finds three in the right ones."""
+    n = int(1.6 * SR)
+    x = np.zeros(n)
+    truth = [0.010, 0.510, 1.010]
+    for t0, amp in zip(truth, (1.0, 0.6, 1.4)):
+        seg = damped(56.0, 0.127, seconds=0.5, amp=amp)
+        i = int(t0 * SR)
+        x[i:i + len(seg)] += seg
+    got = am.onsets(x, SR, min_gap_s=0.1)
+    assert len(got) == 3, f"found {[round(i/SR, 4) for i in got]}, truth {truth}"
+    for g, t0 in zip(got, truth):
+        # 10 ms, which is what the precursor leaves: enough to tell one hit
+        # from another, nowhere near enough to measure an attack time.
+        assert abs(g / SR - t0) <= 0.010, f"onset {g/SR:.4f} s vs {t0} s"
+
+
+def test_onsets_on_silence_is_empty():
+    assert am.onsets(np.zeros(SR), SR) == []
+
+
+# ===========================================================================
+# spectral lines
+# ===========================================================================
+def test_dominant_frequency_on_known_tones():
+    for f in (56.0, 173.0, 336.0, 540.0, 800.0, 7100.0):
+        x = damped(f, 0.2, seconds=0.5)
+        got = am.dominant_frequency(x, f * 0.6, f * 1.6, SR).require()
+        assert abs(got / f - 1) <= 0.01, f"{got:.2f} vs {f}"
+
+
+def test_dominant_frequency_refuses_a_band_with_no_line():
+    x = damped(200.0, 0.1, seconds=0.4)
+    assert not am.dominant_frequency(x, 3000.0, 6000.0, SR).ok
+    assert not am.dominant_frequency(np.zeros(SR), 100.0, 1000.0, SR).ok
+
+
+def test_line_at_resolves_two_close_tones():
+    """540 and 800 Hz together -- the cowbell's two trimmed oscillators."""
+    t = np.arange(int(0.25 * SR)) / SR
+    x = np.sin(2 * math.pi * 540 * t) + 0.32 * np.sin(2 * math.pi * 800 * t)
+    lo = am.line_at(x, 540.0, SR)
+    hi = am.line_at(x, 800.0, SR)
+    assert abs(lo.require() - 540.0) <= 3.0
+    assert abs(hi.require() - 800.0) <= 3.0
+    ratio = 20 * math.log10(hi.detail["level"] / lo.detail["level"])
+    assert abs(ratio - 20 * math.log10(0.32)) <= 1.5, f"level ratio {ratio:.2f} dB vs {20*math.log10(0.32):.2f}"
+
+
+def test_spectral_lines_counts_a_known_comb_and_a_known_noise():
+    """A six-square mixture at the 808's oscillator frequencies against
+    band-limited noise of the same bandwidth. The count separates them here --
+    but see the next test, which is the reason a count alone is not evidence of
+    a topology."""
+    band = (2000.0, 16000.0)
+    comb = am.spectral_lines(square_mix((205.3, 369.6, 304.4, 522.7, 800.0, 540.0), 0.25), band, SR)
+    noi = am.spectral_lines(band_noise(int(0.25 * SR), 2000.0, 16000.0, seed=7), band, SR)
+    assert comb.count >= 20, f"six squares gave only {comb.count} lines"
+    assert noi.count <= comb.count / 4, f"noise gave {noi.count} lines against the comb's {comb.count}"
+    assert comb.peak_to_median > noi.peak_to_median
+
+
+def test_a_peak_count_alone_does_not_prove_an_oscillator_bank():
+    """Narrow-band noise shows plenty of prominent peaks, and they are not
+    oscillators. This is why the 808 suite never asserts "N peaks means six
+    oscillators": the peaks must also be in the SAME places in every window,
+    and a matched noise control must fail the same test."""
+    x = band_noise(int(1.0 * SR), 6000.0, 9000.0, seed=11)
+    strict = am.spectral_lines(x, (6000.0, 9000.0), SR, threshold=4.0).count
+    loose = am.spectral_lines(x, (6000.0, 9000.0), SR, threshold=2.0).count
+    assert loose >= 20, f"noise gave {loose} peaks at threshold 2; the count depends on the threshold"
+    assert strict <= loose / 4, "the count is supposed to depend strongly on the threshold"
+    stab = am.line_stability(x, (6000.0, 9000.0), SR, windows=4, tol_hz=40.0, threshold=2.0).require()
+    assert stab <= 0.35, f"noise line positions were stable at {stab:.2f}; the discriminator is broken"
+
+
+def test_line_stability_separates_oscillators_from_noise():
+    """The discriminator that a peak count is not. Free-running oscillators put
+    their lines in the same places in every window; noise does not."""
+    band = (2000.0, 16000.0)
+    comb = am.line_stability(square_mix((205.3, 369.6, 304.4, 522.7, 800.0, 540.0), 0.4),
+                             band, SR, windows=4, tol_hz=40.0, threshold=2.0).require()
+    for seed in (3, 4, 5):
+        noi = am.line_stability(band_noise(int(0.4 * SR), 2000.0, 16000.0, seed), band, SR,
+                                windows=4, tol_hz=40.0, threshold=2.0).require()
+        assert comb >= 0.75, f"oscillator lines only {comb:.2f} stable"
+        assert noi <= 0.35, f"noise lines {noi:.2f} stable (seed {seed})"
+
+
+def test_spectral_flatness_measures_density_not_determinism():
+    """Why flatness must not be used to decide "oscillators or noise".
+
+    These four signals are all sums of pure sinusoids -- perfectly
+    deterministic, perfectly stable line positions -- and differ only in how
+    many lines they pack into the same band. Their flatness spans more than
+    three orders of magnitude, crossing whatever threshold anyone might pick,
+    while `line_stability` reports 1.0 for every one of them. Flatness answers
+    "how dense", not "is it deterministic", and reading it as the latter is how
+    a false defect was reported on the hi-hats."""
+    band = (2000.0, 16000.0)
+    t = np.arange(int(0.25 * SR)) / SR
+    flat = {}
+    for n_lines in (100, 200, 300):
+        rng = np.random.default_rng(5)
+        x = sum(rng.uniform(0.3, 1.0) * np.sin(2 * math.pi * f * t + rng.uniform(0, 2 * math.pi))
+                for f in np.linspace(band[0], band[1], n_lines))
+        flat[n_lines] = am.spectral_flatness(x, band, SR)
+        stab = am.line_stability(x, band, SR, windows=4, tol_hz=40.0, threshold=2.0).require()
+        assert stab >= 0.95, f"{n_lines} pure tones were only {stab:.2f} stable"
+    spread = max(flat.values()) / min(flat.values())
+    assert spread > 50.0, (
+        f"flatness varied only {spread:.0f}x across combs of 100 to 300 pure tones "
+        f"({flat}); if it were insensitive to density it might be usable")
+    noi = am.spectral_flatness(band_noise(int(0.25 * SR), *band, seed=9), band, SR)
+    assert max(flat.values()) < noi, "the densest comb should still be flatter than noise"
+    # Flatness is a continuum in density, so any threshold separating "comb"
+    # from "noise" is really a threshold on density. On the real hi-hats --
+    # six squares through a nonlinearity, a band-pass and a 45 ms envelope --
+    # the measured values were 0.39 for the comb and 0.35 for the clap's true
+    # noise, i.e. on the wrong side of every threshold. That is why the 808
+    # suite decides with line stability and a matched noise control instead.
+
+
+def test_spectral_lines_refuses_a_window_too_short_to_count():
+    with pytest.raises(InsufficientEvidence):
+        am.spectral_lines(np.zeros(256), (2000.0, 20000.0), SR)
+
+
+# ===========================================================================
+# transfer response -- filters
+# ===========================================================================
+@pytest.mark.parametrize("f0,q,num", [
+    (7800.0, 2.5, "hp"), (11700.0, 2.5, "hp"),          # the two hi-hat high-passes
+    (1071.0, 1.6, "bp"), (7117.0, 6.0, "bp"), (900.0, 4.0, "bp"),
+])
+def test_resonant_peak_matches_the_closed_form_response(f0, q, num):
+    """The estimator against |H(e^jw)| evaluated directly. Note what is being
+    checked: the frequency of the RESPONSE MAXIMUM, which for a resonant filter
+    is not the same number as its nominal f0 -- the 808 suite compares against
+    whichever the reference specifies, and converts."""
+    ir, _ = two_pole_ir(f0, q, n=8192, numerator=num)
+    f, H = analytic_response(f0, q, num)
+    truth = float(f[int(np.argmax(H))])
+    got = am.resonant_peak(ir, SR).require()
+    assert abs(got / truth - 1) <= 0.01, f"{num} {f0} Hz Q{q}: peak {got:.0f} Hz vs closed form {truth:.0f} Hz"
+
+
+@pytest.mark.parametrize("f0,q,num", [(1071.0, 1.6, "bp"), (7117.0, 6.0, "bp"), (900.0, 4.0, "bp")])
+def test_bandwidth_q_matches_the_closed_form_response(f0, q, num):
+    ir, _ = two_pole_ir(f0, q, n=16384, numerator=num)
+    f, H = analytic_response(f0, q, num)
+    i = int(np.argmax(H))
+    half = H[i] / math.sqrt(2)
+    lo = f[np.where(H[:i] < half)[0][-1]]
+    hi = f[i + np.where(H[i:] < half)[0][0]]
+    truth = f[i] / (hi - lo)
+    got = am.bandwidth_q(ir, SR).require()
+    assert abs(got / truth - 1) <= 0.05, f"Q {got:.2f} vs closed form {truth:.2f}"
+
+
+def test_corner_3db_of_a_highpass_matches_the_closed_form():
+    for f0, q in ((7800.0, 2.5), (2750.0, 0.7)):
+        ir, _ = two_pole_ir(f0, q, n=16384, numerator="hp")
+        f, H = analytic_response(f0, q, "hp")
+        plateau = float(np.median(H[(f >= 0.65 * SR / 2) & (f <= 0.95 * SR / 2)]))
+        truth = float(f[np.argmax(H >= plateau / math.sqrt(2))])
+        got = am.corner_3db(ir, "highpass", SR).require()
+        assert abs(got / truth - 1) <= 0.03, f"{f0} Hz Q{q}: corner {got:.0f} vs {truth:.0f}"
+
+
+def test_resonant_peak_refuses_a_response_with_no_resonance():
+    """A one-pole low-pass has no peak. Reporting its argmax as a centre
+    frequency is a wrong answer that looks like a right one."""
+    n = 8192
+    a = math.exp(-2 * math.pi * 1000.0 / SR)
+    ir = (1 - a) * a ** np.arange(n)
+    assert not am.resonant_peak(ir, SR).ok
+    with pytest.raises(InsufficientEvidence):
+        am.resonant_peak(ir, SR).require("one-pole")
+
+
+def test_transfer_refuses_a_silent_impulse_response():
+    with pytest.raises(InsufficientEvidence):
+        am.transfer(np.zeros(1024), SR)
+
+
+def test_a_centroid_is_not_a_corner_frequency():
+    """Both weightings of the centroid, on a known high-passed noise, land
+    nowhere near the filter's corner -- and disagree with each other. This is
+    the error that reported an open hat 41 % high; the corner is measured from
+    the transfer response, never from the finished voice's centroid."""
+    ir, _ = two_pole_ir(7800.0, 2.5, n=8192, numerator="hp")
+    x = np.convolve(noise(int(0.3 * SR), 21), ir)[:int(0.3 * SR)]
+    corner = am.corner_3db(ir, "highpass", SR).require()
+    cp = am.spectral_centroid(x, (2000.0, 20000.0), SR, weight="power")
+    ca = am.spectral_centroid(x, (2000.0, 20000.0), SR, weight="amplitude")
+    assert abs(cp / corner - 1) > 0.15 or abs(ca / corner - 1) > 0.15, \
+        "both centroids happened to land on the corner here; that is a coincidence, not a method"
+    assert abs(ca - cp) / cp > 0.02, f"the two weightings agreed ({cp:.0f} vs {ca:.0f}); they answer different questions"
+
+
+# ===========================================================================
+# comparison: level and shape are separate claims
+# ===========================================================================
+def test_compare_does_not_hide_a_gain_error():
+    """Two identical waveforms 6 dB apart: the shape figure says they match
+    perfectly, and only the level figure shows the error. Quoting the shape
+    figure alone -- which is what a normalise-both-then-diff helper does -- hides
+    it completely."""
+    b = damped(200.0, 0.08, seconds=0.5)
+    a = b * 0.5
+    c = am.compare(a, b)
+    assert abs(c.level_db + 6.02) <= 0.05, f"level {c.level_db:.2f} dB"
+    assert c.shape_db < -100.0, f"shape {c.shape_db:.1f} dB: identical waveforms"
+    assert c.residual_db > -10.0, f"residual {c.residual_db:.1f} dB: a 6 dB gain error is not small"
+
+
+# ===========================================================================
+# bursts
+# ===========================================================================
+def test_envelope_bursts_finds_known_restrikes():
+    """Three noise bursts at 5, 15 and 25 ms with descending levels, over a
+    47 ms tail: the clap's shape, with the answer known. Two things make it
+    measurable -- averaging over differently seeded renders (a single render of
+    noise has envelope maxima everywhere), and a few ms of PRE-ROLL before the
+    first burst, without which the analytic envelope has no run-in and the
+    first burst reads low enough to come out in the wrong order."""
+    pre, times, levels, tau = 0.015, (0.015, 0.025, 0.035), (1.0, 0.8, 0.65), 0.004
+    n = int(0.3 * SR)
+    renders = []
+    for seed in range(16):
+        env = np.zeros(n)
+        env[int(pre * SR):] = 0.18 * np.exp(-np.arange(n - int(pre * SR)) / SR / 0.047)
+        for t0, lv in zip(times, levels):
+            i = int(t0 * SR)
+            env[i:] += lv * np.exp(-np.arange(n - i) / SR / tau)
+        renders.append(env * band_noise(n, 600.0, 1600.0, seed))
+    e = am.average_envelope(renders)
+    got = am.envelope_bursts(e, SR, window_s=0.045, level_frac=0.4, min_sep_s=0.005)
+    assert len(got) == 3, f"found {len(got)} bursts at {[round(t*1e3,1) for t,_ in got]} ms"
+    for (t, _), t0 in zip(got, times):
+        assert abs(t - t0) <= 0.003, f"burst at {t*1e3:.1f} ms vs {t0*1e3:.0f} ms"
+    assert [lv for _, lv in got] == sorted([lv for _, lv in got], reverse=True), \
+        f"burst levels {[round(lv,3) for _, lv in got]} are not descending"
+    # A noise-excited envelope is never a perfectly smooth exponential even
+    # after averaging, so the single-exponential check is loosened -- not
+    # removed, or a two-slope tail would pass.
+    tail = am.decay_tau(e, SR, start_s=0.055, is_envelope=True,
+                        max_residual_db=8.0).require("clap tail")
+    assert abs(tail / 0.047 - 1) <= 0.15, f"tail tau {tail*1e3:.1f} ms vs 47 ms"
+
+
+def test_envelope_bursts_on_a_single_decay_finds_one():
+    """A plain exponential decay is one strike, not a train of them. Numerical
+    ripple puts local maxima all over an envelope; only the dip requirement
+    keeps this from reading as three bursts, which it did before."""
+    e = am.analytic_envelope(damped(1000.0, 0.03, seconds=0.2))
+    assert len(am.envelope_bursts(e, SR, window_s=0.10)) == 1
+
+
+def test_decay_tau_on_an_already_made_envelope():
+    """Taking the analytic envelope of an envelope measures the wrong thing:
+    a low-pass positive signal is not a modulated carrier. `is_envelope=True`
+    is the difference between 47 ms and 89 ms on the clap's tail."""
+    t = np.arange(int(0.4 * SR)) / SR
+    env = 0.18 * np.exp(-t / 0.047)
+    good = am.decay_tau(env, SR, is_envelope=True).require("envelope")
+    assert abs(good / 0.047 - 1) <= 0.05, f"{good*1e3:.1f} ms vs 47 ms"
+    wrong = am.decay_tau(env, SR)
+    assert (not wrong.ok) or abs(wrong.value / 0.047 - 1) > 0.25, \
+        "treating an envelope as a carrier happened to work; re-derive the warning"
+
+
+# ===========================================================================
+# instantaneous frequency
+# ===========================================================================
+def test_instantaneous_frequency_tracks_a_known_glide():
+    """A known exponential glide from 150 Hz to 90 Hz: the shape of the toms'
+    diode pitch drop. Measured on the analytic phase, not on zero crossings."""
+    n = int(0.4 * SR)
+    t = np.arange(n) / SR
+    f = 90.0 + 60.0 * np.exp(-t / 0.05)
+    x = np.sin(2 * math.pi * np.cumsum(f) / SR) * np.exp(-t / 0.15)
+    inst = am.instantaneous_frequency(x, SR, smooth_ms=2.0)
+    i0, i1 = int(0.005 * SR), int(0.25 * SR)
+    assert abs(inst[i0] / f[i0] - 1) <= 0.05, f"start {inst[i0]:.1f} vs {f[i0]:.1f} Hz"
+    assert abs(inst[i1] / f[i1] - 1) <= 0.05, f"end {inst[i1]:.1f} vs {f[i1]:.1f} Hz"
+    assert inst[i0] / inst[i1] > 1.4, "the glide was not seen at all"
+
+
+def test_instantaneous_frequency_is_flat_for_a_steady_tone():
+    x = damped(185.0, 0.2, seconds=0.5)
+    inst = am.instantaneous_frequency(x, SR, smooth_ms=2.0)
+    seg = inst[int(0.005 * SR):int(0.20 * SR)]
+    assert abs(float(np.median(seg)) / 185.0 - 1) <= 0.01
+    assert float(np.std(seg)) <= 2.0, f"a steady tone wobbled by {np.std(seg):.2f} Hz"
+
+
+# ===========================================================================
+# GROUND TRUTH FOR THE MONOSYNTH ADDITIONS (model/test_moog_acceptance.py)
+#
+# The voice's estimators, on the same terms as everything above: a signal
+# whose answer is known in closed form, and a case each one must refuse.
+# ===========================================================================
+def _sine(f, n, amp=1.0, sr=SR):
+    return amp * np.sin(2 * math.pi * f * np.arange(n) / sr)
+
+
+def _noise(n, amp=1.0, seed=11):
+    return amp * np.random.default_rng(seed).standard_normal(n)
+
+
+def _series(f0, n, kmax, sr=SR):
+    """An ideal 1/k harmonic series with no partial above Nyquist."""
+    return sum(_sine(k * f0, n, 1.0 / k, sr) for k in range(1, kmax + 1))
+
+
+def test_tonality_separates_a_tone_from_noise_where_a_percentile_does_not():
+    """`tonality_db` is max-over-median, and a single sustained tone reads far
+    above noise on it. `spectral_lines(...).peak_to_median` is a 99th
+    percentile and reads 1.0 for the same tone -- the two answer different
+    questions, which is why both exist."""
+    n = 1 << 14
+    tone, noi = _sine(1000.0, n), _noise(n)
+    assert am.tonality_db(tone) > 40.0
+    assert am.tonality_db(noi) < 15.0
+    assert am.spectral_lines(tone, band=(20.0, 20000.0)).peak_to_median < 2.0
+
+
+@pytest.mark.parametrize("amp", [1.0, 1e-3, 1e-5])
+def test_tone_amplitude_recovers_a_known_amplitude_under_noise(amp):
+    """Exact on a clean tone at any amplitude, and within 15 % with the tone
+    20 dB UNDER a broadband floor: the rejection is 2/sqrt(N) of the noise
+    amplitude. That is what makes the ladder's stopband readable where the
+    signal is a fraction of an LSB."""
+    n = 1 << 16
+    assert abs(am.tone_amplitude(_sine(2000.0, n, amp), 2000.0).require() - amp) \
+        < 1e-9 + 0.001 * amp
+    noisy = _sine(2000.0, n, amp) + _noise(n, amp * 10)
+    assert abs(am.tone_amplitude(noisy, 2000.0).require() - amp) < 0.15 * amp
+
+
+def test_tone_amplitude_is_blind_to_the_other_partials():
+    n = 1 << 15
+    x = _sine(500.0, n, 0.1) + _sine(1000.0, n, 1.0) + _sine(1500.0, n, 1.0)
+    assert abs(am.tone_amplitude(x, 500.0).require() - 0.1) < 0.005
+
+
+def test_tone_amplitude_refuses_silence_a_short_record_and_a_bad_frequency():
+    assert not am.tone_amplitude(np.zeros(48000), 1000.0).ok
+    assert not am.tone_amplitude(_sine(1000.0, 96), 1000.0).ok        # 2 periods
+    assert not am.tone_amplitude(_sine(1000.0, 48000), 30000.0).ok    # above Nyquist
+    with pytest.raises(InsufficientEvidence):
+        am.tone_amplitude(np.zeros(48000), 1000.0).require("stopband")
+
+
+@pytest.mark.parametrize("f", [55.0, 440.0, 3333.0, 10000.0])
+def test_zero_crossing_frequency_on_a_known_tone(f):
+    assert abs(am.zero_crossing_frequency(_sine(f, 1 << 15, 0.5)).require() / f - 1.0) < 1e-4
+
+
+def test_zero_crossing_frequency_survives_an_envelope_that_smears_an_fft():
+    """60 dB of decay across the record. The crossings barely move -- 0.21 %
+    low, the bias the envelope puts on the linear interpolation of each
+    crossing -- where a windowed FFT of the same signal is spread by the
+    envelope itself. Callers that need better than 0.5 % must measure a ring
+    that is not decaying, which is what the self-oscillation onset is."""
+    x = damped(300.0, 0.05, seconds=0.34)
+    assert abs(am.zero_crossing_frequency(x).require() / 300.0 - 1.0) < 5e-3
+
+
+def test_zero_crossing_frequency_refuses_silence_and_a_single_cycle():
+    assert not am.zero_crossing_frequency(np.zeros(1000)).ok
+    assert not am.zero_crossing_frequency(_sine(20.0, 1000)).ok
+
+
+def test_harmonic_powers_recovers_a_known_series():
+    """Amplitudes 1, 1/2, 1/3 ... must read -6.02, -9.54, -12.04 dB ..."""
+    n = 1 << 15
+    p = am.harmonic_powers(_series(220.0, n, 8), 220.0, range(1, 9))
+    rel = 10 * np.log10(p / p[0])
+    for k in range(2, 9):
+        assert abs(rel[k - 1] - 20 * math.log10(1.0 / k)) < 0.15, k
+
+
+def test_harmonic_powers_refuses_a_partial_above_nyquist_and_a_dense_f0():
+    n = 1 << 14
+    with pytest.raises(InsufficientEvidence):
+        am.harmonic_powers(_sine(440.0, n), 440.0, [60])
+    with pytest.raises(InsufficientEvidence):
+        am.harmonic_powers(_sine(2.0, n), 2.0, [1])
+    with pytest.raises(InsufficientEvidence):
+        am.harmonic_powers(np.zeros(n), 440.0, [1])
+
+
+@pytest.mark.parametrize("share", [0.01, 0.1])
+def test_inharmonic_fraction_recovers_a_planted_inharmonic_tone(share):
+    """Plant a tone at 1.5 f0 carrying a known share of the energy; the
+    estimator must read that share back within 0.6 dB."""
+    n = 1 << 15
+    harm = _series(500.0, n, 11)
+    a = math.sqrt(2 * share / (1 - share) * (harm ** 2).sum() / n)
+    got = am.inharmonic_fraction_db(harm + _sine(1.5 * 500.0, n, a), 500.0).require()
+    assert abs(got - 10 * math.log10(share)) < 0.6, got
+
+
+def test_inharmonic_fraction_reads_a_clean_series_at_the_window_floor():
+    """With nothing inharmonic present the measure returns its own leakage
+    floor, about -54 dB for +-5 Hann bins -- a refusal in all but name, and
+    the reason the aliasing assertions are set 10 dB above it."""
+    got = am.inharmonic_fraction_db(_series(500.0, 1 << 15, 11), 500.0).require()
+    assert -58.0 < got < -50.0, got
+
+
+def test_inharmonic_fraction_refuses_silence_and_a_spectrum_full_of_guards():
+    assert not am.inharmonic_fraction_db(np.zeros(1 << 14), 500.0).ok
+    assert not am.inharmonic_fraction_db(_series(20.0, 1 << 12, 400), 20.0).ok
+
+
+def test_foldback_finds_a_planted_image_and_ignores_the_real_harmonics():
+    """Image one harmonic of a 1318.5 Hz saw where sampling would put it, with
+    2 % of the energy, and require the estimator to find that 2 % -- and to
+    read a series with no image at all as empty."""
+    n = 1 << 15
+    f0 = 1318.5
+    harm = _series(f0, n, int(SR / 2 / f0) - 1)
+    share = 0.02
+    a = math.sqrt(2 * share / (1 - share) * (harm ** 2).sum() / n)
+    e = am.foldback_alias_db(harm + _sine(am.fold_frequency(25 * f0), n, a), f0)
+    assert e.detail["images"] > 20 and e.detail["collided"] == 0
+    assert abs(e.require() - 10 * math.log10(share)) < 0.8, e
+    assert am.foldback_alias_db(harm, f0).require() < -60.0
+
+
+def test_foldback_refuses_a_low_note_where_the_images_are_dense():
+    """At 82 Hz the predicted images collide with real harmonics and cover the
+    spectrum; the estimator must say so rather than return a number. The
+    acceptance suite measures that register with `inharmonic_fraction_db`
+    instead, and says which it used."""
+    e = am.foldback_alias_db(_series(82.4, 1 << 15, 140), 82.4)
+    assert not e.ok, e
+    with pytest.raises(InsufficientEvidence):
+        e.require("note 40 aliasing")
+
+
+def test_fold_frequency_is_the_sampling_image():
+    assert am.fold_frequency(1000.0) == pytest.approx(1000.0)
+    assert am.fold_frequency(47000.0) == pytest.approx(1000.0)
+    assert am.fold_frequency(49000.0) == pytest.approx(1000.0)
+    assert am.fold_frequency(24000.0) == pytest.approx(24000.0)
+
+
+def test_max_sample_step_finds_a_planted_click():
+    x = _sine(100.0, 4800, 0.1)
+    assert am.max_sample_step(x) < 0.002
+    x[2000] += 0.5
+    assert am.max_sample_step(x) > 0.49
+    with pytest.raises(InsufficientEvidence):
+        am.max_sample_step([1.0])
+
+
+def test_longest_plateau_counts_a_stair_step():
+    assert am.longest_plateau(np.arange(100)) == 1
+    assert am.longest_plateau(np.repeat(np.arange(10), 7)) == 7
+    assert am.longest_plateau(np.zeros(50)) == 50
+
+
+def test_event_slices_splits_a_gate_into_notes():
+    g = np.zeros(1000, dtype=int)
+    g[100:200] = 1
+    g[500:900] = 1
+    assert am.event_slices(g) == [(100, 200), (500, 900)]
+    assert am.event_slices(np.zeros(10)) == []
+    assert am.event_slices(np.ones(10)) == [(0, 10)]
+
+
+# ===========================================================================
+# choosing the right envelope, and knowing when tau cannot be measured
+# ===========================================================================
+def test_analytic_and_rms_envelopes_agree_on_a_damped_sinusoid():
+    """One component: both envelopes are the same exponential, so either
+    estimator may be used and they must not disagree."""
+    for f, tau in ((300.0, 0.050), (7100.0, 0.020)):
+        x = damped(f, tau, seconds=8 * tau)
+        a = am.decay_tau(x, SR).require("analytic")
+        r = am.decay_tau(x, SR, envelope="rms", rms_window_ms=3.0).require("rms")
+        assert abs(a / tau - 1) <= 0.08 and abs(r / tau - 1) <= 0.10, f"{a*1e3:.1f} / {r*1e3:.1f} vs {tau*1e3}"
+
+
+def test_rms_envelope_is_the_right_envelope_for_a_broadband_voice():
+    """A dense inharmonic comb under one exponential envelope: the shape of a
+    hi-hat. Its INSTANTANEOUS amplitude swings by tens of dB as the components
+    beat -- that is the signal, not an artefact -- so the analytic envelope is
+    not monotone and its maximum lands on a beat. The short-time RMS is the
+    envelope, and only it recovers the decay.
+
+    This is the failure that made the open hat's "envelope" rise for 50 ms
+    after the strike."""
+    tau = 0.060
+    t = np.arange(int(0.5 * SR)) / SR
+    rng = np.random.default_rng(3)
+    comb = sum(np.sin(2 * math.pi * f * t + rng.uniform(0, 2 * math.pi))
+               for f in rng.uniform(6000, 14000, 40))
+    x = comb * np.exp(-t / tau)
+    a_env = am.analytic_envelope(x)
+    r_env = am.rms_envelope(x, 5.0, SR)
+    i0, i1 = int(0.004 * SR), int(0.10 * SR)
+    swing = am.db(a_env[i0:i1].max(), np.median(a_env[i0:i1]))
+    assert swing > 10.0, f"the comb's instantaneous amplitude only swung {swing:.1f} dB"
+    assert am.db(r_env[i0:i1].max(), np.median(r_env[i0:i1])) < 8.0, "the RMS envelope is not smooth"
+    got = am.decay_tau(x, SR, envelope="rms", rms_window_ms=5.0).require("rms decay")
+    assert abs(got / tau - 1) <= 0.12, f"rms envelope measured {got*1e3:.1f} ms vs {tau*1e3:.0f} ms"
+    a = am.decay_tau(x, SR)
+    assert (not a.ok) or abs(a.value / tau - 1) > 0.15, \
+        "the analytic envelope happened to work on a broadband voice; re-derive the rule"
+
+
+def test_rms_envelope_recovers_a_noise_burst_decay():
+    """Noise under an exponential, several seeds: the clap and the snare's
+    snap. The analytic envelope of noise is Rayleigh-distributed sample by
+    sample; the RMS envelope is the decay."""
+    for seed in (1, 2, 3):
+        tau = 0.047
+        n = int(0.4 * SR)
+        x = band_noise(n, 600.0, 1600.0, seed) * np.exp(-np.arange(n) / SR / tau)
+        # One realisation of noise has a ragged RMS envelope even at 6 ms, so
+        # the single-exponential check is loosened -- not removed, or a
+        # two-slope tail would pass. The clap averages renders instead.
+        got = am.decay_tau(x, SR, envelope="rms", rms_window_ms=6.0,
+                           max_residual_db=11.0).require(f"seed {seed}")
+        assert abs(got / tau - 1) <= 0.15, f"seed {seed}: {got*1e3:.1f} ms vs 47 ms"
+
+
+@pytest.mark.parametrize("tau", [0.029, 0.127, 0.352])
+def test_damped_sinusoid_refuses_a_tau_its_residual_cannot_resolve(tau):
+    """The two-pole fit is exact on a clean signal and badly biased on a
+    quantised one. A 16-bit integer ring at 56 Hz with tau = 127 ms has
+    1 - r = 1.6e-4 per sample; the least-squares fit's own residual is of the
+    same order, and it reported 63 ms -- half the truth -- with a residual that
+    looked excellent.
+
+    So the estimator must refuse tau when the fit residual is comparable with
+    the per-sample decay, while still reporting the FREQUENCY, which survives.
+    Where it does answer, it must be right."""
+    x = np.round(damped(56.0, tau, seconds=min(9 * tau, 3.0), amp=16000.0)).astype(float)
+    d = am.damped_sinusoid(x, SR)
+    assert abs(d.freq.require("frequency") / 56.0 - 1) <= 0.01, "the frequency must survive quantisation"
+    if d.tau.ok:
+        assert abs(d.tau.value / tau - 1) <= 0.15, \
+            f"accepted tau {d.tau.value*1e3:.1f} ms against a truth of {tau*1e3:.0f} ms"
+    else:
+        assert "unresolvable" in d.tau.reason
+    env = am.decay_tau(x, SR).require("envelope tau")
+    assert abs(env / tau - 1) <= 0.10, f"the envelope fit must still work: {env*1e3:.1f} vs {tau*1e3:.0f} ms"
+
+
+def test_natural_frequency_from_peak_matches_the_closed_form():
+    """f0, the -3 dB corner and the resonant peak are three different numbers
+    for a resonant filter. At Q 2.5 the corner sits about 28 % below f0 and the
+    peak about 4 % above it, so comparing a measured corner with a table's f0
+    is an error of that size -- which is how a hi-hat high-pass looked 22 %
+    wrong when it was 2 % right."""
+    for f0, q in ((7800.0, 2.5), (11700.0, 2.5)):
+        ir, _ = two_pole_ir(f0, q, n=16384, numerator="hp")
+        peak = am.resonant_peak(ir, SR).require("peak")
+        corner = am.corner_3db(ir, "highpass", SR).require("corner")
+        assert abs(am.natural_frequency_from_peak(peak, q) / f0 - 1) <= 0.03, \
+            f"peak {peak:.0f} Hz implies f0 {am.natural_frequency_from_peak(peak, q):.0f}, truth {f0}"
+        assert corner < f0 * 0.85, f"the -3 dB corner {corner:.0f} Hz is not well below f0 {f0}"
+        assert peak > f0, f"the resonant peak {peak:.0f} Hz is not above f0 {f0}"
+    with pytest.raises(InsufficientEvidence):
+        am.natural_frequency_from_peak(1000.0, 0.7)
