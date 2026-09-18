@@ -3,7 +3,7 @@
 **Revision 10 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
-gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
+gf180-parasynth voice: three band-limited oscillators with an on-chip glide, a
 saturating mixer, Huovilainen's nonlinear ladder with a resonance-compensation
 ROM, two integer ADSRs and a VCA — and, since revision 5, the drum section: a
 TR-808-shaped set of eleven stops whose bodies and filters are the modal

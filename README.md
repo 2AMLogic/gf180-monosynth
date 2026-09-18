@@ -1,4 +1,4 @@
-# gf180-monosynth
+# gf180-parasynth
 
 A Minimoog-shaped paraphonic synthesizer voice — three detuned oscillators from
 the held keys into a nonlinear four-pole ladder filter — with a drum section
