@@ -426,21 +426,21 @@ def test_a_missing_reference_is_a_no_verdict_with_a_reason():
     """The control: point the reference at a file that is not there. The board
     must say no verdict and the reason must name the missing recording.
 
-    On D06A, not D01A, and the second assertion is why: D01A is a no-verdict
+    On D09A, not D01A, and the second assertion is why: D01A is a no-verdict
     on its own now (#118's length guard refuses the bass drum reference's
     decay), so this control would have gone on passing with the injection
     removed -- a control that fires without its defect is a false green. The
-    uninjected run of D06A is asserted to be a verdict, so the no-verdict here
+    uninjected run of D09A is asserted to be a PASS, so the no-verdict here
     can only be the injection."""
-    row = _cases_row("D06A")
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, inject="REF_MISSING", keep_audio=False)
     r = sb.evaluate(row, res)
     assert r["state"] == sb.NO_VERDICT
     assert "missing" in res["note"].lower()
     assert all("error" not in m for m in res["metrics"].values())
     clean = sb.evaluate(row, rc.run_case(row, REFS, keep_audio=False))
-    assert clean["state"] != sb.NO_VERDICT, \
-        "the control must be the injection, not a case that has no verdict anyway"
+    assert clean["state"] == sb.PASS, \
+        "the control must be the injection, not a case that had no verdict anyway"
 
 
 @have_refs
@@ -453,10 +453,12 @@ def test_a_reference_shifted_by_twice_the_tolerance_fails():
     refuses the bass drum reference's decay -- 1.57 T20s of record past the
     -25 dB point against a requirement of 2 -- so D01A is now a no-verdict
     whatever is injected into it and no injection can turn it red. A control
-    that cannot fire is not a control. D06A is the replacement: a direct
-    `Pitch` metric at the 10 % frequency tolerance, and every one of its
-    metrics measurable."""
-    row = _cases_row("D06A")
+    that cannot fire is not a control. Nor is one that fails when CLEAN: D06A
+    was the first replacement and the re-run then made it a genuine fail, its
+    body spectrum having been flattered by the very #101 artefact this branch
+    removed. D09A (claves) passes clean at 0.61, has a direct `Pitch` metric at
+    the 10 % frequency tolerance, and fails injected at 2.39."""
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, inject="REF_F0_20PCT", keep_audio=False)
     r = sb.evaluate(row, res)
     assert r["state"] == sb.FAIL, res["metrics"]
@@ -468,7 +470,7 @@ def test_the_same_case_without_the_injection_does_not_fail_on_pitch():
     """A control only means something if the uninjected run differs. Without
     the shift, the pitch metric is inside its own tolerance -- so the failure
     above is the injection and not the case."""
-    row = _cases_row("D06A")
+    row = _cases_row("D09A")
     res = rc.run_case(row, REFS, keep_audio=False)
     m = res["metrics"]["Pitch"]
     assert m["valid"] and abs(m["error"]) <= m["tolerance"]
