@@ -502,6 +502,27 @@ class SurgeRig(_Plugin):
         y = self.render(np.zeros(1), seconds + 0.25)
         return y[int(0.2 * SR):int(0.2 * SR) + int(seconds * SR)]
 
+    def noise_tone(self, seconds=6.0, colour=0.5):
+        """Surge's noise source alone, filter OFF. `colour` is its own
+        -100..100 % Noise Color control as a normalised value; 0.5 is 0 %."""
+        self.set(self.I['osc1_mute'], 1.0)
+        self.set(self.I['noise_mute'], 0.0)
+        self.set(312, 1.0)                               # A Noise Level, 0 dB
+        self.set(235, colour)
+        self.set(self.I['f1_type'], 0.0)                 # filter OFF
+        y = self.render(np.zeros(1), seconds + 0.3)
+        self.set(self.I['noise_mute'], 1.0)
+        self.set(self.I['osc1_mute'], 0.0)
+        return y[int(0.25 * SR):int(0.25 * SR) + int(seconds * SR)]
+
+    def osc_level_ref(self, seconds=2.0, note=45):
+        """The saw at the SAME mixer setting the noise was measured at, so
+        "noise relative to an oscillator" is a number and not an impression."""
+        self.set(self.I['osc1_mute'], 0.0)
+        self.set(self.I['noise_mute'], 1.0)
+        self.set(self.I['osc1_level'], 1.0)
+        return self.osc_tone("saw", note, seconds)
+
     def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
         """A steady carrier through the cutoff swept lo -> hi by parameter
         AUTOMATION, which is how a host moves a control and the only way to
@@ -631,6 +652,23 @@ class MiniV3Rig(_Plugin):
         self.note = int(note)
         y = self.render(np.zeros(1), seconds + 0.3)
         return y[int(0.25 * SR):int(0.25 * SR) + int(seconds * SR)]
+
+    def noise_tone(self, seconds=6.0, colour=0.0):
+        """Mini V3's noise alone, filter wide open. `colour` is its own
+        'Pink Noise' control, 0 = white."""
+        for k in ('lvl_o1', 'lvl_o2', 'lvl_o3', 'o1', 'o2', 'o3', 'lvl_ext', 'ext_sw'):
+            self.set(self.I[k], 0.0)
+        self.set(self.I['lvl_noise'], 0.9)
+        self.set(self.I['noise_sw'], 1.0)
+        self.set(77, colour)                             # Pink Noise
+        self.set(self.I['cutoff'], 1.0); self.set(self.I['emphasis'], 0.0)
+        y = self.render(np.zeros(1), seconds + 0.35)
+        self.set(self.I['noise_sw'], 0.0); self.set(self.I['lvl_noise'], 0.0)
+        return y[int(0.3 * SR):int(0.3 * SR) + int(seconds * SR)]
+
+    def osc_level_ref(self, seconds=2.0, note=45):
+        self.set(self.I['lvl_noise'], 0.0); self.set(self.I['noise_sw'], 0.0)
+        return self.osc_tone("saw", note, seconds)
 
     def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
         """Mini V3's cutoff knob has no units, so the sweep's endpoints come

@@ -67,3 +67,20 @@ surge/square             -69.3   -77.9   -73.5   -77.3   -80.7   -79.1
   A saw has h_n = 1/n (-6.0, -9.5, -12.0 dB) and a triangle 1/n^2 on odd harmonics
   only (-19.1 at h3). A hybrid sits between them and has BOTH an amplitude and a
   slope discontinuity, so a generator needs BLEP and BLAMP; we have PolyBLEP only.
+NOISE TARGETS -- we have no noise source, so none of this is a comparison
+====================================================================================================
+source                      slope   resid   vs saw   crest  kurtosis   repeats at
+                           dB/oct      dB       dB      dB                       
+surge/white(0%)              -0.1     0.2      0.6    11.3      2.64    no repeat
+surge/dark(-100%)            -9.8     3.0     -4.8    11.4      2.92    no repeat
+surge/bright(+100%)           0.5     1.2     -6.2    12.8      3.00    no repeat
+miniv3/white                 -0.2     1.0     -7.1     8.1      2.23    no repeat
+miniv3/pink                  -3.0     1.0     -9.3    13.0      3.00    no repeat
+  slope: white is 0.00, pink is -3.01 dB/oct, both exactly.
+  vs saw: the noise's RMS relative to that instrument's own sawtooth at the SAME
+     mixer setting -- the number a mix balance is built from.
+  crest: peak over RMS. Gaussian noise is about 12 dB over a long record; a 1-bit
+     LFSR output is exactly 0 dB.  kurtosis: Gaussian is 3.0, a +-1 square is 1.0.
+  repeats at: the lag where the record repeats itself, or a refusal. A maximal
+     16-BIT LFSR AT 48 kHz REPEATS AT 1.365313 s, which is audibly a loop on a held
+     note; the estimator recovers that to 2 samples (test_reference_voice.py).

@@ -195,14 +195,87 @@ def report_osc(rows):
     print("  slope discontinuity, so a generator needs BLEP and BLAMP; we have PolyBLEP only.")
 
 
+# ===========================================================================
+# NOISE: target-setting, because we have no noise source at all
+# ===========================================================================
+def noise_report(y, ref_rms, tag):
+    """Everything the mono-synth agent needs to build a noise source to, from
+    a reference that has one. No comparison side exists on our part."""
+    y = np.asarray(y, dtype=np.float64)
+    out = dict(tag=tag, rms=float(am.rms(y)), peak=float(am.peak(y)),
+               crest_db=float(am.db(am.peak(y), am.rms(y))),
+               vs_osc_db=float(am.db(am.rms(y), ref_rms)) if ref_rms else None,
+               seconds=len(y) / SR)
+    sl = am.psd_slope_db_oct(y, (100.0, 15000.0), SR)
+    out["slope_db_oct"] = sl.value if sl.ok else None
+    out["slope_why"] = None if sl.ok else sl.reason
+    out["slope_resid_db"] = sl.detail.get("residual_db") if sl.ok else None
+    rp = am.repeat_period(y, SR, max_lag_s=min(5.0, len(y) / SR / 2 - 0.1))
+    out["repeat_s"] = rp.value if rp.ok else None
+    out["repeat_corr"] = rp.detail.get("corr") if rp.ok else rp.detail.get("best_corr")
+    out["repeat_why"] = None if rp.ok else rp.reason
+    # Gaussian or not: a 1-bit LFSR is +-1 and has a crest factor of 0 dB,
+    # true Gaussian noise about 12 dB over a long record.
+    n = y / (am.rms(y) or 1.0)
+    out["kurtosis"] = float(np.mean(n ** 4))
+    out["frac_within_1sd"] = float(np.mean(np.abs(n) < 1.0))
+    return out
+
+
+def stage_noise(out, seconds=8.0):
+    rows = []
+    surge, mini = rr.SurgeRig("Type 2"), rr.MiniV3Rig()
+    try:
+        for name, dev, colours in (("surge", surge, {"white(0%)": 0.5, "dark(-100%)": 0.0,
+                                                     "bright(+100%)": 1.0}),
+                                   ("miniv3", mini, {"white": 0.0, "pink": 1.0})):
+            ref = float(am.rms(dev.osc_level_ref()))
+            for cname, cv in colours.items():
+                y = dev.noise_tone(seconds, cv)
+                r = noise_report(y, ref, f"{name}/{cname}")
+                r.update(device=name, colour=cname)
+                rows.append(r)
+                print(f"  {name}/{cname}: rms {r['rms']:.4f} slope "
+                      f"{r['slope_db_oct'] if r['slope_db_oct'] is None else round(r['slope_db_oct'],2)}"
+                      f" dB/oct", flush=True)
+    finally:
+        del surge, mini
+    json.dump(rows, open(os.path.join(out, "noise.json"), "w"), indent=1, default=str)
+    report_noise(rows)
+    return rows
+
+
+def report_noise(rows):
+    print("\n" + "=" * 100)
+    print("NOISE TARGETS -- we have no noise source, so none of this is a comparison")
+    print("=" * 100)
+    print(f"{'source':22s} {'slope':>10} {'resid':>7} {'vs saw':>8} {'crest':>7} "
+          f"{'kurtosis':>9} {'repeats at':>12}")
+    print(f"{'':22s} {'dB/oct':>10} {'dB':>7} {'dB':>8} {'dB':>7} {'':>9} {'':>12}")
+    for r in rows:
+        rep = ("no repeat" if r["repeat_s"] is None
+               else f"{r['repeat_s']:.4f} s")
+        print(f"{r['tag']:22s} {_fmt(r.get('slope_db_oct'), 10)} "
+              f"{_fmt(r.get('slope_resid_db'), 7)} {_fmt(r.get('vs_osc_db'), 8)} "
+              f"{_fmt(r.get('crest_db'), 7)} {r['kurtosis']:9.2f} {rep:>12}")
+    print("  slope: white is 0.00, pink is -3.01 dB/oct, both exactly.")
+    print("  vs saw: the noise's RMS relative to that instrument's own sawtooth at the SAME")
+    print("     mixer setting -- the number a mix balance is built from.")
+    print("  crest: peak over RMS. Gaussian noise is about 12 dB over a long record; a 1-bit")
+    print("     LFSR output is exactly 0 dB.  kurtosis: Gaussian is 3.0, a +-1 square is 1.0.")
+    print("  repeats at: the lag where the record repeats itself, or a refusal. A maximal")
+    print("     16-BIT LFSR AT 48 kHz REPEATS AT 1.365313 s, which is audibly a loop on a held")
+    print("     note; the estimator recovers that to 2 samples (test_reference_voice.py).")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--stage", default="osc", choices=["osc"])
+    ap.add_argument("--stage", default="osc", choices=["osc", "noise"])
     ap.add_argument("--out", default="/tmp/refvoice")
     a = ap.parse_args(argv)
     os.makedirs(a.out, exist_ok=True)
-    stage_osc(a.out)
+    (stage_osc if a.stage == "osc" else stage_noise)(a.out)
     return 0
 
 
