@@ -54,11 +54,11 @@ wake. Four verifiers become four wakes and roughly a million tokens of nothing.
 
 ### Do this
 
-**Run every job in ONE turn with `tools/run_all.sh`.** It runs them in
+**Run every job in ONE turn with `tools/run_all.py`.** It runs them in
 parallel, blocks until all finish, and prints one combined summary:
 
 ```bash
-tools/run_all.sh "python rtl-sketch/verify_ladder.py" \
+tools/run_all.py "python rtl-sketch/verify_ladder.py" \
                  "python rtl-sketch/verify_modal.py" \
                  "python rtl-sketch/verify_voice.py --set full"
 ```
