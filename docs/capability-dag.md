@@ -135,23 +135,37 @@ Each voice needs three things, deliberately separate so a failure localises:
 **(b) audio** — measured against a cited reference fact; **(c) hardware** —
 against a real recording, where one exists.
 
-| voice | built | a. coef | b. audio | c. hardware | note |
-|---|:-:|:-:|:-:|:-:|---|
-| BD bass drum | ✓ | ✓ | **red** | 3.6 | no attack window; §2 wants ≈130 Hz for 4 ms |
-| SD snare | ✓ | ✓ | ✓ | **red** 8.8 | 3 % of energy >700 Hz vs a real 51.5 % |
-| LT low tom | ✓ | ✓ | **red** | 7.1 | no pitch drop (§4) |
-| MT mid tom | — | — | — | — | not built |
-| HT hi tom | ✓ | ✓ | **red** | 6.0 | no pitch drop (§4) |
-| LC/MC/HC congas | — | — | — | — | not built; may be the tom circuit retuned |
-| RS rim shot | — | — | — | — | not built; one bridged-T |
-| CL claves | — | — | — | — | not built; one bridged-T |
-| MA maracas | — | — | — | — | not built; **no resonator needed** |
-| CP hand clap | ✓ | ✓ | ✓ | n/a | no knob → no held-out setting |
-| CB cowbell | ✓ | ✓ | ✓ | **red** | τ 26 ms vs a real 98 ms |
-| CH closed hat | ✓ | ✓ | ✓ | n/a | no knob → no held-out setting |
-| OH open hat | ✓ | ✓ | ✓ | 6.9 | |
-| CY cymbal | — | — | — | — | not built; **can share the hats' six squares** |
-| DL full library | — | — | — | — | simultaneity and mix, after all voices |
+| # | circuit | built | a. coef | b. audio | c. hardware | note |
+|---|---|:-:|:-:|:-:|:-:|---|
+| 1 | BD bass drum | ✓ | ✓ | **red** | 3.6 | no attack window; §2 wants ≈130 Hz for 4 ms |
+| 2 | SD snare | ✓ | ✓ | ✓ | **red** 8.8 | 3 % of energy >700 Hz vs a real 51.5 % |
+| 3 | **LC / LT** low conga *or* low tom | ✓ | ✓ | **red** | 7.1 | have LT; no pitch drop (§4) |
+| 4 | **MC / MT** mid conga *or* mid tom | — | — | — | — | **missing** |
+| 5 | **HC / HT** hi conga *or* hi tom | ✓ | ✓ | **red** | 6.0 | have HT; no pitch drop (§4) |
+| 6 | **CL / RS** claves *or* rim shot | — | — | — | — | **missing**; one bridged-T |
+| 7 | **MA / CP** maracas *or* hand clap | ✓ | ✓ | ✓ | n/a | have CP; no knob → no held-out setting |
+| 8 | CB cowbell | ✓ | ✓ | ✓ | **red** | τ 26 ms vs a real 98 ms |
+| 9 | CY cymbal | — | — | — | — | **missing**; shares the hats' six squares |
+| 10 | OH open hat | ✓ | ✓ | ✓ | 6.9 | |
+| 11 | CH closed hat | ✓ | ✓ | ✓ | n/a | no knob → no held-out setting |
+| — | DL full library | — | — | — | — | simultaneity and mix, after all circuits |
+
+**The 808's sixteen sounds are eleven circuits, in five exclusive pairs.** The
+paired voices are the *same circuit retuned* and cannot sound simultaneously —
+verified from Roland's own TR-08 instrument listing, which still groups them in
+exactly those pairs thirty-five years later, and consistent with the original's
+panel. This matters enormously for a shared modal bank, which needs a mode per
+*concurrent* voice rather than per named sound.
+
+**So we have 8 of 11 circuits, and a complete 808 is +3, not +8.** Missing:
+the mid conga/tom, the claves/rim shot, and the cymbal. Adding the second half
+of each pair we already own (LC, MC, HC, CL or RS, MA) is a coefficient preset,
+not a mode.
+
+Precedent for shipping fewer: Roland's own **T-8** ships six drum voices and
+Roland chose which six; **Korg volca beats** bought five analog voices and
+sampled everything else; the **TR-6S** has six assignable parts. Six
+simultaneous drum parts is a shipped product more than once.
 
 The hardware column is **knob-equivalent separation out of 10**: how far the
 real machine's own knob must travel before it looks this different from itself.
@@ -160,10 +174,10 @@ cannot adjudicate them at all — the cowbell is documented wrong and
 *unconfirmable* here. LT/HT/OH have only 2 held-out settings, below what
 excludes chance. And there is **no real-vs-real floor** in this dataset.
 
-Eight of sixteen voices are missing, but several are cheap — maracas need no
-resonator, the cymbal can share the hats' six square oscillators
-(205.3/369.6/304.4/522.7/800/540 Hz), congas may be the tom circuit retuned.
-The full library is plausibly **+5 to 7 modes, not double**.
+Three of eleven circuits are missing, and the cymbal can share the hats' six
+square oscillators (205.3/369.6/304.4/522.7/800/540 Hz). The full library is
+**+3 circuits**, which is a far smaller ask than the "+5 to 7 modes" an earlier
+draft of this document guessed at from the sixteen-sound count.
 
 ## Integration and silicon
 
