@@ -957,9 +957,9 @@ its output looks exactly like data.
 
 ## 10. This session's wrong-then-right rate
 
-Per `CLAUDE.md`, so a reader can calibrate any single figure above. **Three
-results in this session were wrong before they were right**, all caught by
-controls or by reading output rather than by inspection:
+Per `CLAUDE.md`, so a reader can calibrate any single figure above. **Five
+results in this session were wrong before they were right**, every one caught
+by a control or by reading output, and none by inspection:
 
 | what | wrong | right | caught by |
 |---|---|---|---|
