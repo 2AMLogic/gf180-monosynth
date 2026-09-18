@@ -1,0 +1,653 @@
+#!/usr/bin/env python3
+"""Headless rigs for the three Minimoog-lineage software references on this
+machine, plus our own ladder and its injected-defect controls.
+
+Every rig answers the SAME three questions with the SAME stimulus, so the
+numbers can be put side by side:
+
+    tone_gain_db(freqs, cutoff, res, amp)  steady-state gain at each frequency,
+                                           from a stepped tone and a coherent
+                                           projection -- the measured transfer
+                                           function, never a centroid
+    ring(cutoff, res)                      the filter kicked once and left to
+                                           ring: the self-oscillation tail
+    drive_harmonics(...)                   h3/h5 of a steady tone as the input
+                                           level rises
+
+Why a stepped tone rather than an impulse response: this filter's response
+depends on level by design (DR 0001, and the same is true of all three
+references), so an impulse response would presume a linearity none of them
+has. `model/test_moog_acceptance.py` already measures our filter this way and
+this module uses the same probe, at the same drive, for all five rigs.
+
+Hosting is `dawdreamer` (VST3, headless, programmatic parameters). What each
+reference can and cannot be asked:
+
+  Surge XT 1.2.3   OPEN SOURCE. "LP Vintage Ladder" subtype "Type 2" is
+                   sst-filters' `VintageLadder::Huov` -- Huovilainen's DAFx-04
+                   model, the same paper DR 0001 implements. Cutoff is
+                   commanded in Hz and reads back in Hz, so cutoff ACCURACY is
+                   answerable here and only here. Excited through the "Audio
+                   In" oscillator, so the stimulus enters the filter directly.
+  u-he Diva        VCF model "Ladder", 24 dB mode. No audio input (0 input
+                   channels), so its own oscillator is the source and the
+                   response is measured against a wide-open reference render.
+                   Cutoff reads back on u-he's 30..150 scale, not in Hz.
+  Arturia Mini V3  Dedicated Model D emulation, 2 audio inputs (the Model D's
+                   external-input jack). Every parameter is a bare 0..1 with
+                   no units and no readback, so its cutoff knob has to be
+                   calibrated by measurement; commanded-cutoff accuracy is NOT
+                   answerable against it.
+
+All rigs render at 48 kHz, which is our own SR: nothing is resampled anywhere
+in this harness, so no result can be a resampler artefact.
+"""
+from __future__ import annotations
+
+import math
+import os
+import sys
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "audition"))
+
+SR = 48000
+BLOCK = 512
+FS_Q15 = 32768.0
+
+VST3 = "/Library/Audio/Plug-Ins/VST3"
+PATH_SURGE = f"{VST3}/Surge XT.vst3"
+PATH_DIVA = f"{VST3}/Diva.vst3"
+PATH_MINIV3 = f"{VST3}/Mini V3.vst3"
+
+
+# ===========================================================================
+# stimulus, shared by every rig so the comparison is of filters, not stimuli
+# ===========================================================================
+def tone_train(freqs, amp: float, settle_s: float, window_s: float):
+    """One buffer holding a tone at each frequency in turn, each an INTEGER
+    number of periods long so the coherent projection sees no leakage.
+    Returns (buffer, [(start, n_window, f), ...]) with the analysis window
+    starting after `settle_s` of each segment."""
+    segs, parts, t = [], [], 0
+    for f in freqs:
+        per = SR / f
+        n_set = int(round(max(settle_s * SR, 8 * per) / per)) * int(round(per)) if per < 1 else \
+            int(round(max(settle_s * SR, 8 * per) / per) * round(per))
+        n_win = int(round(max(window_s * SR, 16 * per) / per) * round(per))
+        n = n_set + n_win
+        ph = 2 * math.pi * f * np.arange(n) / SR
+        segs.append(amp * np.sin(ph))
+        parts.append((t + n_set, n_win, f))
+        t += n
+    return np.concatenate(segs), parts
+
+
+def kick_then_silence(cut: float, seconds: float, amp: float, kick_s: float = 0.005):
+    """A short sine burst at the cutoff, then silence: the free-ring stimulus
+    `model/test_moog_acceptance.py` uses to make the filter sing on its own."""
+    n = int(seconds * SR)
+    nk = int(kick_s * SR)
+    x = np.zeros(n)
+    x[:nk] = amp * np.sin(2 * math.pi * cut * np.arange(nk) / SR)
+    return x
+
+
+# ===========================================================================
+# our ladder, and the three deliberately-wrong ladders that give it power
+# ===========================================================================
+import voice_fx as vf                                               # noqa: E402
+import audio_measure as am                                          # noqa: E402
+
+G_ROM = vf.make_g_rom()
+K_ROM = vf.make_k_rom()
+_REAL_LADDER = vf.LadderFx
+
+
+class _Variant(_REAL_LADDER):
+    """The model's inner loop with two knobs, byte for byte the same code as
+    `_LadderVariant` in `model/test_moog_acceptance.py` (which pins it to
+    `LadderFx` bit-exactly in its non-defective setting).
+
+    `stages`  4 is the model; 2 is the dropped-pole defect
+    `nonlin`  'every'    tanh in every stage -- the model, DR 0001
+              'feedback' four LINEAR poles and one saturating element in the
+                         feedback: the Stilson/Smith shape DR 0001 rejected
+              'input'    one tanh at the input, four linear poles
+    """
+
+    def __init__(self, *a, stages=4, nonlin="every", **kw):
+        super().__init__(*a, **kw)
+        self.stages, self.nonlin = stages, nonlin
+
+    def process(self, x_q15, cutoff_hz, res, drive=1.0, *, g_q16=None,
+                k=None, gain=None, ogain=None, k_q14=None):
+        from fixed import sat, shl
+        os_, SQ, SB, OB = self.os, self.SQ, self.SB, self.OB
+        n = len(x_q15)
+        g_tab, k_tab, gain, ogain = self.coefficients(
+            cutoff_hz, res, drive, g_q16=g_q16, n=n, k=k, gain=gain, ogain=ogain, k_q14=k_q14)
+        k_per_sample = np.ndim(k_tab) > 0
+        k = None if k_per_sample else int(k_tab)
+        out = np.empty(n, dtype=np.int16 if OB <= 16 else np.int32)
+        y, w = self.y, self.w
+        d1, d2 = self.d1, self.d2
+        TQ = SQ - 15
+        S, nl = self.stages, self.nonlin
+        for i in range(n):
+            xi = int(x_q15[i])
+            g = int(g_tab[i])
+            if k_per_sample:
+                k = int(k_tab[i])
+            for _ in range(os_):
+                fb = (d1 + d2) >> 1
+                if nl == "feedback":
+                    fb = shl(self.tanh_fx(fb), TQ)
+                u = sat(shl(xi * gain, TQ - 16) - ((k * fb) >> 14), SB)
+                w0 = self.tanh_fx(u) if nl != "feedback" else sat(shl(u, -TQ), 16)
+                for s in range(S):
+                    prev = w0 if s == 0 else w[s - 1]
+                    diff = prev - w[s]
+                    y[s] = sat(y[s] + ((g * shl(diff, TQ)) >> 16), SB)
+                    w[s] = self.tanh_fx(y[s]) if nl == "every" else sat(shl(y[s], -TQ), 16)
+                d2, d1 = d1, y[S - 1]
+            out[i] = sat((shl(y[S - 1], -TQ) * ogain) >> 16, OB)
+        self.y, self.w, self.d1, self.d2 = y, w, d1, d2
+        return out
+
+
+class OurLadder:
+    """Our fixed-point ladder at the host's own operating point: the g ROM and
+    (by default) DR 0006's per-frame resonance compensation, exactly as
+    `model/test_moog_acceptance.py` drives it.
+
+    `cut_skew` multiplies the cutoff used to look up `g` WITHOUT changing the
+    cutoff we claim to have commanded: the injected cutoff defect.
+    """
+    kind = "ours"
+    cutoff_in_hz = True
+
+    def __init__(self, name="ours", stages=4, nonlin="every", compensated=True,
+                 cut_skew=1.0, drive=1.0, cfg=None, huov_fcr=False):
+        self.name = name
+        self.stages, self.nonlin = stages, nonlin
+        self.compensated, self.cut_skew, self.drive = compensated, cut_skew, drive
+        self.cfg = dict(vf.LADDER_CFG, **(cfg or {}))
+        self.huov_fcr = huov_fcr
+
+    @staticmethod
+    def fcr(cut_hz: float, sr: float = SR) -> float:
+        """Huovilainen's published tuning polynomial, as Surge applies it and
+        we do not (DAFx-04; `sst-filters` VintageLadders.h, namespace Huov).
+        `fc` is the cutoff normalised to the BASE rate, not the oversampled
+        one, which is how both Surge and Csound's original evaluate it."""
+        fc = cut_hz / sr
+        return 1.8730 * fc ** 3 + 0.4995 * fc ** 2 - 0.6490 * fc + 0.9988
+
+    def _regs(self, res, cut, drive):
+        ref = _REAL_LADDER(**self.cfg)
+        k, gain, ogain = ref.regs(res, drive)
+        skew = self.cut_skew * (self.fcr(cut) if self.huov_fcr else 1.0)
+        g = int(vf.g_from_cut(np.array([cut * skew]), G_ROM)[0])
+        if self.compensated:
+            kc = int(vf.kc_from_cut(np.array([cut * skew]), K_ROM)[0])
+            k = int(vf.k_effective(k, kc))
+        return g, k, gain, ogain
+
+    def _render(self, x, cut, res, drive=None):
+        drive = self.drive if drive is None else drive
+        g, k, gain, ogain = self._regs(res, cut, drive)
+        lad = _Variant(**self.cfg, stages=self.stages, nonlin=self.nonlin)
+        xq = np.clip(np.round(x), -32768, 32767).astype(np.int16)
+        n = len(xq)
+        return lad.process(xq, None, res, drive, g_q16=np.full(n, g, dtype=np.int64),
+                           k=k, gain=gain, ogain=ogain).astype(np.float64)
+
+    # -- the three questions -------------------------------------------------
+    def tone_gain_db(self, freqs, cut, res, amp):
+        x, parts = tone_train(freqs, amp * FS_Q15, 0.06, 0.20)
+        y = self._render(x, cut, res)
+        out = []
+        for i0, nw, f in parts:
+            a = am.tone_amplitude(y[i0:i0 + nw], f).require(f"ours probe {f:.0f} Hz")
+            out.append(20 * math.log10(max(a, 1e-12) / (amp * FS_Q15)))
+        return np.array(out)
+
+    def ring(self, cut, res, seconds=0.6, amp=0.09):
+        y = self._render(kick_then_silence(cut, seconds, amp * FS_Q15), cut, res)
+        return y[int(0.4 * len(y)):] / FS_Q15
+
+    def drive_tone(self, f, cut, res, amp):
+        n = int(0.4 * SR)
+        x = amp * FS_Q15 * np.sin(2 * math.pi * f * np.arange(n) / SR)
+        return self._render(x, cut, res)[int(0.15 * SR):] / FS_Q15
+
+
+# ===========================================================================
+# the plugin rigs
+# ===========================================================================
+class _Plugin:
+    """One dawdreamer engine holding one plugin, with an optional audio input.
+    Parameters are set by index; every index used here was found by name from
+    `get_parameters_description()` and is checked on construction."""
+
+    path = None
+    note = 48
+    have_input = False
+
+    def __init__(self, quiet=True):
+        import dawdreamer as daw
+        self._daw = daw
+        self.eng = daw.RenderEngine(SR, BLOCK)
+        self.p = self.eng.make_plugin_processor(self.name, self.path)
+        self._buf = np.zeros((2, SR), dtype=np.float32)
+        if self.have_input:
+            self.pb = self.eng.make_playback_processor("src", self._buf)
+            self.eng.load_graph([(self.pb, []), (self.p, ["src"])])
+        else:
+            self.pb = None
+            self.eng.load_graph([(self.p, [])])
+        self.setup()
+
+    # -- helpers -------------------------------------------------------------
+    def set(self, idx, v):
+        self.p.set_parameter(int(idx), float(v))
+
+    def text(self, idx):
+        return self.p.get_parameter_text(int(idx))
+
+    def check_names(self, mapping):
+        bad = [(i, want, self.p.get_parameter_name(i)) for i, want in mapping.items()
+               if self.p.get_parameter_name(i) != want]
+        if bad:
+            raise RuntimeError(f"{self.name}: parameter indices moved: {bad}")
+
+    def render(self, x, seconds, note_at=0.02, note_len=None):
+        """Render `seconds` with `x` (mono, already at SR) in the audio input
+        when the plugin has one, a note held throughout, and the plugin's own
+        latency removed. Returns mono float."""
+        n = int(seconds * SR)
+        if self.have_input:
+            buf = np.zeros((2, n), dtype=np.float32)
+            m = min(n, len(x))
+            buf[0, :m] = x[:m]
+            buf[1, :m] = x[:m]
+            self.pb.set_data(buf)
+        self.p.clear_midi()
+        self.p.add_midi_note(self.note, 100, note_at, seconds if note_len is None else note_len)
+        self.eng.render(seconds)
+        a = self.eng.get_audio()
+        y = a[0].astype(np.float64)
+        lat = self.p.get_latency_samples()
+        return y[lat:] if lat else y
+
+    def silence_state(self, seconds=0.4):
+        """Render silence with no note so the filter state decays before the
+        next measurement."""
+        if self.have_input:
+            self.pb.set_data(np.zeros((2, int(seconds * SR)), dtype=np.float32))
+        self.p.clear_midi()
+        self.eng.render(seconds)
+
+    # -- the three questions -------------------------------------------------
+    def tone_gain_db(self, freqs, cut, res, amp):
+        raise NotImplementedError
+
+    def ring(self, cut, res, seconds=1.2, amp=0.25):
+        raise NotImplementedError
+
+
+class SurgeRig(_Plugin):
+    """Surge XT, scene A, oscillator 1 = Audio In, filter 1 = LP Vintage
+    Ladder. `subtype` selects the model: 'Type 2' is Huovilainen (the paper we
+    implemented), 'Type 1' is the Runge-Kutta/Stilson-lineage model."""
+    name = "surge"
+    path = PATH_SURGE
+    have_input = True
+
+    # indices verified by name on construction
+    I = dict(osc1_type=256, osc1_level=292, osc1_mute=293, osc2_mute=297, osc3_mute=301,
+             rm12_mute=305, rm23_mute=309, noise_mute=313, fconfig=249, ws_type=252,
+             f1_type=317, f1_sub=318, f1_cut=319, f1_res=320, f1_feg=321, f1_kt=322,
+             f2_type=323, amp_a=329, amp_d=331, amp_s=333, amp_r=334,
+             scene_vol=237, prefilter_gain=316, vca_gain=246, vel_vca=247)
+    NAMES = {256: 'A Osc 1 Type', 292: 'A Osc 1 Level', 293: 'A Osc 1 Mute',
+             297: 'A Osc 2 Mute', 301: 'A Osc 3 Mute', 305: 'A Ring Modulation 1x2 Mute',
+             309: 'A Ring Modulation 2x3 Mute', 313: 'A Noise Mute',
+             249: 'A Filter Configuration', 252: 'A Waveshaper Type',
+             317: 'A Filter 1 Type', 318: 'A Filter 1 Subtype', 319: 'A Filter 1 Cutoff',
+             320: 'A Filter 1 Resonance', 321: 'A Filter 1 FEG Mod Amount',
+             322: 'A Filter 1 Keytrack', 323: 'A Filter 2 Type',
+             329: 'A Amp EG Attack', 331: 'A Amp EG Decay', 333: 'A Amp EG Sustain',
+             334: 'A Amp EG Release', 237: 'A Volume', 316: 'A Pre-Filter Gain',
+             246: 'A VCA Gain', 247: 'A Velocity > VCA Gain'}
+    SUBTYPE = {"Type 1": 0.015, "Type 1 Compensated": 0.07,
+               "Type 2": 0.135, "Type 2 Compensated": 0.20}
+    V_VINTAGE_LADDER = 0.3063
+    V_AUDIO_IN = 0.3662
+    # Surge's cutoff scale, read straight off its own readback: 13.75 Hz at 0,
+    # 25087.71 Hz at 1, exactly 130 semitones across.
+    CUT_LO, CUT_SEMIS = 13.75, 130.0
+    cutoff_in_hz = True
+    kind = "surge"
+
+    def __init__(self, subtype="Type 2", **kw):
+        self.subtype = subtype
+        self.name = f"surge-{subtype.replace(' ', '').lower()}"
+        super().__init__(**kw)
+
+    def setup(self):
+        self.check_names(self.NAMES)
+        I = self.I
+        self.set(I['osc1_type'], self.V_AUDIO_IN)
+        self.set(I['osc1_level'], 1.0)
+        for m in ('osc1_mute',):
+            self.set(I[m], 0.0)
+        for m in ('osc2_mute', 'osc3_mute', 'rm12_mute', 'rm23_mute', 'noise_mute'):
+            self.set(I[m], 1.0)
+        self.set(I['fconfig'], 0.0)          # Serial 1: filter 1 only
+        self.set(I['ws_type'], 0.0)          # waveshaper off
+        self.set(I['f2_type'], 0.0)          # filter 2 off
+        self.set(I['f1_type'], self.V_VINTAGE_LADDER)
+        self.set(I['f1_sub'], self.SUBTYPE[self.subtype])
+        self.set(I['f1_feg'], 0.5)           # 0 semitones of envelope on cutoff
+        self.set(I['f1_kt'], 0.5)            # 0 % keytrack
+        self.set(I['amp_a'], 0.0)
+        self.set(I['amp_d'], 1.0)
+        self.set(I['amp_s'], 1.0)            # flat gate: no amplitude envelope
+        self.set(I['amp_r'], 0.5)
+        self.set(I['vel_vca'], 1.0)          # 0 dB: no velocity sensitivity
+        for i in range(19, 19 + 4 * 13, 13):  # every FX slot type -> Off
+            self.set(i, 0.0)
+        assert self.text(I['f1_type']) == 'LP Vintage Ladder', self.text(I['f1_type'])
+        assert self.text(I['f1_sub']) == self.subtype, self.text(I['f1_sub'])
+
+    def cut_value(self, hz):
+        return math.log2(hz / self.CUT_LO) * 12.0 / self.CUT_SEMIS
+
+    def set_point(self, cut_hz, res):
+        self.set(self.I['f1_cut'], self.cut_value(cut_hz))
+        self.set(self.I['f1_res'], res)
+        return float(self.text(self.I['f1_cut']).split()[0])
+
+    def tone_gain_db(self, freqs, cut, res, amp):
+        self.set_point(cut, res)
+        x, parts = tone_train(freqs, amp, 0.06, 0.20)
+        total = (len(x) / SR) + 0.35
+        y = self.render(np.concatenate([np.zeros(int(0.30 * SR)), x]), total)
+        off = int(0.30 * SR)
+        out = []
+        for i0, nw, f in parts:
+            seg = y[off + i0: off + i0 + nw]
+            a = am.tone_amplitude(seg, f).require(f"{self.name} probe {f:.0f} Hz")
+            out.append(20 * math.log10(max(a, 1e-12) / amp))
+        return np.array(out)
+
+    def ring(self, cut, res, seconds=1.2, amp=0.25):
+        self.set_point(cut, res)
+        self.silence_state(0.3)
+        x = np.concatenate([np.zeros(int(0.05 * SR)), kick_then_silence(cut, seconds, amp)])
+        y = self.render(x, seconds + 0.1)
+        return y[int(0.55 * len(y)):]
+
+    def drive_tone(self, f, cut, res, amp):
+        self.set_point(cut, res)
+        n = int(0.4 * SR)
+        x = np.concatenate([np.zeros(int(0.25 * SR)),
+                            amp * np.sin(2 * math.pi * f * np.arange(n) / SR)])
+        y = self.render(x, 0.70)
+        return y[int(0.42 * SR):int(0.65 * SR)]
+
+
+class MiniV3Rig(_Plugin):
+    """Arturia Mini V3 through the Model D's external-input jack. Every
+    parameter is a bare 0..1 with no readback, so the cutoff knob is a knob,
+    not a frequency: this rig answers shape questions, not commanded-cutoff
+    accuracy."""
+    name = "miniv3"
+    path = PATH_MINIV3
+    have_input = True
+    cutoff_in_hz = False
+    kind = "miniv3"
+    note = 48
+
+    I = dict(level=0, glide=1, tune=2, lvl_o1=15, lvl_o2=16, lvl_o3=17,
+             lvl_noise=21, lvl_ext=22, cutoff=23, emphasis=24, contour=25,
+             vcf_a=26, vcf_d=27, vcf_s=28, vca_a=29, vca_d=30, vca_s=31,
+             chorus_mix=6, delay_wet=11, vocal_wet=43, o1=72, o2=73, o3=74,
+             noise_sw=75, ext_sw=76, fmod=78)
+    NAMES = {0: 'General Level', 15: 'Level Osc1', 16: 'Level Osc2', 17: 'Level Osc3',
+             21: 'Level Noise', 22: 'Level Ext', 23: 'CutOff', 24: 'Emphasis',
+             25: 'Amount', 26: 'VCF Attack', 27: 'VCF Decay', 28: 'VCF Sustain',
+             29: 'VCA Attack', 30: 'VCA Decay', 31: 'VCA Sustain',
+             6: 'Chorus Dry/Wet', 11: 'Delay Wet', 43: 'Vocal Filter Dry/wet',
+             75: 'Noise', 78: 'Filter Modulation'}
+
+    def setup(self):
+        self.check_names(self.NAMES)
+        I = self.I
+        for k in ('lvl_o1', 'lvl_o2', 'lvl_o3', 'lvl_noise', 'o1', 'o2', 'o3', 'noise_sw',
+                  'chorus_mix', 'delay_wet', 'vocal_wet', 'glide', 'contour', 'fmod'):
+            self.set(I[k], 0.0)
+        self.set(I['lvl_ext'], 0.8)
+        self.set(I['ext_sw'], 1.0)
+        self.set(I['level'], 0.7)
+        self.set(I['tune'], 0.5)
+        self.set(I['vcf_a'], 0.0); self.set(I['vcf_d'], 0.0); self.set(I['vcf_s'], 1.0)
+        self.set(I['vca_a'], 0.0); self.set(I['vca_d'], 1.0); self.set(I['vca_s'], 1.0)
+
+    def set_point(self, cut, res):
+        self.set(self.I['cutoff'], cut)
+        self.set(self.I['emphasis'], res)
+        return cut
+
+    def tone_gain_db(self, freqs, cut, res, amp):
+        self.set_point(cut, res)
+        x, parts = tone_train(freqs, amp, 0.06, 0.20)
+        total = (len(x) / SR) + 0.40
+        y = self.render(np.concatenate([np.zeros(int(0.35 * SR)), x]), total)
+        off = int(0.35 * SR)
+        out = []
+        for i0, nw, f in parts:
+            seg = y[off + i0: off + i0 + nw]
+            a = am.tone_amplitude(seg, f).require(f"{self.name} probe {f:.0f} Hz")
+            out.append(20 * math.log10(max(a, 1e-12) / amp))
+        return np.array(out)
+
+    def ring(self, cut, res, seconds=1.2, amp=0.25):
+        self.set_point(cut, res)
+        self.silence_state(0.3)
+        x = np.concatenate([np.zeros(int(0.05 * SR)),
+                            kick_then_silence(400.0, seconds, amp, kick_s=0.01)])
+        y = self.render(x, seconds + 0.1)
+        return y[int(0.55 * len(y)):]
+
+    def drive_tone(self, f, cut, res, amp):
+        self.set_point(cut, res)
+        n = int(0.4 * SR)
+        x = np.concatenate([np.zeros(int(0.30 * SR)),
+                            amp * np.sin(2 * math.pi * f * np.arange(n) / SR)])
+        y = self.render(x, 0.78)
+        return y[int(0.48 * SR):int(0.70 * SR)]
+
+
+class DivaRig(_Plugin):
+    """u-he Diva, VCF model "Ladder" in 24 dB mode. Diva has NO audio input,
+    so the source is its own white-noise generator, gated off after the first
+    30 ms for the free-ring measurement and held on for the response
+    measurement. Its transfer is therefore measured against a wide-open
+    reference render, which divides out the source spectrum and the output
+    path (`--validate-noise` checks that method against the stepped tone on
+    Surge, where both are possible)."""
+    name = "diva"
+    path = PATH_DIVA
+    have_input = False
+    cutoff_in_hz = False
+    kind = "diva"
+    note = 48
+
+    I = dict(fx1=1, fx2=2, multicore=17, accuracy=18, offlineacc=19,
+             tuneslop=20, cutoffslop=21, envslop=24,
+             osc_model=87, vol1=99, vol2=100, vol3=101, noisevol=124, noisecolor=125,
+             hpf_model=147, hpf_freq=148, hpf_res=149,
+             vcf_model=155, vcf_freq=156, vcf_res=157,
+             vcf_modsrc=158, vcf_moddepth=159, vcf_mod2depth=161, keyfollow=162,
+             filterfm=163, laddermode=164, laddercolor=165, feedback=168,
+             shapemix=175, pan=179, volume=180, vca=181, vca_moddepth=183)
+    NAMES = {1: 'Active #FX1', 2: 'Active #FX2', 17: 'MultiCore', 18: 'Accuracy',
+             19: 'OfflineAcc', 20: 'TuneSlop', 21: 'CutoffSlop', 24: 'EnvrateSlop',
+             87: 'Model', 99: 'Volume1', 100: 'Volume2', 101: 'Volume3',
+             124: 'NoiseVol', 125: 'NoiseColor', 147: 'Model', 148: 'Frequency',
+             149: 'Resonance', 155: 'Model', 156: 'Frequency', 157: 'Resonance',
+             159: 'FreqModDepth', 161: 'FreqMod2Depth', 162: 'KeyFollow',
+             163: 'FilterFM', 164: 'LadderMode', 165: 'LadderColor', 168: 'Feedback',
+             175: 'ShapeMix', 179: 'Pan', 180: 'Volume', 181: 'VCA', 183: 'ModDepth'}
+    V_LADDER, V_24DB, V_CLEAN, V_ROUGH = 0.0917, 0.2417, 0.2417, 0.75
+    V_GATE, V_DIVINE, V_BEST, V_OFF, V_WHITE = 0.2417, 0.875, 0.75, 0.2417, 0.2417
+    V_HPF_POST = 0.3667
+
+    def __init__(self, color="rough", **kw):
+        self.color = color
+        self.name = f"diva-{color}"
+        super().__init__(**kw)
+
+    def setup(self):
+        self.check_names(self.NAMES)
+        I = self.I
+        self.set(I['fx1'], 0.0); self.set(I['fx2'], 0.0)
+        self.set(I['multicore'], 0.0)
+        self.set(I['accuracy'], self.V_DIVINE)
+        self.set(I['offlineacc'], self.V_BEST)
+        for k in ('tuneslop', 'cutoffslop', 'envslop'):
+            self.set(I[k], 0.0)                     # no voice-to-voice analogue drift
+        self.set(I['vol1'], 0.0); self.set(I['vol2'], 0.0); self.set(I['vol3'], 0.0)
+        self.set(I['noisevol'], 1.0)
+        self.set(I['noisecolor'], self.V_WHITE)
+        self.set(I['hpf_freq'], 0.0)                # HPF out of the way
+        self.set(I['hpf_res'], 0.0)
+        self.set(I['vcf_model'], self.V_LADDER)
+        self.set(I['laddermode'], self.V_24DB)
+        self.set(I['laddercolor'], self.V_ROUGH if self.color == "rough" else self.V_CLEAN)
+        self.set(I['vcf_moddepth'], 0.5)            # 0 of 120
+        self.set(I['vcf_mod2depth'], 0.5)
+        self.set(I['keyfollow'], 0.0)
+        self.set(I['filterfm'], 0.5)
+        self.set(I['feedback'], 0.0)
+        self.set(I['shapemix'], 0.0)
+        self.set(I['pan'], 0.5)
+        self.set(I['vca'], self.V_GATE)             # flat gate, no amplitude envelope
+        self.set(I['vca_moddepth'], 0.5)
+        self.set(I['volume'], 0.8)
+        assert self.text(I['vcf_model']) == 'Ladder', self.text(I['vcf_model'])
+        assert self.text(I['laddermode']) == '24db', self.text(I['laddermode'])
+        assert self.text(I['accuracy']) == 'divine', self.text(I['accuracy'])
+
+    def set_point(self, cut, res):
+        self.set(self.I['vcf_freq'], cut)
+        self.set(self.I['vcf_res'], res)
+        return float(self.text(self.I['vcf_freq']))
+
+    def noise_render(self, cut, res, seconds=1.4, level=1.0):
+        """Steady white noise through the ladder, at a stated source level --
+        the only drive control Diva offers, since it has no audio input."""
+        self.set_point(cut, res)
+        self.set(self.I['noisevol'], level)
+        self.p.set_automation(self.I['noisevol'],
+                              np.full(int(seconds * SR), float(level), dtype=np.float32))
+        y = self.render(np.zeros(1), seconds)
+        return y[int(0.35 * SR):]
+
+    def tone_gain_db(self, freqs, cut, res, amp):
+        raise NotImplementedError("Diva has no audio input; use noise_render")
+
+    def ring(self, cut, res, seconds=1.4, amp=1.0):
+        """Noise for the first 30 ms to seed the loop, then the source gated
+        off: whatever is left is the filter ringing on its own."""
+        self.set_point(cut, res)
+        n = int(seconds * SR)
+        a = np.zeros(n, dtype=np.float32)
+        a[:int(0.03 * SR)] = float(amp)
+        self.p.set_automation(self.I['noisevol'], a)
+        y = self.render(np.zeros(1), seconds)
+        return y[int(0.55 * len(y)):]
+
+    # -- Diva's cutoff scale, and the noise-excitation transfer -------------
+    # u-he reads the VCF Frequency back on a 30..150 scale that is linear in
+    # the knob (30 + 120*v, checked against the readback) and ONE UNIT PER
+    # SEMITONE (checked by measurement: 18 units is 2.82x in frequency, which
+    # is 17.95 semitones). Anchoring it at the measured 90 -> 740.0 Hz gives
+    #     f = 440 * 2 ** ((value - 81) / 12)
+    # This is an inference from Diva's own readback plus a measurement, NOT a
+    # figure u-he publishes, so it is checked against the measured -3 dB
+    # corner in `--stage validate` and every Diva cutoff number in the
+    # write-up carries that caveat.
+    FREQ_ANCHOR_VALUE, FREQ_ANCHOR_HZ = 81.0, 440.0
+
+    def freq_value(self, hz):
+        value = self.FREQ_ANCHOR_VALUE + 12.0 * math.log2(hz / self.FREQ_ANCHOR_HZ)
+        return float(np.clip((value - 30.0) / 120.0, 0.0, 1.0))
+
+    def nominal_hz(self, knob):
+        return self.FREQ_ANCHOR_HZ * 2.0 ** ((30.0 + 120.0 * knob
+                                              - self.FREQ_ANCHOR_VALUE) / 12.0)
+
+    def noise_curve(self, freqs, cut, res, seconds=4.0, level=1.0):
+        """Transfer by noise excitation: the filter's own white noise through
+        the ladder at (cut, res), divided by the SAME source through the ladder
+        wide open. The ratio removes the source spectrum and the output path;
+        what is left is the filter, at a stated drive.
+
+        Diva has no audio input, so this is the only way to measure it. The
+        method's agreement with the stepped tone is checked on Surge, where
+        both are possible (`--stage validate`); it is not assumed."""
+        num = self.noise_render(cut, res, seconds, level)
+        den = self._wide_open(seconds, level)
+        fn, pn = _welch(num)
+        _, pd = _welch(den)
+        g = 10 * np.log10(np.maximum(pn, 1e-30) / np.maximum(pd, 1e-30))
+        return _smooth_log(fn, g, freqs)
+
+    def _wide_open(self, seconds=4.0, level=1.0):
+        key = (round(seconds, 3), round(level, 6))
+        if getattr(self, "_wo_key", None) != key:
+            self._wo = self.noise_render(1.0, 0.0, seconds, level)
+            self._wo_key = key
+        return self._wo
+
+    def drive_tone(self, f, cut, res, amp):
+        raise NotImplementedError(
+            "Diva has 0 audio input channels, so no known signal can be put into its "
+            "filter: the drive measurement is not answerable against it")
+
+
+def _welch(x, nfft=8192):
+    """Power spectrum, Hann windows, 50 % overlap, averaged. `len(x)/nfft*2`
+    segments, so the per-bin standard error is 1/sqrt(that) -- about 0.9 dB
+    for a 4 s record, taken down under 0.2 dB by the 1/12-octave smoothing
+    `_smooth_log` applies after."""
+    x = np.asarray(x, dtype=np.float64)
+    w = np.hanning(nfft)
+    step = nfft // 2
+    segs = [np.abs(np.fft.rfft(x[i:i + nfft] * w)) ** 2
+            for i in range(0, len(x) - nfft + 1, step)]
+    if not segs:
+        raise ValueError("record shorter than one FFT window")
+    return np.fft.rfftfreq(nfft, 1.0 / SR), np.mean(segs, axis=0)
+
+
+def _smooth_log(f, g_db, at, frac: float = 1 / 12.0):
+    """Average a dB curve over a fractional-octave band at each requested
+    frequency. In dB (the quantity being compared), and the band is stated."""
+    out = []
+    for fc in at:
+        lo, hi = fc * 2 ** (-frac / 2), fc * 2 ** (frac / 2)
+        sel = (f >= lo) & (f <= hi)
+        if sel.sum() < 3:
+            i = int(np.argmin(np.abs(f - fc)))
+            sel = np.zeros(len(f), bool)
+            sel[max(0, i - 1):i + 2] = True
+        out.append(float(np.mean(g_db[sel])))
+    return np.array(out)

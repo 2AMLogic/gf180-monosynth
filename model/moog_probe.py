@@ -1,6 +1,26 @@
 #!/usr/bin/env python3
 """Settings-independent ladder probes against free Minimoog recordings.
 
+    !! PARTIALLY WITHDRAWN, 2026-09-18 -- read docs/discrimination.md 8.1 !!
+
+    `harmonics()` below integrates FFT bins with NO WINDOW and NO FLOOR
+    CHECK. A rectangular coherent projection leaks the fundamental sideways
+    at about 1/(pi * delta_bins), which puts a phantom "harmonic" at -55 to
+    -75 dB -- exactly where the h5 values this file was used to publish live.
+    The 25 dB of h5-h3 separation in revision 1 of docs/discrimination.md 8
+    was that leak: re-measured, four of its six numbers do not exist above
+    their own noise floor.
+
+    Use `audio_measure.harmonic_signature` instead. It projects through a
+    Blackman-Harris window, measures a floor at four off-harmonic offsets and
+    returns None rather than a number when a harmonic is under it, and is
+    ground-truthed in model/test_reference_compare.py.
+
+    What is NOT withdrawn: the admission test below (h2 - h3 and h3), the
+    finding that none of the 222 recordings is a ladder ringing on its own,
+    and the design of the probe. Only the harmonic LEVELS it printed.
+
+
     .venv/bin/python model/moog_probe.py --set /tmp/legowelt
 
 Two claims must not be confused, and this script only ever supports the
