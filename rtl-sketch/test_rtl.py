@@ -77,7 +77,9 @@ def test_top_level_schedule_link_and_i2s(tmp_path):
 @needs_sim
 def test_voice_rtl_is_bit_exact(tmp_path):
     """voice_dp against model/voice_fx.py at the register port: every
-    scenario of verify_voice.py (every waveform; every note and the
+    scenario of verify_voice.py (every waveform, including the Model D set of
+    contract revision 10; the noise source in both colours; oscillator 3 as a
+    modulator on both destinations; every note and the
     increments where 5.5's clamps fire; glide up, down and at its limits;
     gate / trig / retrigger; a release to exactly zero; paraphonic keys; the
     register extremes) in the quick set, every sample, every tap of 16.4 and
@@ -94,7 +96,11 @@ VOICE_BUGS = [("SQUARE_SIGN", "default"),          # the square takes the saw's 
               ("GLIDE_FLOOR", "notes"),            # slew without max(1, .): a small inc never moves
               ("RECIP_CLAMP", "notes"),            # a power-of-two inc gets r = 0
               ("TRIG_RESET",  "gate"),             # GATE_ON / TRIG reset the level to zero
-              ("OUT_SAT",     "extremes")]         # no rail at the master mix
+              ("OUT_SAT",     "extremes"),         # no rail at the master mix
+              ("LFSR_TAP",    "noise"),            # one tap of the noise polynomial wrong (6.10)
+              ("NOISE_SEL",   "noise"),            # the colour selector stuck on white (2.5)
+              ("SHARK_MIX",   "waves3"),           # R030 and R031 read the wrong way round (W3)
+              ("MOD_NODELAY", "modulation")]       # the mod pan AND its register both gone (M9)
 
 
 @needs_sim

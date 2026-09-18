@@ -1,0 +1,61 @@
+=== the simulation result that the area numbers are quoted alongside ===
+
+docs/verification-rules.md rule 3: "Quote area only alongside a simulation
+result." This file is that result, for the SAME file set the FPGA reports
+route -- fpga/Makefile's CORE, which `make srccheck` asserts is identical to
+rtl-sketch/verify_synth_top.py's SRCS.
+
+Bench: rtl-sketch/verify_synth_top.py --short.
+  * the register writes go over the SPI PINS as 48-bit DR 0007 rev 2 frames;
+  * the I2S wire is decoded from BCLK / LRCLK / SDATA only, the way a DAC does,
+    never from inside the DUT;
+  * the model is driven from the frame the CS_N PIN predicts, and the chip is
+    separately required to agree with that prediction;
+  * the comparison is against model/synth_top_model.py with NO tolerance.
+
+Rule 1: start red. The control was run FIRST and watched to fail, before the
+clean run was believed. INJECT_BUG_MODAL_NUM_HOLD was chosen because it is a
+defect in the DRUM path -- the part of the design the previous FPGA build did
+not contain at all -- so a green result here is evidence about the joined
+engine and not only about the voice.
+
+---------------------------------------------------------------- 1. RED first
+
+  $ verify_synth_top.py --short --inject MODAL_NUM_HOLD --expect-fail
+
+  verify_synth_top: writes landed in frames 2..352; modelling 444 frames
+  verify_synth_top: model peak |sample| 32767 of 32768 (113 frames at the rail); drums |dmix| max 16716, |body| max 160139, DFILT engaged in 46 frames
+  verify_synth_top: FAIL -- of 441 decoded I2S periods: 89 differ from the model, 0 have L != R, 0 have a slot that is not 32 BCLK
+    first wire mismatch at period 243: model 1542, wire 5913, error +4371 LSB
+    the core's own sample stream: 89 of 442 frames differ from the model; first at frame 242: model 1542, core 5913
+    the core is already wrong: the defect is upstream of the serialiser
+  verify_synth_top: negative control MODAL_NUM_HOLD CAUGHT (comparison failed as required)
+  red rc=0
+
+  The control is caught, and caught for the recorded reason: the mismatch is
+  upstream of the serialiser (the core's own stream is wrong too), which is
+  where a modal-numerator defect belongs. A non-zero exit alone would not have
+  been evidence.
+
+-------------------------------------------------------------- 2. then GREEN
+
+  $ verify_synth_top.py --short
+
+  verify_synth_top: 170 writes over the pins (39 voice, 131 drum), 91 frames after the last
+    sim: tb_top_bx: status word on MISO = 4d210001
+    sim: tb_top_bx: 170 writes sent, 442 frames, 441 I2S periods decoded
+    sim: tb_top_bx: transactions accepted at the pin 170, writes drained 170, landing frame differs from the pin prediction 0 times (must be 0)
+    sim: tb_top_bx: sample strobed in 442 frames, MISSING in 0, worst strobe cycle 124 of 256
+    sim: tb_top_bx: datapath busy at a tick: 0 (must be 0); overrun 0; overflow 0
+  verify_synth_top: writes landed in frames 2..352; modelling 444 frames
+  verify_synth_top: model peak |sample| 32767 of 32768 (113 frames at the rail); drums |dmix| max 16716, |body| max 160139, DFILT engaged in 46 frames
+  verify_synth_top: PASS -- 441 I2S periods decoded from the wire, every one identical to the model; both channels agree; every slot 32 BCLK; the core's own stream matches too
+  green rc=0
+
+------------------------------------------------------------------ 3. caveats
+
+This is an RTL simulation of the same Verilog the FPGA flow synthesises. It is
+NOT a simulation of the routed netlist, and nothing has run on a board. What it
+establishes is that the ten files being routed compute the model's samples at
+the chip's pins -- so the area figures in ecp5_25f.txt are area figures for a
+design that computes something, rather than for a netlist that might be all X.

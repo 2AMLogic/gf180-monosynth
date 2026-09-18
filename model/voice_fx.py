@@ -103,17 +103,111 @@ INC_FRAC = 8                     # the slewed increment carries 8 fraction bits,
 GLIDE_REF_S = 0.09               # reference host: 90 ms per octave (engines.mono_note's 90 ms glide)
 LADDER_CFG = dict(state_bits=24, state_q=20, tanh_entries=16, interp=True, out_bits=LADDER_OUT_BITS)
 INC_BITS = PHASE_BITS            # the increment register is as wide as the phase
+INC_MAX = (1 << INC_BITS) - 1
 WEIGHT_BITS = 16                 # Q0.15 mixer weight; 1.0 = 32768 needs the 16th bit
 CUT_BITS = 16                    # cut_lo, cut_hi, track_hz: integer Hz (proposed width)
 VOL_BITS = 16                    # vol: Q0.15 (DR 0005)
 
+# ---- the noise source (docs/minimoog-reference.md N1-N8) --------------------
+# The Model D's fourth mixer source. "The Minimoog contains a noise generator
+# using a transistor generating white noise... amplified to produce white, pink
+# or red noise... White or pink noise is used for audio and pink or red for
+# modulation" [verified: SM 2.2.3, 2.5].
+LFSR_BITS = 31                   # x^31 + x^15 + x^13 + x^11 + 1: the polynomial the
+LFSR_TAPS = (30, 15, 17, 19)     #   drum section already carries (contract 15.4)
+LFSR_MASK = (1 << LFSR_BITS) - 1
+NOISE_BITS = 16                  # LFSR steps per frame = bits per white word
+# The drum section seeds the same polynomial with 1. Seeding the VOICE with 1
+# too would make the two noise sources the SAME signal sample for sample, and
+# two correlated noises sum at +6 dB where two independent ones sum at +3. This
+# seed is the drums' state advanced LFSR_LAG steps -- not a multiple of 16, so
+# the 16-bit words are not merely a time shift of each other; two shifts of one
+# m-sequence cross-correlate at -1/(2^31 - 1).
+LFSR_LAG = 1060921
+VOICE_LFSR_SEED = 0x7F215FF7
+# Q1.15 headroom shift, applied to ALL THREE colours equally. Drawing 1431
+# labels the white, pink and red outputs -4 dBm each, and 5.27 specifies both
+# white and pink at "-5 +-3 dB", so the colours leave the noise board at the
+# same level [verified]. The pink network's crest factor is 4.6, so equal-RMS
+# colours need 13 dB of peak headroom and this chip's rail is hard. Shifting
+# all three by 2 keeps them equal AND keeps pink's measured peak at 0.66 of
+# full scale. It costs white 12 dB against an oscillator at the same mixer
+# weight -- a deviation, recoverable with the noise weight, and the alternative
+# was clipping 0.05 % of pink's samples.
+NOISE_SHIFT = 2
+# Drawing 1431's "-3 db/OCTAVE FILTER": a 10 k series resistor from the white
+# emitter follower with two shunt R-C legs to ground (3.3 k + 0.12 uF, 240 R +
+# 0.033 uF). Bilinear-transformed at SR, with the make-up gain that equalises
+# its noise power with white's folded into the numerator.
+PINK_B = (912164, -741208, -117831)      # Q21, gain-equalised
+PINK_A = (-28689, 12348)                 # Q14
+PINK_BQ, PINK_AQ, PINK_Q = 21, 14, 27    # b, a, and the wide state's fraction bits
+PINK_SB = 32                             # pink state word: Q5.27, +-16 full scales
+RED_G = 904                              # Q0.16: one pole at 106.1 Hz (R914 10k, C908 0.15 uF)
+RED_GAIN = 29841                         # Q14: equalises red's noise power with white's
+
+# ---- modulation (docs/minimoog-reference.md M1-M9) --------------------------
+# "There are two modulation signals available in the Minimoog; the output of
+# Oscillator 3 and noise... The Modulation Mix amplifier selects either or
+# both, sums them and routes them to the Modulation Amount Control in the
+# Left-hand controller" [verified: SM 2.4]; the MOD MIX pot PANS between the
+# two ("the wiper of R23 is connected to ground... it pans between the two
+# modulation signals").
+EXP_BITS = 6                     # 2^f ROM: 64 entries + guard, over one octave
+OCT_Q = 12                       # the octave word: Q3.12 signed
+OCT_SAT = 1 << (OCT_Q + 2)       # ... saturated to +-4 octaves. Not a musical limit -- four
+                                 # octaves is five times the Model D's deepest setting (M7/M8)
+                                 # -- but a width one: it holds the exp2 shift to 12..18
+                                 # places, so the RTL's barrel shifter is seven wide and not
+                                 # sixteen.
+MOD_BITS = 16                    # mmix, mwheel, mpd, mfd registers
+MROUTE_BITS = 3
+MR_OSC, MR_FILT, MR_OSC3 = 1, 2, 4   # oscillator mod / filter mod / OSC-3 CONTROL
+NSEL_BITS = 1
+MMIX_FULL = 1 << 15              # mmix = 32768 is noise only; 0 is oscillator 3 only
+# The two depths the service manual pins, as Q3.12 octaves of PEAK deviation:
+#   pitch   "The oscillator should change 13 to 23 semitones" at full wheel
+#           [verified: SM 5.37]; 18 semitones of total swing is +-0.75 octave
+#   filter  440 Hz "when pitch is low", "a minimum of 2.4 kHz" when high
+#           [verified: SM 5.19]; at least 1.224 octaves of peak deviation.
+#           1.30 leaves margin over that floor [inferred]
+MPD_REF_OCT = 0.75
+MFD_REF_OCT = 1.30
+
+# ---- oscillator waveforms (docs/minimoog-reference.md W1-W7) ----------------
+# Drawing 1448 "WAVEFORM SWITCHING MINI D": saw and triangle reach the waveform
+# switch at the same +-1.75 V [verified: SM 2.3], and the shark-tooth position
+# taps the junction of R030 (47 k, from the saw) and R031 (10 k, from the
+# triangle) -- a divider between two stiff sources, so 10/57 saw, 47/57
+# triangle [inferred from verified values].
+SHARK_W_SAW = 5749               # Q0.15, 10/57
+SHARK_W_TRI = 27019              # Q0.15, 47/57; the two sum to exactly 32768
+# The three rectangular widths. SW6's second deck selects 0 V, -1.5 V or -2.5 V
+# from a ground / 1.5 k / 1 k / 7.5 k / -10 V divider [verified: drawing 1448],
+# and the service manual pins the ends of that control range: 0 V gives "a
+# square wave output", -2.5 V "a 15 percent duty cycle" [verified: SM 2.3].
+# Duty is linear in the threshold because the ramp is, so the middle tap is
+# 50 - 1.5 * (50 - 15) / 2.5 = 29 % [inferred].
+DUTY_SQUARE = 1 << (PHASE_BITS - 1)                     # 50 %
+DUTY_WIDE = 4865393                                     # 29 % of 2^24
+DUTY_NARROW = 2516582                                   # 15 % of 2^24
+DUTY_P25 = 1 << (PHASE_BITS - 2)                        # 25 %: NOT a Model D width. Kept
+                                                        #   because contract rev 4 shipped it
+DUTY = dict(square=DUTY_SQUARE, pulse25=DUTY_P25, pulse29=DUTY_WIDE, pulse15=DUTY_NARROW)
+WAVE_CODE = dict(saw=0, square=1, pulse25=2, tri=3, sine=4,
+                 shark=5, revsaw=6, pulse29=7, pulse15=8)
+WAVE_BITS = 4
+BLEP_SHAPES = ("saw", "square", "pulse25", "pulse29", "pulse15", "shark", "revsaw")
+TWO_EDGE = ("square", "pulse25", "pulse29", "pulse15")
+
 # Register widths of the control image, NUMERIC-CONTRACT.md 5.1. Each host
 # conversion below clamps to the width named here; the sweep test walks them.
-REG_BITS = dict(inc=INC_BITS, w=WEIGHT_BITS,
+REG_BITS = dict(inc=INC_BITS, w=WEIGHT_BITS, wn=WEIGHT_BITS,
                 a_inc=ENV_BITS, d_dec=ENV_BITS, sus=ENV_BITS, rate=RATE_Q,
                 cut_lo=CUT_BITS, cut_hi=CUT_BITS, track_hz=CUT_BITS,
                 k=LadderFx.K_BITS, gain=LadderFx.GAIN_BITS, ogain=LadderFx.GAIN_BITS,
-                glide=GLIDE_BITS, vol=VOL_BITS)
+                glide=GLIDE_BITS, vol=VOL_BITS, nsel=NSEL_BITS, mmix=MOD_BITS,
+                mwheel=MOD_BITS, mpd=MOD_BITS, mfd=MOD_BITS, mroute=MROUTE_BITS)
 
 _SINE = dsp._QUARTER.astype(np.int64)   # 256-entry quarter wave, midpoint-sampled
 
@@ -131,19 +225,66 @@ def sine_fx(ph: np.ndarray) -> np.ndarray:
     return np.where(quad & 2, -q, q)
 
 
+def _saw_fx(ph):
+    return (ph >> (PHASE_BITS - 16)) - 32768
+
+
+def _tri_fx(ph):
+    v = ph >> (PHASE_BITS - 17)                           # 0 .. 131071
+    return np.where(v < 65536, v - 32768, 98303 - v)
+
+
 def naive_fx(shape: str, ph: np.ndarray) -> np.ndarray:
+    """The nine shapes of contract 6.4. Six of them are the Model D's waveform
+    switch (triangle, shark-tooth, sawtooth, square, wide and narrow
+    rectangular), with the reverse sawtooth that oscillator 3 has in place of
+    the shark-tooth [verified: drawing 1448; SM 2.16, 2.18]; `sine` and
+    `pulse25` are this chip's own and are not Model D shapes."""
     ph = np.asarray(ph, dtype=np.int64)
     if shape == "saw":
-        return (ph >> (PHASE_BITS - 16)) - 32768
-    if shape == "square":
-        return np.where(ph < CYCLE // 2, 32767, -32768)
-    if shape == "pulse25":
-        return np.where(ph < CYCLE // 4, 32767, -32768)
+        return _saw_fx(ph)
+    if shape == "revsaw":                                 # osc 3's Q20 inverter (SM 2.3)
+        return sat16(-_saw_fx(ph))
+    if shape in DUTY:
+        return np.where(ph < DUTY[shape], 32767, -32768)
     if shape == "tri":
-        v = ph >> (PHASE_BITS - 17)                       # 0 .. 131071
-        return np.where(v < 65536, v - 32768, 98303 - v)
+        return _tri_fx(ph)
+    if shape == "shark":                                  # R030 / R031 on the waveform switch
+        return sat16((SHARK_W_SAW * _saw_fx(ph) + SHARK_W_TRI * _tri_fx(ph)) >> 15)
     if shape == "sine":
         return sine_fx(ph)
+    raise ValueError(shape)
+
+
+def clamp16(v: int) -> int:
+    """Scalar sat16. The per-frame modulation path of 6.9 is a Python loop, so
+    it cannot use the numpy form without paying for an array per sample."""
+    return -32768 if v < -32768 else (32767 if v > 32767 else v)
+
+
+def naive_one(shape: str, ph: int) -> int:
+    """`naive_fx` for ONE phase, in plain Python integers -- the modulation
+    source tap of 6.9, which is evaluated inside a per-frame loop.
+    `test_moog_acceptance` walks every shape over the whole 24-bit phase and
+    requires this to equal `naive_fx` exactly, so the two cannot drift."""
+    ph = int(ph) & PHASE_MASK
+    if shape == "saw":
+        return (ph >> (PHASE_BITS - 16)) - 32768
+    if shape == "revsaw":
+        return clamp16(-((ph >> (PHASE_BITS - 16)) - 32768))
+    d = DUTY.get(shape)
+    if d is not None:
+        return 32767 if ph < d else -32768
+    if shape == "tri":
+        v = ph >> (PHASE_BITS - 17)
+        return v - 32768 if v < 65536 else 98303 - v
+    if shape == "shark":
+        saw = (ph >> (PHASE_BITS - 16)) - 32768
+        v = ph >> (PHASE_BITS - 17)
+        tri = v - 32768 if v < 65536 else 98303 - v
+        return clamp16((SHARK_W_SAW * saw + SHARK_W_TRI * tri) >> 15)
+    if shape == "sine":
+        return int(sine_fx(np.array([ph], dtype=np.int64))[0])
     raise ValueError(shape)
 
 
@@ -215,7 +356,7 @@ class OscFx:
         self._cache = {}
 
     def set_shape(self, shape: str, blep: bool = True):
-        self.shape, self.blep = shape, blep and shape in ("saw", "square", "pulse25")
+        self.shape, self.blep = shape, blep and shape in BLEP_SHAPES
 
     def set_inc(self, v: int, jump: bool = False, glide: int = 0):
         """SET_INC k, v [, jump]: the target increment. The current increment
@@ -276,15 +417,24 @@ class OscFx:
             er = np.array([self._er(int(v)) for v in inc], dtype=np.int64)
             e, r = er[:, 0], er[:, 1]
             inc_a = inc
-        out = naive_fx(self.shape, ph)
         if not self.blep:
-            return out
+            return naive_fx(self.shape, ph)
+        c = blep_fx(ph, inc_a, e, r, self.MB, self.RB)           # the correction at the wrap
         if self.shape == "saw":
-            return sat16(out - blep_fx(ph, inc_a, e, r, self.MB, self.RB))
-        duty = CYCLE // 2 if self.shape == "square" else CYCLE // 4
-        ph2 = (ph + (CYCLE - duty)) & PHASE_MASK
-        return sat16(out + blep_fx(ph, inc_a, e, r, self.MB, self.RB)
-                         - blep_fx(ph2, inc_a, e, r, self.MB, self.RB))
+            return sat16(_saw_fx(ph) - c)
+        if self.shape == "revsaw":
+            # Q20 inverts the CORRECTED sawtooth (SM 2.3), so the band-limited
+            # reverse saw is the band-limited saw negated, not a second BLEP.
+            return sat16(-sat16(_saw_fx(ph) - c))
+        if self.shape == "shark":
+            # The switch mixes the two BUFFERED waveform outputs through R030
+            # and R031, so the correction the saw already carries is what the
+            # junction sees. The step at the wrap is 10/57 of the saw's.
+            return sat16((SHARK_W_SAW * sat16(_saw_fx(ph) - c)
+                          + SHARK_W_TRI * _tri_fx(ph)) >> 15)
+        ph2 = (ph + (CYCLE - DUTY[self.shape])) & PHASE_MASK
+        return sat16(naive_fx(self.shape, ph) + c
+                     - blep_fx(ph2, inc_a, e, r, self.MB, self.RB))
 
 
 # ---- mixer ------------------------------------------------------------------
@@ -306,6 +456,129 @@ def mix_fx(signals, weights, q: int = 15) -> np.ndarray:
     for s, w in zip(signals, weights):
         acc += s * int(w)
     return sat16(acc >> q)
+
+# ---- the noise source (contract 6.10; docs/minimoog-reference.md N1-N8) -----
+def lfsr_frame(state: int) -> tuple:
+    """One frame of the LFSR: 16 steps of
+        s <- (s << 1) | (s[30] ^ s[15] ^ s[17] ^ s[19])
+    on a 31-bit state. Character for character the drum section's
+    `drums_fx.lfsr_frame` (contract 15.4) -- the same primitive pentanomial
+    x^31 + x^15 + x^13 + x^11 + 1, the same 16 steps, the same signed Q1.15
+    word. It is DUPLICATED rather than imported so the voice model does not
+    depend on the drum model; `test_moog_acceptance` asserts the two agree bit
+    for bit from a common seed, which is what makes the duplication safe.
+
+    The two are given DIFFERENT seeds on purpose (VOICE_LFSR_SEED): sharing
+    one generator would make the voice's noise and the drums' the same signal,
+    and two identical noises sum at +6 dB where two independent ones sum at
+    +3."""
+    w = 0
+    for t in LFSR_TAPS:                      # every tap is at bit 15 or above, so all
+        w ^= (state >> (t - 15)) & 0xFFFF    #   16 new bits are a function of the OLD state
+    s = ((state << NOISE_BITS) | w) & LFSR_MASK
+    return s, (w - 0x10000 if w & 0x8000 else w)
+
+
+class NoiseFx:
+    """The Model D's noise board (drawing 1431) as three integer signals.
+
+      white   the LFSR word, >> NOISE_SHIFT
+      pink    white through a biquad: the bilinear transform of the drawing's
+              "-3 db/OCTAVE FILTER" (10 k series, two shunt R-C legs), with the
+              make-up gain that equalises its noise power with white's
+      red     pink through one pole at 106 Hz (R914 10 k, C908 0.15 uF; the
+              drawing labels the section "100 Hz Lowpass Filter"), again
+              power-equalised
+
+    All three leave at the same RMS because the instrument's do: the drawing
+    labels white, pink and red -4 dBm each [verified]. The pink state is a
+    32-bit Q5.27 word, not Q1.15, because the biquad's pole at 0.9889 would
+    otherwise amplify its own truncation noise by 39 dB.
+    """
+
+    def __init__(self, seed: int = VOICE_LFSR_SEED):
+        self.seed = int(seed)
+        self.reset()
+
+    def reset(self):
+        """RESET: contract 14. The LFSR returns to its seed, not to zero -- an
+        all-zero LFSR is a fixed point and would be silent forever."""
+        self.lfsr = self.seed
+        self.x1 = self.x2 = 0
+        self.y1 = self.y2 = 0
+        self.rl = 0
+
+    # b*x is Q(PINK_BQ+15); a*Y is Q(PINK_AQ+PINK_Q). One shift lines them up
+    # so the whole biquad is ONE floor, not two.
+    BX_SHIFT = PINK_AQ + PINK_Q - (PINK_BQ + 15)
+
+    def step(self) -> tuple:
+        """One frame: (white, pink, red), each Q1.15."""
+        self.lfsr, x0 = lfsr_frame(self.lfsr)
+        t = ((PINK_B[0] * x0 + PINK_B[1] * self.x1 + PINK_B[2] * self.x2) << self.BX_SHIFT) \
+            - (PINK_A[0] * self.y1 + PINK_A[1] * self.y2)
+        y0 = sat(t >> PINK_AQ, PINK_SB)
+        self.x2, self.x1 = self.x1, x0
+        self.y2, self.y1 = self.y1, y0
+        self.rl = sat(self.rl + (((y0 - self.rl) * RED_G) >> 16), PINK_SB)
+        return (x0 >> NOISE_SHIFT,
+                clamp16(y0 >> (PINK_Q - 15 + NOISE_SHIFT)),
+                clamp16((self.rl * RED_GAIN) >> (PINK_AQ + PINK_Q - 15 + NOISE_SHIFT)))
+
+    def render(self, n: int):
+        """n frames as three int64 arrays, for measurement. The voice itself
+        calls `step` inside its own per-frame loop."""
+        w = np.empty(n, dtype=np.int64); p = np.empty(n, dtype=np.int64); r = np.empty(n, dtype=np.int64)
+        for i in range(n):
+            w[i], p[i], r[i] = self.step()
+        return w, p, r
+
+
+# ---- 2^x for the modulation path (contract 6.9) -----------------------------
+def make_exp_rom(bits: int = EXP_BITS) -> np.ndarray:
+    """2^bits + 1 entries of (2^(i/2^bits) - 1) * 32768, EDGE-sampled over one
+    octave, with the guard entry. Stored biased so the top entry (2.0) still
+    fits in 16 bits; `exp2_q` adds the 32768 back."""
+    return np.array([int(round((2.0 ** (i / (1 << bits))) * 32768)) - 32768
+                     for i in range((1 << bits) + 1)], dtype=np.int64)
+
+
+EXP_ROM = make_exp_rom()
+_EXP_FB = OCT_Q - EXP_BITS               # fraction bits below the ROM index
+
+
+def clamp_oct(v: int) -> int:
+    """Saturate an octave word to Q3.12's +-4 octaves (OCT_SAT)."""
+    return -OCT_SAT if v < -OCT_SAT else (OCT_SAT - 1 if v > OCT_SAT - 1 else v)
+
+
+def exp2_q(oct_q12: int) -> tuple:
+    """2^(o / 2^OCT_Q) as (mantissa, shift) with the value = (v * mantissa) >> shift.
+
+    `o` is a SIGNED Q3.12 octave word, saturated to +-4 octaves by `clamp_oct`.
+    Its integer part becomes the shift and its fraction the ROM read, so there
+    is no barrel shifter on the mantissa and no exponent register: one
+    interpolated ROM read and one variable right shift, of 12 .. 19 places.
+    o = 0 gives (32768, 15),
+    i.e. exactly v -- so an unmodulated voice is bit-identical to one with no
+    modulation path at all."""
+    i = oct_q12 >> OCT_Q                                     # arithmetic: floor
+    fr = oct_q12 & ((1 << OCT_Q) - 1)
+    idx = fr >> _EXP_FB
+    fq = fr & ((1 << _EXP_FB) - 1)
+    mant = 32768 + int(EXP_ROM[idx]) + ((int(EXP_ROM[idx + 1] - EXP_ROM[idx]) * fq) >> _EXP_FB)
+    return mant, 15 - i
+
+
+def mod_pan(osc3: int, noise: int, mmix: int) -> int:
+    """The MOD MIX pot: a PAN, not two levels. "The wiper of R23 is connected
+    to ground and, therefore, when the MODULATION MIX potentiometer is
+    rotated, it pans between the two modulation signals" [verified: SM 2.4].
+    mmix = 0 is oscillator 3 alone, MMIX_FULL is noise alone; the two weights
+    sum to exactly MMIX_FULL, so the result is a convex combination and can
+    only reach the rail when a source already is there."""
+    m = mmix if mmix < MMIX_FULL else MMIX_FULL
+    return clamp16((osc3 * (MMIX_FULL - m) + noise * m) >> 15)
 
 
 # ---- envelope ---------------------------------------------------------------
@@ -405,14 +678,52 @@ class AdsrFx:
 
 
 # ---- cutoff -> coefficient ROM ---------------------------------------------
-def make_g_rom(bits: int = GROM_BITS, oversample: int = 2) -> np.ndarray:
-    """2^bits + 1 entries of g = 1 - exp(-2*pi*f/fs) in Q0.16, EDGE-sampled at
-    f = i * (32768 >> bits) Hz. fs is the ladder's oversampled rate. The +1 is
-    the interpolation guard entry."""
+# Huovilainen's tuning polynomial (DAFx-04; DR 0011). The one-pole cascade's
+# corner is not at the frequency the naive g = 1 - exp(-2*pi*f/fs) puts it:
+# four poles and the half-sample feedback delay pull the loop's resonant
+# frequency away from the commanded cutoff, by more at the top of the range
+# than the bottom. Huovilainen publishes the correction as a cubic in the
+# cutoff normalised to the BASE rate, and Surge XT's `LP Vintage Ladder`
+# Type 2 applies it (sst-filters `VintageLadders.h`, namespace Huov, constants
+# m18730 / m04955 / mneg06490 / m09988; original implementation Victor
+# Lazzarini for Csound 5). We did not, and the self-oscillation frequency drifted
+# 9.84 percentage points over 100 Hz .. 10 kHz against Surge Type 2's 0.62.
+#
+# NOTE ON THE CONSTANT. Both `docs/discrimination.md` section 8.3 and
+# `model/reference_rigs.py` print the quadratic term as 0.4995. The source they
+# cite spells it `m04955` -- 0.4955 -- and that is what is used here. The two
+# differ by 0.03 percentage points on the measurement, so the number was never
+# going to be caught by a measurement; it is caught by reading the source.
+FCR_C3, FCR_C2, FCR_C1, FCR_C0 = 1.8730, 0.4955, -0.6490, 0.9988
+# One constant scale on top, chosen at res = 1.05 on the free-ring probe
+# (DR 0011). It removes the frequency-INDEPENDENT part of the residual, which
+# the polynomial does not touch; the residual's size depends on resonance, so
+# the operating point is part of the decision.
+CUT_TRIM = 1.030
+
+
+def fcr(cut_hz):
+    """Huovilainen's tuning polynomial at a commanded cutoff in Hz. `fc` is
+    normalised to the BASE rate, not the oversampled one -- which is how both
+    Surge and Csound's original evaluate it."""
+    fc = np.asarray(cut_hz, dtype=np.float64) / SR
+    return ((FCR_C3 * fc + FCR_C2) * fc + FCR_C1) * fc + FCR_C0
+
+
+def make_g_rom(bits: int = GROM_BITS, oversample: int = 2, tune: bool = True) -> np.ndarray:
+    """2^bits + 1 entries of g = 1 - exp(-2*pi*f'/fs) in Q0.16, EDGE-sampled at
+    a COMMANDED cutoff f = i * (32768 >> bits) Hz, where f' = f * CUT_TRIM *
+    fcr(f) is the tuned frequency the one-pole cascade actually has to run at
+    to resonate at f (DR 0011). fs is the ladder's oversampled rate. The +1 is
+    the interpolation guard entry.
+
+    `tune=False` is the untuned ROM of contract revisions 1-6 -- the negative
+    control for DR 0011, and nothing else."""
     fs = SR * oversample
     step = (1 << 15) >> bits
     f = np.arange((1 << bits) + 1) * step
-    return np.clip(np.round((1.0 - np.exp(-2.0 * math.pi * f / fs)) * 65536), 0, 65535).astype(np.int64)
+    ft = f * CUT_TRIM * fcr(f) if tune else f.astype(np.float64)
+    return np.clip(np.round((1.0 - np.exp(-2.0 * math.pi * ft / fs)) * 65536), 0, 65535).astype(np.int64)
 
 
 def g_from_cut(cut_hz: np.ndarray, rom: np.ndarray, bits: int = GROM_BITS) -> np.ndarray:
@@ -534,23 +845,30 @@ class VoiceFx:
         self.amp_env = AdsrFx(0.005, 0.25, 0.75, 0.12, env_bits=self.EB)
         self.filt_env = AdsrFx(0.004, 0.30, 0.25, 0.10, env_bits=self.EB)
         self.ladder = LadderFx(**self.ladder_cfg)
+        self.noise = NoiseFx()
         self.track_hz, self.gate, self.glide = 0, 0, 0
+        self.mod_sig = 0                             # the registered modulation value (6.9)
+        self.weights = [0, 0, 0, 0]
+        self.nsel = self.mmix = self.mwheel = self.mpd = self.mfd = self.mroute = 0
         for o in self.oscs:
             o.phase = o.inc_tgt = o.inc_acc = 0
 
     # ---- host-side conversions (contract 5.5): float in, registers out ----
     @staticmethod
     def patch_regs(*, waves=("saw", "saw", "square"), detune=(0.0, 0.07, -12.0),
-                   mix=(1.0, 0.8, 0.5), cutoff=(400, 4000), q=0.62, drive=1.6,
+                   mix=(1.0, 0.8, 0.5), noise=0.0, nsel=0, cutoff=(400, 4000), q=0.62, drive=1.6,
                    amp=(0.005, 0.25, 0.75, 0.12), fenv=(0.004, 0.30, 0.25, 0.10),
-                   track=0.35, vol=None, glide_s=GLIDE_REF_S, **_ignored) -> dict:
+                   track=0.35, vol=None, glide_s=GLIDE_REF_S,
+                   mod_mix=0.0, mod_wheel=0.0, mod_pitch=MPD_REF_OCT, mod_filter=MFD_REF_OCT,
+                   osc_mod=False, filt_mod=False, osc3_ctl=True, **_ignored) -> dict:
         """The patch's physical units as the control image, less the per-note
         registers (inc, track_hz, gate). Same names and defaults as
         engines.mono_note. `vol` in 0..1 (reference 0.45); `glide_s` is the
         time per octave at the constant-rate glide of DR 0004."""
         waves = tuple(waves) + ("saw",) * (3 - len(waves))     # a patch with fewer than
         detune = tuple(detune) + (0.0,) * (3 - len(detune))      # three oscillators leaves
-        weights = mix_weights(mix) + [0] * (3 - len(mix))        # the rest silent: w = 0
+        mix = tuple(mix) + (0.0,) * (3 - len(mix))               # the rest silent: w = 0
+        weights = mix_weights(list(mix) + [noise])               # FOUR mixer sources (6.10)
         k, gain, ogain = LadderFx(**LADDER_CFG).regs(q, drive)     # clamped to 17 / 20 / 20 bits
         return dict(waves=waves, detune=detune, weights=weights,
                     cut_lo=usat(int(round(cutoff[0])), CUT_BITS),
@@ -558,7 +876,14 @@ class VoiceFx:
                     res=q, drive=drive, k=k, gain=gain, ogain=ogain,
                     amp=AdsrFx.regs_from(*amp), fenv=AdsrFx.regs_from(*fenv), track=track,
                     vol=VOL_REF if vol is None else usat(int(round(vol * 32768)), VOL_BITS),
-                    glide=glide_reg(glide_s))
+                    glide=glide_reg(glide_s),
+                    nsel=usat(int(nsel), NSEL_BITS),
+                    mmix=usat(int(round(mod_mix * MMIX_FULL)), MOD_BITS),
+                    mwheel=usat(int(round(mod_wheel * MMIX_FULL)), MOD_BITS),
+                    mpd=usat(int(round(mod_pitch * (1 << OCT_Q))), MOD_BITS),
+                    mfd=usat(int(round(mod_filter * (1 << OCT_Q))), MOD_BITS),
+                    mroute=((MR_OSC if osc_mod else 0) | (MR_FILT if filt_mod else 0)
+                            | (MR_OSC3 if osc3_ctl else 0)))
 
     @staticmethod
     def note_incs(note, detune) -> list:
@@ -576,8 +901,8 @@ class VoiceFx:
         """n frames of the voice from its current state, with `writes` --
         (frame, op, *args) -- applied at the start of their frames in list
         order (contract 4.3). Ops: ("INC", k, v, jump), ("TRACK", hz),
-        ("GATE", 0|1), ("TRIG",), ("GLIDE", v). The patch registers in `regs`
-        are applied at frame 0. Returns int16."""
+        ("GATE", 0|1), ("TRIG",), ("GLIDE", v), ("MWHEEL", v). The patch
+        registers in `regs` are applied at frame 0. Returns int16."""
         self._apply_patch(regs)
         ev = {}
         for w in writes:
@@ -590,6 +915,7 @@ class VoiceFx:
         gate = np.empty(n, dtype=np.int64)
         trig = np.zeros(n, dtype=np.int64)
         glide = np.empty(n, dtype=np.int64)
+        mw = np.empty(n, dtype=np.int64)
         bounds = [0] + [f for f in frames if f > 0] + [n]
         for f0, f1 in zip(bounds, bounds[1:]):
             for op, *args in ev.get(f0, []):            # step 1: apply control, in order
@@ -606,6 +932,8 @@ class VoiceFx:
                     trig[f0] = 1
                 elif op == "GLIDE":
                     self.glide = int(args[0])
+                elif op == "MWHEEL":
+                    self.mwheel = int(args[0])      # the wheel is played, so it is per-frame
                 else:
                     raise ValueError(op)
             m = f1 - f0
@@ -614,28 +942,107 @@ class VoiceFx:
             track[f0:f1] = self.track_hz
             gate[f0:f1] = self.gate
             glide[f0:f1] = self.glide
-        return self._render(incs, track, gate, trig, n)
+            mw[f0:f1] = self.mwheel
+        return self._render(incs, track, gate, trig, n, mw)
 
     def _apply_patch(self, r: dict):
         for o, shape in zip(self.oscs, r["waves"]):
             o.set_shape(shape, self.blep)
-        self.weights = list(r["weights"])
+        self.weights = list(r["weights"]) + [0] * (4 - len(r["weights"]))   # osc 0..2, then noise
         self.amp_env.set_regs(*r["amp"]); self.filt_env.set_regs(*r["fenv"])
         self.cut_lo, self.cut_hi = int(r["cut_lo"]), int(r["cut_hi"])
         self.res, self.drive = r["res"], r["drive"]
         self.k_reg, self.gain, self.ogain = int(r["k"]), int(r["gain"]), int(r["ogain"])
         self.vol = int(r["vol"])
         self.glide = int(r["glide"])
+        self.nsel = int(r.get("nsel", 0))
+        self.mmix = int(r.get("mmix", 0))
+        self.mwheel = int(r.get("mwheel", 0))
+        self.mpd = int(r.get("mpd", 0))
+        self.mfd = int(r.get("mfd", 0))
+        self.mroute = int(r.get("mroute", 0))
         self.regs = r
 
-    def _render(self, incs, track, gate, trig, n) -> np.ndarray:
-        """Steps 2..8 of contract 4.2 for n frames, vectorised. Integer only."""
+    def _modulate(self, incs, n, mw):
+        """Contract 6.9 and 6.10 for n frames: the noise board, the modulation
+        mix, and the increments the oscillators actually run on.
+
+        This is SEQUENTIAL and has to be. The modulation source is oscillator
+        3, and when OSC-3 CONTROL is on oscillator 3 is also a modulation
+        DESTINATION -- the Model D wires the mod bus into all three
+        oscillators' CV summers and only SW2 takes oscillator 3 off it
+        [verified: SM 2.18]. So frame n's oscillator-3 phase depends on frame
+        n-1's oscillator-3 output. The chip breaks that loop with a register:
+        `mod_sig` is computed at the END of a frame and read at the START of
+        the next -- one frame, 20.8 us, four orders of magnitude below any
+        modulation rate the instrument reaches.
+
+        The tap is oscillator 3's NAIVE waveform, before PolyBLEP. The
+        modulation path is a control voltage: it is never summed into the
+        mixer and never heard, so band-limiting it would only buy area. At
+        LO-range rates the PolyBLEP window never opens and the two are
+        identical anyway -- which the acceptance suite checks rather than
+        assumes.
+
+        Returns (inc_mod, white, pink, red, mant_f, sh_f, mod_sig)."""
+        nz = self.noise
+        inc_l = [[int(v) for v in a] for a in incs]
+        inc_m = [np.empty(n, dtype=np.int64) for _ in range(3)]
+        white = np.empty(n, dtype=np.int64)
+        pink = np.empty(n, dtype=np.int64)
+        red = np.empty(n, dtype=np.int64)
+        mant_f = np.empty(n, dtype=np.int64)
+        sh_f = np.empty(n, dtype=np.int64)
+        msig = np.empty(n, dtype=np.int64)
+        osc_mod = bool(self.mroute & MR_OSC)
+        filt_mod = bool(self.mroute & MR_FILT)
+        dest3 = bool(self.mroute & MR_OSC3)
+        mmix = self.mmix if self.mmix < MMIX_FULL else MMIX_FULL
+        a_osc = MMIX_FULL - mmix
+        mpd, mfd, nsel = self.mpd, self.mfd, self.nsel
+        shape3 = self.oscs[2].shape
+        ph3 = self.oscs[2].phase
+        m = self.mod_sig
+        mwl = [int(v) for v in mw]
+        for i in range(n):
+            w, p, r = nz.step()
+            white[i] = w; pink[i] = p; red[i] = r
+            msig[i] = m
+            amt = clamp16((m * mwl[i]) >> 15)                    # the wheel
+            if filt_mod:
+                mf, sf = exp2_q(clamp_oct((amt * mfd) >> 15))
+            else:
+                mf, sf = 32768, 15
+            mant_f[i] = mf; sh_f[i] = sf
+            if osc_mod:
+                mp, sp = exp2_q(clamp_oct((amt * mpd) >> 15))
+                for k in range(3):
+                    v = inc_l[k][i]
+                    if k < 2 or dest3:
+                        v = (v * mp) >> sp
+                        v = 0 if v < 0 else (INC_MAX if v > INC_MAX else v)
+                    inc_m[k][i] = v
+            else:
+                inc_m[0][i] = inc_l[0][i]; inc_m[1][i] = inc_l[1][i]; inc_m[2][i] = inc_l[2][i]
+            o3 = naive_one(shape3, ph3)                          # the tap, before the advance
+            ph3 = (ph3 + inc_m[2][i]) & PHASE_MASK
+            m = mod_pan(o3, r if nsel else p, mmix)              # 2.5: pink or RED for modulation
+        self.mod_sig = m
+        return inc_m, white, pink, red, mant_f, sh_f, msig
+
+    def _render(self, incs, track, gate, trig, n, mw=None) -> np.ndarray:
+        """Steps 2..8 of contract 4.2 for n frames. Integer only."""
+        if mw is None:
+            mw = np.full(n, self.mwheel, dtype=np.int64)
+        incs, white, pink, red, mant_f, sh_f, msig = self._modulate(incs, n, mw)
         sig = [o.render(n, inc) for o, inc in zip(self.oscs, incs)]
-        mixed = mix_fx(sig, self.weights)                        # step 3
+        n_audio = pink if self.nsel else white                   # 2.5: WHITE or pink for audio
+        mixed = mix_fx(sig + [n_audio], self.weights)            # step 3, four sources
         ae = self.amp_env.render(n, gate, trig)                  # step 4
         fe = self.filt_env.render(n, gate, trig)
         span = self.cut_hi - self.cut_lo                         # step 5: cutoff
         cut = np.clip(self.cut_lo + ((span * fe) >> 15) + track, CUT_MIN, CUT_MAX)
+        cut = np.clip((cut * mant_f) >> sh_f, CUT_MIN, CUT_MAX)  # step 5b: filter modulation
         lad = self.ladder
         kc = kc_from_cut(cut, self.k_rom, self.KB)
         k_eff = k_effective(self.k_reg, kc) if self.k_comp else np.full(n, self.k_reg, dtype=np.int64)
@@ -650,7 +1057,9 @@ class VoiceFx:
         v = (y * ae) >> 15                                       # step 7: VCA, after the filter
         out = sat16((v * self.vol) >> 15)                        # step 8: volume, the one output clamp
         self.trace = dict(osc=sig, mixed=mixed, amp_env=ae, filt_env=fe, cut=cut, g=g,
-                          kc=kc, k_eff=k_eff, ladder=y, vca=v, incs=incs, gate=gate, trig=trig)
+                          kc=kc, k_eff=k_eff, ladder=y, vca=v, incs=incs, gate=gate, trig=trig,
+                          white=white, pink=pink, red=red, noise=n_audio, mod_sig=msig,
+                          mant_f=mant_f, sh_f=sh_f, mwheel=mw)
         return out.astype(np.int16)
 
     # ---- one note from reset: the reference sequences of contract 16 --------

@@ -31,7 +31,8 @@
 module tb_voice;
     parameter GO   = 48;              // writes occupy cycles 1..GO-2 (46; the whole patch image is 27)
     parameter MAXW = 1 << 17;
-    parameter MAXN = 1 << 18;
+    parameter MAXN = 1 << 20;          // the full set is 383,460 frames since contract rev 9;
+                                       // at 1 << 18 the bench stopped short and SAID so (status 2)
     // voice_dp's sequencer states this bench taps; they must match voice_dp.v
     // THESE TRACK voice_dp.v's STATE ENCODING BY NUMBER and must be updated with
     // it. S_VCA2 was 32 until the master mix was rebuilt to contract 12 (which
@@ -40,6 +41,8 @@ module tb_voice;
     // every audio sample still matched. The `t_v_seen` check below makes that
     // failure loud instead of silent.
     localparam S_MIX = 6, S_KEFF1 = 15, S_VCA2 = 33;
+    // New states are APPENDED in voice_dp.v (36 and up) precisely so these three
+    // numbers do not move when the datapath grows.
 
     reg clk = 0, rst_n = 0;
     reg go = 0, wr_valid = 0, wr_flag = 0;
@@ -67,7 +70,7 @@ module tb_voice;
     always @(posedge clk) begin
         if (dut.state == S_MIX) begin                     // oscillator kk is being mixed: its sample, inc, (e, r)
             t_osc[dut.kk] <= dut.osc;
-            t_inc[dut.kk] <= dut.inc_acc[dut.kk][31:8];
+            t_inc[dut.kk] <= dut.inc_mod[dut.kk];      // the MODULATED increment (6.9)
             t_sh[dut.kk]  <= dut.sh[dut.kk];
             t_r[dut.kk]   <= dut.r[dut.kk];
         end

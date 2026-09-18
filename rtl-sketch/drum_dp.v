@@ -23,7 +23,7 @@
 // (tb_drums.v measures it), before the bank's 3*MODES+2 = 50. 118 of the
 // frame's 256 (ARCHITECTURE 5), and synth_top's `overrun` flag watches it.
 //
-// REVISION 9 widened the PATH word from 22 bits to 25: the envelope fields
+// REVISION 10 widened the PATH word from 22 bits to 25: the envelope fields
 // and the destination field are 5 bits each. At 4 bits the block could
 // address twelve envelopes and fifteen modes, and DEST_MIX was 15 -- which
 // is also mode 15, so at MODES = 16 the last mode could never be a

@@ -29,10 +29,12 @@
 // 16-entry table as good as 256 (model/test_fixed.py); the earlier sketch had
 // the small table but not the interpolation, and read the ROM out of range.
 //
-// tanh(v), v the 24-bit state:  a = |v|;  clamp to 32767 if a >= 4.0;
+// tanh(v), v the 24-bit state:  a = |v|;  clamp to rom[2^n] if a >= 4.0;
 //   else idx = a[21:22-n], frac = a[21-n:0],
 //        r = rom[idx] + ((rom[idx+1] - rom[idx]) * frac) >> (22-n);
-//   result = -r if v < 0.  rom[2^n] is 32767, the model's top word, not tanh(4).
+//   result = -r if v < 0.  rom[2^n] is the model's guard word, tanh(4)*32767
+//   = 32745 -- and the CLAMP above 4.0 returns that same word, so the table
+//   and the clamp cannot drift apart (they did: both were 32767 to rev 9).
 //
 // Formats, all the model's:
 //   x_in   Q1.15 signed          y_out  Q(OW-15).15 signed, saturated to OW bits (19: the voice's Q4.15)
@@ -73,7 +75,7 @@ module ladder_dp_n #(
     localparam AW    = SW + 4;                   // pre-saturation arithmetic width: every
                                                  // intermediate below is under 2^27 in magnitude
 
-    // ---- tanh table: the model's tbl[0..N-1] plus 32767 ---------------------
+    // ---- tanh table: the model's tbl[0..N-1] plus the guard word ------------
     reg signed [15:0] rom [0:N];
     initial $readmemh(ROM_FILE, rom);
 
@@ -166,7 +168,7 @@ module ladder_dp_n #(
     wire        [15:0]    tdelta = t1 - t0;                // monotonic table: 0..32767
     reg  signed [15:0]    t0_r;
     reg                   tneg_r, tsat_r;
-    wire        [15:0]    tr_mag = tsat_r ? 16'd32767 : (t0_r + mul_r[FRACW +: 16]);
+    wire        [15:0]    tr_mag = tsat_r ? rom[N] : (t0_r + mul_r[FRACW +: 16]);
     wire signed [15:0]    tr     = tneg_r ? -tr_mag : tr_mag;
 
     // ---- sequencer -----------------------------------------------------------

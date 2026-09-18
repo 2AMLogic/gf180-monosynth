@@ -137,18 +137,39 @@ against a real recording, where one exists.
 
 | # | circuit | built | a. coef | b. audio | c. hardware | note |
 |---|---|:-:|:-:|:-:|:-:|---|
-| 1 | BD bass drum | ✓ | ✓ | **red** | 3.6 | no attack window; §2 wants ≈130 Hz for 4 ms |
-| 2 | SD snare | ✓ | ✓ | ✓ | **3.4** | was 8.8; see the note under this table |
-| 3 | **LC / LT** low conga *or* low tom | ✓ | ✓ | **red** | 7.1 | have LT; no pitch drop (§4) |
+| 1 | BD bass drum | ✓ | ✓ | ✓ | 3.6 | attack window shipped (`bd_attack_writes`, §2) |
+| 2 | SD snare | ✓ | ✓ | ✓ | **3.4** | was 8.8; burst length and partial balance fixed |
+| 3 | **LC / LT** low conga *or* low tom | ✓ | ✓ | ✓ | 7.1 | have LT; pitch drop shipped (`tom_pitch_drop_writes`, §4) |
 | 4 | **MC / MT** mid conga *or* mid tom | — | — | — | — | **missing** |
-| 5 | **HC / HT** hi conga *or* hi tom | ✓ | ✓ | **red** | 6.0 | have HT; no pitch drop (§4) |
+| 5 | **HC / HT** hi conga *or* hi tom | ✓ | ✓ | ✓ | 6.0 | have HT; pitch drop shipped |
 | 6 | **CL / RS** claves *or* rim shot | — | — | — | — | **missing**; one bridged-T |
 | 7 | **MA / CP** maracas *or* hand clap | ✓ | ✓ | ✓ | n/a | have CP; no knob → no held-out setting |
-| 8 | CB cowbell | ✓ | ✓ | ✓ | **red** | τ 26 ms vs a real 98 ms |
+| 8 | CB cowbell | ✓ | ✓ | ✓ | n/a | per-oscillator sources; τ 98 ms (DR 0010) |
 | 9 | CY cymbal | — | — | — | — | **missing**; shares the hats' six squares |
 | 10 | OH open hat | ✓ | ✓ | ✓ | 6.9 | |
 | 11 | CH closed hat | ✓ | ✓ | ✓ | n/a | no knob → no held-out setting |
 | — | DL full library | — | — | — | — | simultaneity and mix, after all circuits |
+
+**Every built circuit is green.** `KNOWN_DEFECTS` is empty and the 808
+acceptance suite passes 53 tests under `TR808_STRICT=1`. An earlier version of
+this table carried **red** on the bass drum, both toms and the cowbell after
+those defects had been fixed — stale findings are their own failure mode,
+distinct from wrong ones, and this document has now made that mistake twice.
+
+**The cost of the full library is measured, and it is small.** `drum_kit` at
+MODES=16 / NUMS=11 — the configuration that holds the complete 808 — is
+**630,433 µm²** against the shipped MODES=12 / NUMS=6 at **603,118 µm²**. That
+is **+27,315 µm², +4.5 %** on the drum kit, or roughly **+1.3 %** of the whole
+2,033,110 µm² chip, before the extra envelopes, paths and configuration storage
+the three new circuits need. Power-of-two padding is why: MODES 9, 12, 14 and
+16 all carry exactly 1,656 flops.
+
+**What actually blocks it is `NUMS`, not modes.** `modal_dp` gives a numerator
+only to modes below `NUMS`, the kit is instantiated at `NUMS = 6`, and modes
+0–5 are exactly its six filters. **The filter half is full.** Mode 11, the
+spare, sits *above* `NUMS` and can therefore only ever be a RAW body — which is
+no use to the cymbal, which needs a filter. Completing the 808 means raising
+`NUMS` to 11, and that is the change to cost and verify, not the mode count.
 
 **The 808's sixteen sounds are eleven or twelve circuits, in five exclusive
 pairs.** (Roland's TR-08 pairing implies eleven; Wikipedia says twelve timbral
@@ -166,7 +187,7 @@ exactly those pairs thirty-five years later, and consistent with the original's
 panel. This matters enormously for a shared modal bank, which needs a mode per
 *concurrent* voice rather than per named sound.
 
-**We have 11 of 11 circuits as of contract revision 9** (this paragraph is kept
+**We have 11 of 11 circuits as of contract revision 10** (this paragraph is kept
 as written because the reasoning in it is what the build followed). **We had
 8 of 11, so a complete 808 was +3 circuits, not +8 voices.
 But +3 circuits is NOT +3 modes** — the eight-stop kit we already ship uses
@@ -196,7 +217,7 @@ and `drum_kit` on gf180. Three corrections to what this section used to say:
    marginal cost inside the bracket is configuration storage, ≈ 6,400 µm² per
    mode — **and none of that storage exists in RTL**, on any branch.
 
-> **Built, 2026-09-18 — contract revision 9.** All three predictions above
+> **Built, 2026-09-18 — contract revision 10.** All three predictions above
 > were close, and the one that was wrong was wrong in a useful direction.
 >
 > * **Modes: 16, `NUMS` 11** — inside the predicted 15–18 / 8–11. Eight

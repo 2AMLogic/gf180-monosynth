@@ -1,0 +1,69 @@
+# The DAG maintains itself.
+#
+# Until now the README's diagram only refreshed when somebody remembered to run
+# tools/compile_dag.py, and CI merely *complained* when it was stale. That is
+# the same failure the tool was written to prevent: a status document that
+# drifts from the thing it describes, kept true by a human noticing.
+#
+# This regenerates it on every push to main and commits the result, so the
+# README is a live view rather than a maintained artefact. Nobody updates it.
+name: dag
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Without this the bot cannot push its own commit back.
+permissions:
+  contents: write
+
+concurrency:
+  group: dag-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Do not re-trigger on the bot's own commit. The push filter below is the
+    # real guard; this is belt and braces, because a self-triggering workflow
+    # that commits is an infinite loop that costs money.
+    if: "!contains(github.event.head_commit.message, '[dag]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A shallow clone cannot answer "did a file this node covers change
+          # since its tag was cut", which is the whole staleness mechanism.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+
+      # Runs the fast evidence for real. Slow nodes (iverilog, hours) carry
+      # their status from their tag or from the nightly's recorded results.
+      - name: run the evidence and regenerate
+        run: |
+          python tools/compile_dag.py --run || true   # a RED node is a result, not an error
+          python tools/compile_dag.py
+
+      - name: commit if it moved
+        run: |
+          if git diff --quiet -- README.md docs/dag-results.json; then
+            echo "the roadmap is unchanged"; exit 0
+          fi
+          git config user.name  "dag-bot"
+          git config user.email "noreply@anthropic.com"
+          git add README.md docs/dag-results.json
+          git commit -m "[dag] regenerate the roadmap from evidence
+
+Automated. Every node's status is derived by running its evidence, not asserted
+by anyone. See tools/compile_dag.py and docs/failure-modes.md."
+          git push
+
+      - name: report what the roadmap says
+        if: always()
+        run: |
+          echo "### Roadmap" >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/DAG:BEGIN/,/DAG:END/p' README.md \
+            | grep -E '^\|' >> "$GITHUB_STEP_SUMMARY" || true

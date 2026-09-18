@@ -1,0 +1,77 @@
+=== ECP5 LFE5U-25F (CABGA381) -- HEADROOM PROBE, MODES=16 NUMS=11 : synth_top with the REAL drum section, headroom_top wrapper ===
+
+   contents: synth_top + spi_ctl + voice_dp + recip_div + ladder_dp_n + i2s_tx
+             + drum_regs + drum_kit (drum_dp + modal_dp).  No placeholder.
+
+   THIS IS NOT THE BUILD. It is fpga/rtl/headroom_top.v: the same wrapper
+   and the same PLL with synth_top's drum parameters raised from the
+   shipping MODES=12 NUMS=6 to MODES=16 NUMS=11, which is what completing
+   the 808 (8 of 11 circuits today) costs. Nothing else differs, so the
+   difference against ecp5_25f.txt is the drum growth and only that.
+   The extra modes are unpopulated and the register map does not yet have
+   room for 16 of them -- see docs/fpga-build.md section 6.
+
+-- FPGA synthesised (yosys technology mapping; NOT place-and-routed) --
+   1164   CCU2C
+   329   L6MUX21
+   14   MULT18X18D
+   1806   PFUMX
+   8692   TRELLIS_FF
+   total mapped cells: 23407
+
+-- FPGA place-and-route --
+  device utilisation:
+    Device utilisation:
+    	          TRELLIS_IO:      18/    197     9%
+    	                DCCA:       1/     56     1%
+    	              DP16KD:       0/     56     0%
+    	          MULT18X18D:      14/     28    50%
+    	              ALU54B:       0/     14     0%
+    	             EHXPLLL:       1/      2    50%
+    	             EXTREFB:       0/      1     0%
+    	                DCUA:       0/      1     0%
+    	           PCSCLKDIV:       0/      2     0%
+    	             IOLOGIC:       0/    128     0%
+    	            SIOLOGIC:       0/     69     0%
+    	                 GSR:       0/      1     0%
+    	               JTAGG:       0/      1     0%
+    	                OSCG:       0/      1     0%
+    	               SEDGA:       0/      1     0%
+    	                 DTR:       0/      1     0%
+    	             USRMCLK:       0/      1     0%
+    	             CLKDIVF:       0/      4     0%
+    	           ECLKSYNCB:       0/     10     0%
+    	             DLLDELD:       0/      8     0%
+    	              DDRDLL:       0/      4     0%
+    	             DQSBUFM:       0/      8     0%
+    	     TRELLIS_ECLKBUF:       0/      8     0%
+    	        ECLKBRIDGECS:       0/      2     0%
+    	                DCSC:       0/      2     0%
+    	          TRELLIS_FF:    8692/  24288    35%
+    	        TRELLIS_COMB:   14218/  24288    58%
+    	        TRELLIS_RAMW:       0/   3036     0%
+    Placed 19 cells based on constraints.
+
+  RESULT: routed.
+
+  clock constraints nextpnr DERIVED (ecp5: from the PLL instance, not from the LPF):
+        Input frequency of PLL 'g_pll.pll_i' is constrained to 25.0 MHz
+        Derived frequency constraint of 25.0 MHz for net g_pll.clkop_unused
+        Derived frequency constraint of 12.3 MHz for net clk_core
+        promoting clock net clk_core to global network
+
+  achieved Fmax. nextpnr prints this twice: once after placement (an
+  ESTIMATE) and once after "Routing complete." (the RESULT). Both are shown
+  so nobody quotes the estimate by accident.
+   post-placement ESTIMATE:  Max frequency for clock '$glbnet$clk_core': 29.82 MHz (PASS at 12.29 MHz)
+   post-route RESULT      :  Max frequency for clock '$glbnet$clk_core': 30.88 MHz (PASS at 12.29 MHz)
+
+  worst cross-domain delays (unconstrained I/O paths):
+    Max delay posedge $glbnet$clk_core -> <async>                 : 5.80 ns
+    Max delay <async>                  -> posedge $glbnet$clk_core: 4.98 ns
+    Max delay posedge $glbnet$clk_core -> <async>                 : 6.42 ns
+
+  bitstream: none (no routed design)
+
+  NOTE: this is a physical result only. It says nothing about whether the
+  design computes the right samples; see docs/verification-rules.md rule 3.

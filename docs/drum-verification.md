@@ -944,7 +944,7 @@ that puts 56 Hz back and requires the table to stop closing.
 
 ---
 
-## 10. The complete machine — all sixteen sounds (contract revision 9)
+## 10. The complete machine — all sixteen sounds (contract revision 10)
 
 Revision 8 shipped **eight** circuits. This section is the evidence for the
 three that were added — **MT/MC**, **CL/RS** and **CY** — and for the four
@@ -963,7 +963,7 @@ switch and cannot sound together, so the second sound of a pair is a register
 image on the circuit it shares — `drums_fx.preset_writes(name)` — and not
 hardware. The block therefore grew:
 
-| | revision 8 | revision 9 | why |
+| | revision 8 | revision 10 | why |
 |---|---|---|---|
 | stops | 8 | **11** | BD SD LT HT CH OH CP CB **MT CL CY**; the first eight keep their indices |
 | modes | 12 | **16** | eight filters, eight bridged-T bodies |
@@ -1233,3 +1233,51 @@ meta test failed for a reason that had nothing to do with what it was checking.
 It now parses failing **node ids** out of one stub run and checks two things
 against explicit lists: every test naming a circuit revision 8 did not have is
 red, and nothing else is.
+
+### 10.8 The pinned kit table moved — and a hash is not the evidence it is right
+
+`KIT808` is pinned by SHA-256 in the contract and in
+`spec/reference/test_tables.py`, and adding six sounds moved it:
+**`7ea9a2e3…` → `feb8c6fd…`, 100 → 147 writes.** Re-pinning it is not
+validation. A broken generator produces perfectly reproducible wrong tables, so
+a matching hash proves the output is *stable*, never that it is *right*. Three
+separate things were done instead, and only the third is evidence of
+correctness:
+
+**1. It regenerates from the model, not from disk.** `gen_tables.py` recomputes
+every table by calling `drums_fx.kit_808()` and compares; deleting
+`tables/kit808.hex` and regenerating reproduces the committed image byte for
+byte at the same hash.
+
+**2. Exactly one pinned table moved, and the diff is fully explained.** Checked
+against revision 9's pins *before* accepting the new one —
+`test_exactly_three_pinned_tables_have_ever_moved` now asserts this, so
+re-pinning cannot hide a second table moving at the same time:
+
+| | |
+|---|---|
+| moved | `KIT808` only |
+| byte-identical | `NOTE_INC`, `SINE_Q256`, `SINE_FULL1024`, `TANH16`, `TANH16_ROM`, `NOISE64`, `EXP_ROM65`, **and `G_ROM128` / `K_ROM32`**, which revision 9 had just moved |
+
+The 147-against-100 diff, keyed by **voice and path name** rather than by
+address — because both the mode block and the path block moved, and an
+address-keyed diff would have shown 31 "changes" that are only renumbering:
+
+- **Nothing removed.** Every write revision 8 made, revision 10 still makes.
+- **Every revision-8 mode is byte-identical** at its new index — all four
+  registers of BD, SD-lo, SD-hi, LT, HT and the six filters.
+- **Every revision-8 envelope is byte-identical.**
+- **Every revision-8 path decodes to the identical meaning** — same source,
+  same two envelopes, same nonlinearity, same attenuation, same destination —
+  even though *every raw path word changed*, because the field layout went from
+  22 bits to 25. That is the one place a silent change could have hidden, and
+  it is the reason the comparison decodes the words instead of comparing them.
+- **The 47 added writes are exactly** the 5 new modes, the 6 new envelopes and
+  the 9 new paths, and nothing else.
+
+**3. The validation is the acceptance suite, and the hash is only
+tamper-evidence.** 102 tests under `TR808_STRICT=1` play the table and measure
+what comes out — against Roland's chart, against the schematic and against a
+real TR-808. The hash answers "did this change"; it can never answer "is this
+correct". That distinction is the same one the CP row taught (§10.6): a
+comparand can look authoritative and be measuring a different quantity.

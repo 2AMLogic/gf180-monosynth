@@ -1,0 +1,26 @@
+[INFO DRT-0195] Start 0th optimization iteration.
+[INFO DRT-0199]   Number of violations = 17929.
+[INFO DRT-0195] Start 1st optimization iteration.
+[INFO DRT-0199]   Number of violations = 3839.
+[INFO DRT-0195] Start 2nd optimization iteration.
+[INFO DRT-0199]   Number of violations = 3042.
+[INFO DRT-0195] Start 3rd optimization iteration.
+[INFO DRT-0199]   Number of violations = 23.
+[INFO DRT-0195] Start 4th guides tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 5th guides tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 6th stubborn tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 10th guides tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 11th stubborn tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 15th guides tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 16th stubborn tiles iteration.
+[INFO DRT-0199]   Number of violations = 1.
+[INFO DRT-0195] Start 17th optimization iteration.
+[INFO DRT-0199]   Number of violations = 2.
+[INFO DRT-0195] Start 18th guides tiles iteration.
+[INFO DRT-0199]   Number of violations = 0.

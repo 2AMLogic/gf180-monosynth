@@ -21,7 +21,7 @@
 //   0xB3 + 4m MODE_NUM[m]      2
 //   0xFF      RESET           --       every register and state of 15.8
 //
-// THE TWO BLOCKS MOVED IN REVISION 9 AND THE REASON IS THIS MODULE. At
+// THE TWO BLOCKS MOVED IN REVISION 10 AND THE REASON IS THIS MODULE. At
 // MODES = 16 a mode block based at 0xC0 spans 0xC0..0xFF, so the last mode's
 // NUM register IS 0xFF -- and `soft_rst` below is a continuous assign OUTSIDE
 // the write decoder, so the address would have meant both things at once and

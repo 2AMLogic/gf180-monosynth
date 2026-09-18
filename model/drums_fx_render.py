@@ -150,7 +150,7 @@ PATTERN_CLAP = {"CP": "....X.......X...", "CB": "x..x..x...x..x..", "CH": "x.xxx
 # floor, the closed hat runs eighths with the open hat answering off the beat,
 # and the three NEW circuits carry the music: the mid conga plays the melody
 # against the high conga, the claves mark the 3-2 clave, and the cymbal opens
-# each bar and rings across it. Nothing in it could be played before revision 9.
+# each bar and rings across it. Nothing in it could be played before revision 10.
 GROOVE_FULL = {
     "BD": "X.......X...x...",
     "SD": "....X.......X...",

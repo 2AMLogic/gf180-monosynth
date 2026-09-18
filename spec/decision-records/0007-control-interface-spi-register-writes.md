@@ -127,8 +127,9 @@ carries 24 bits and the register keeps its own width.
 | A | name | width | write semantics (contract 5.2) | reset |
 |---:|---|---:|---|---:|
 | 0x00–0x02 | `INC_TGT[k]`, k = A[1:0] | 24 | SET_INC k, D, jump = F | 0 |
-| 0x04–0x06 | `WAVE[k]` | 3 | SET_WAVE k, D[2:0] — **0 saw, 1 square, 2 pulse25, 3 tri, 4 sine; 5–7 also sine** (D[2] set means sine, so every value is defined) | 0 (saw) |
+| 0x04–0x06 | `WAVE[k]` | **4** | SET_WAVE k, D[3:0] — **0 saw, 1 square, 2 pulse25, 3 tri, 4 sine, 5 shark, 6 revsaw, 7 pulse29, 8 pulse15; 9–15 also sine** (every value is defined). Widened from 3 bits in revision 10 for the Model D waveform set (DR 0012) | 0 (saw) |
 | 0x08–0x0A | `W[k]` | 16 | SET_WEIGHT k, D[15:0] | 0 |
+| 0x0B | `WN` | 16 | the **noise source's** mixer weight, Q0.15 — the mixer's fourth input (DR 0012) | 0 (silent) |
 | 0x0C | `GLIDE` | 24 | SET_GLIDE | 0 (off) |
 | 0x0D | `VOL` | 16 | SET_VOL — the voice bus level (contract 12) | 0 |
 | 0x0E | `DVOL` | 16 | the drum bus level at the master mix, Q0.15 (ARCHITECTURE.md section 4) | 0 |
@@ -136,9 +137,15 @@ carries 24 bits and the register keeps its own width.
 | 0x10–0x13 | `AMP_A_INC`, `AMP_D_DEC`, `AMP_SUS`, `AMP_RATE` | 24, 24, 24, 16 | SET_ENV amp | 0 |
 | 0x14–0x17 | `FILT_A_INC`, `FILT_D_DEC`, `FILT_SUS`, `FILT_RATE` | 24, 24, 24, 16 | SET_ENV filt | 0 |
 | 0x18–0x1A | `CUT_LO`, `CUT_HI`, `TRACK_HZ` | **16** | SET_CUT (closes 17.10, below) | 0 |
+| 0x1B | `NSEL` | 1 | the noise colour selector: 0 puts **white** in the mixer and **pink** on the modulation bus, 1 puts **pink** in the mixer and **red** on the bus. One bit, two destinations — the Model D's switch selects a pair (DR 0012) | 0 (white / pink) |
 | 0x1C | `K` | 17 | SET_LADDER k | 0 |
 | 0x1D | `GAIN` | 20 | SET_LADDER gain | 0 |
 | 0x1E | `OGAIN` | 20 | SET_LADDER ogain | 0 |
+| 0x1F | `MROUTE` | 3 | bit 0 **OSCILLATOR MODULATION**, bit 1 **FILTER MODULATION**, bit 2 **OSC-3 CONTROL** — with bit 2 clear, oscillator 3's pitch is not modulated, which is the half of the Model D's SW2 that lives in the datapath (DR 0012) | 0 |
+| 0x24 | `MMIX` | 16 | the MODULATION MIX **pan**, Q0.15: 0 is oscillator 3 alone, 32768 is noise alone, values above 32768 clamp. The two weights sum to 32768, so the bus is a convex combination (DR 0012) | 0 (oscillator 3) |
+| 0x25 | `MWHEEL` | 16 | the modulation AMOUNT — the wheel, Q0.15. A performance control, so it is applied per frame like `TRACK_HZ` (DR 0012) | 0 |
+| 0x26 | `MPD` | 16 | pitch-modulation depth at full wheel, **Q3.12 octaves** of peak deviation. The reference value is 0.75 (3072), which is 18 semitones of total swing — the middle of the Model D's 13–23 factory window (DR 0012) | 0 |
+| 0x27 | `MFD` | 16 | filter-modulation depth at full wheel, Q3.12 octaves. The reference value is 1.30 (5325); the Model D's floor is 1.224 (DR 0012) | 0 |
 | 0x28 | `DCUT` | 16 | the drum filter's cutoff, integer Hz, clamped to 30..21 600 like the voice's; no envelope, no tracking | 0 (30 Hz) |
 | 0x2C | `BVOL` | 16 | the **body** bus's level at the master mix, Q0.15 (contract 12; `DVOL` is the mix bus's). The drum section has had two buses since DR 0008 and the output stage has always named two gains; revision 1 had only one address for them | 0 |
 | 0x29 | `DK` | 17 | the drum filter's resonance, `4·res` in Q3.14, compensated by the same kc ROM at `DCUT` | 0 |
@@ -149,7 +156,7 @@ carries 24 bits and the register keeps its own width.
 | 0x22 | `TRIG` | — | both envelopes `seg ← ATTACK`, level and gate unchanged; D ignored | |
 | 0x23 | `RESET` | — | every datapath register of contract 14 ← its reset value; D ignored. **The link and the write queue are not touched**: writes queued behind a RESET in the same frame still apply, in order, after it (the sibling's rule, 10.5; it is what makes 4.3's "every write complete during frame f MUST be applied" true through a RESET). | |
 | 0x3F | `NOP` | — | no effect; exists so the host can read the status word without changing anything | |
-| 0x03, 0x07, 0x0B, 0x1B, 0x1F, 0x24–0x27, 0x2D–0x3E, 0x40–0xFF | reserved on page 0 | | ignored, no effect | |
+| 0x03, 0x07, 0x2D–0x3E, 0x40–0xFF | reserved on page 0 | | ignored, no effect | |
 
 **Page 1 (`SEC` = 1) is the drum section**, and its map is contract 15.1's,
 address for address and bit for bit: `0x00` STOPS, `0x10 + s` ACCENT,

@@ -1,22 +1,25 @@
-=== ECP5 LFE5U-25F (CABGA381) : synth_top (fpga_top wrapper) ===
+=== ECP5 LFE5U-25F (CABGA381), ULX3S : synth_top with the REAL drum section, ulx3s_top wrapper ===
+
+   contents: synth_top + spi_ctl + voice_dp + recip_div + ladder_dp_n + i2s_tx
+             + drum_regs + drum_kit (drum_dp + modal_dp).  No placeholder.
 
 -- FPGA synthesised (yosys technology mapping; NOT place-and-routed) --
-   828   CCU2C
-   155   L6MUX21
-   12   MULT18X18D
-   843   PFUMX
-   2932   TRELLIS_FF
-   total mapped cells: 9454
+   1163   CCU2C
+   250   L6MUX21
+   14   MULT18X18D
+   1713   PFUMX
+   8412   TRELLIS_FF
+   total mapped cells: 22534
 
 -- FPGA place-and-route --
   device utilisation:
     Device utilisation:
-    	          TRELLIS_IO:       9/    197     4%
+    	          TRELLIS_IO:      18/    197     9%
     	                DCCA:       1/     56     1%
     	              DP16KD:       0/     56     0%
-    	          MULT18X18D:      12/     28    42%
+    	          MULT18X18D:      14/     28    50%
     	              ALU54B:       0/     14     0%
-    	             EHXPLLL:       0/      2     0%
+    	             EHXPLLL:       1/      2    50%
     	             EXTREFB:       0/      1     0%
     	                DCUA:       0/      1     0%
     	           PCSCLKDIV:       0/      2     0%
@@ -36,19 +39,29 @@
     	     TRELLIS_ECLKBUF:       0/      8     0%
     	        ECLKBRIDGECS:       0/      2     0%
     	                DCSC:       0/      2     0%
-    	          TRELLIS_FF:    2932/  24288    12%
-    	        TRELLIS_COMB:    6677/  24288    27%
+    	          TRELLIS_FF:    8412/  24288    34%
+    	        TRELLIS_COMB:   13792/  24288    56%
     	        TRELLIS_RAMW:       0/   3036     0%
-    Placed 9 cells based on constraints.
+    Placed 19 cells based on constraints.
 
   RESULT: routed.
 
-  achieved Fmax (nextpnr post-route STA, typical corner):
-    Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 34.33 MHz (PASS at 12.29 MHz)
-    Max frequency for clock '$glbnet$clk$TRELLIS_IO_IN': 33.01 MHz (PASS at 12.29 MHz)
-    Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 3.33 ns
-    Max delay <async>                           -> posedge $glbnet$clk$TRELLIS_IO_IN: 1.37 ns
-    Max delay posedge $glbnet$clk$TRELLIS_IO_IN -> <async>                          : 2.89 ns
+  clock constraints nextpnr DERIVED (ecp5: from the PLL instance, not from the LPF):
+        Input frequency of PLL 'g_pll.pll_i' is constrained to 25.0 MHz
+        Derived frequency constraint of 25.0 MHz for net g_pll.clkop_unused
+        Derived frequency constraint of 12.3 MHz for net clk_core
+        promoting clock net clk_core to global network
+
+  achieved Fmax. nextpnr prints this twice: once after placement (an
+  ESTIMATE) and once after "Routing complete." (the RESULT). Both are shown
+  so nobody quotes the estimate by accident.
+   post-placement ESTIMATE:  Max frequency for clock '$glbnet$clk_core': 30.30 MHz (PASS at 12.29 MHz)
+   post-route RESULT      :  Max frequency for clock '$glbnet$clk_core': 30.49 MHz (PASS at 12.29 MHz)
+
+  worst cross-domain delays (unconstrained I/O paths):
+    Max delay posedge $glbnet$clk_core -> <async>                 : 5.72 ns
+    Max delay <async>                  -> posedge $glbnet$clk_core: 5.38 ns
+    Max delay posedge $glbnet$clk_core -> <async>                 : 6.11 ns
 
   bitstream: ecp5.bit 582369 bytes
 

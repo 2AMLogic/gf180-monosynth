@@ -25,13 +25,18 @@ def _diff_db(y, ref):
     return 20 * math.log10(max(np.sqrt(((a - b) ** 2).mean()), 1e-12))
 
 
+# DR 0011 retuned the integer filter: `LadderFx` at a commanded cutoff runs
+# its one-poles at `fixed.tuned_cutoff(cutoff)`. Every float reference below is
+# therefore evaluated at THAT frequency, so these tests keep measuring what
+# they were written to measure -- quantisation and table size -- instead of
+# measuring the tuning polynomial.
 def test_tracks_the_float_model():
     """Fixed point must stay within 20 dB of float on ordinary material."""
     n = int(0.3 * SR)
     x = _saw(n)
     f = fixed.LadderFx(tanh_entries=16, interp=True)
     y = fixed.q15f(f.process(fixed.f2q15(x), np.full(n, 900.0), 0.8, drive=2.0))
-    ref = dsp.ladder(x, np.full(n, 900.0), np.full(n, 0.8), drive=2.0)
+    ref = dsp.ladder(x, fixed.tuned_cutoff(np.full(n, 900.0)), np.full(n, 0.8), drive=2.0)
     assert _diff_db(y, ref) < -20.0
 
 
@@ -41,7 +46,7 @@ def test_small_table_is_enough(entries):
     RTL's 256-bit ROM depends on; if it stops holding, the area claim changes."""
     n = int(0.3 * SR)
     x = _saw(n)
-    ref = dsp.ladder(x, np.full(n, 900.0), np.full(n, 0.8), drive=2.0)
+    ref = dsp.ladder(x, fixed.tuned_cutoff(np.full(n, 900.0)), np.full(n, 0.8), drive=2.0)
     f = fixed.LadderFx(tanh_entries=entries, interp=True)
     y = fixed.q15f(f.process(fixed.f2q15(x), np.full(n, 900.0), 0.8, drive=2.0))
     assert _diff_db(y, ref) < -30.0
@@ -52,7 +57,7 @@ def test_interpolated_beats_nearest_at_the_same_size():
     Mixing them costs ~8 dB and reads as 'interpolation made it worse'."""
     n = int(0.3 * SR)
     x = _saw(n)
-    ref = dsp.ladder(x, np.full(n, 900.0), np.full(n, 0.8), drive=2.0)
+    ref = dsp.ladder(x, fixed.tuned_cutoff(np.full(n, 900.0)), np.full(n, 0.8), drive=2.0)
     q = fixed.f2q15(x)
     interp = _diff_db(fixed.q15f(fixed.LadderFx(tanh_entries=16, interp=True)
                                  .process(q, np.full(n, 900.0), 0.8, drive=2.0)), ref)

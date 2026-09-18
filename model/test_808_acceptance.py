@@ -93,7 +93,7 @@ coefficients actually written to each mode. Assertions read the manifest rather
 than assuming what a render contains -- three hits at three levels are not
 three DECAY settings, they might be three accents.
 
-ALL SIXTEEN SOUNDS ARE COVERED since contract revision 9. They are ELEVEN
+ALL SIXTEEN SOUNDS ARE COVERED since contract revision 10. They are ELEVEN
 circuits: five carry two sounds each on a panel switch and cannot sound
 together, so the second sound of a pair is a register image on the circuit it
 shares (`drums_fx.preset_writes`) and not hardware. Tests that name a SOUND
@@ -272,7 +272,7 @@ class Render:
         return x[i0:i1]
 
 
-# The three circuits contract revision 9 added, and everything kit_808() writes
+# The three circuits contract revision 10 added, and everything kit_808() writes
 # to them. `TR808_STUB=rev8` blanks exactly this and nothing else.
 REV9_MODES = ("M_MT", "M_RS1", "M_RS2", "M_CYBP", "M_CYHI")
 REV9_ENVS = ("E_MTX", "E_RSX", "E_RSG", "E_CYS", "E_CYD", "E_CYL")
@@ -281,7 +281,7 @@ REV9_PATHS = ("P_MTX", "P_RS1X", "P_RS2X", "P_RS1OUT", "P_RS2OUT",
 
 
 def rev8_kit(kit):
-    """`kit` with revision 9's three circuits left unprogrammed: the block is
+    """`kit` with revision 10's three circuits left unprogrammed: the block is
     sized for eleven stops and only the original eight are written."""
     blank = {}
     for name in REV9_MODES:
@@ -1510,7 +1510,7 @@ def test_clap_is_noise_and_not_an_oscillator_bank():
 
 
 # ===========================================================================
-# the sixteen sounds on eleven circuits -- revision 9
+# the sixteen sounds on eleven circuits -- revision 10
 # ===========================================================================
 # Every hardware figure below was measured on the SAME reference set the rest
 # of this suite uses -- Michael Fischer / Technopolis, CC0-1.0, a real TR-808
@@ -2216,7 +2216,7 @@ def test_meta_pair_tests_reject_the_other_half_of_the_pair():
 def test_meta_address_map_check_rejects_the_revision_eight_map_at_sixteen_modes():
     """[meta] The injected control for
     `test_control_the_drum_page_has_no_address_that_means_two_things`. Feed the
-    checker revision 8's map (PATH 0x80, MODE 0xC0) with revision 9's sizes and
+    checker revision 8's map (PATH 0x80, MODE 0xC0) with revision 10's sizes and
     it must complain about 0xFF specifically -- and about the envelope block
     running into the path block, which is the second collision the same change
     causes. A checker that passes everything is not a checker."""
@@ -2230,7 +2230,7 @@ def test_meta_address_map_check_rejects_the_revision_eight_map_at_sixteen_modes(
     assert not address_map_conflicts(dx.A_PATH, dx.A_MODE, dx.N_ENV, dx.N_PATH, dx.N_MODES)
 
 
-# Node-id fragments of every assertion that is ABOUT revision 9's three new
+# Node-id fragments of every assertion that is ABOUT revision 10's three new
 # circuits, and the subset that must be red when they are not programmed.
 # Split by NODE ID rather than by a `-k` expression on purpose: `-k "hat_"`
 # also matches "w[hat_]is" and "t[hat_]is", which quietly pulled the cymbal and

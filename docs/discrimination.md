@@ -17,8 +17,11 @@ git clone --depth 1 https://github.com/tidalcycles/sounds-tr808-fischer /tmp/tr8
 ```
 
 `model/test_discrimination.py` is the machinery and its self-tests,
-`model/discrimination_run.py` the reproducible script, `model/moog_probe.py`
-the Minimoog half (§8).
+`model/discrimination_run.py` the reproducible script. The Minimoog half (§8)
+is `model/reference_compare.py` + `model/reference_rigs.py`, ground-truthed by
+`model/test_reference_compare.py`; `model/moog_probe.py` is the older
+settings-independent probe and **two of its published numbers were withdrawn
+on 2026-09-18** — see §8.1 before quoting anything it prints.
 
 ---
 
@@ -319,79 +322,431 @@ Those fixes are necessary and not sufficient; they do not touch the attack.
 
 ---
 
-## 8. Minimoog: is the same thing feasible?
+## 8. Minimoog: what our ladder measures against three independent emulations
 
-**Patch-level emulation: no. Structure probe: the probe design works, but the
-material does not exist.**
+> ### ⚠️ WITHDRAWN 2026-09-18: every u-he Diva number below
+>
+> Diva was running **unlicensed**. It prints `ERROR: Could not read lic from
+> file.` on every instantiation and inserts periodic broadband clicks — 20 in
+> a 360 s render, none in the first 167 s, then clusters every ~33 s, each a
+> ~0.1 ms burst that raises the 6–20 kHz band by **32–43 dB** while leaving
+> the note's own band unchanged. Surge XT over the same test: **zero**.
+> `docs/reference-integrity.md` §1 has the evidence.
+>
+> **Every Diva figure in this section is withdrawn**, including
+> **h5 − h3 = −41.2 dB at matched h3**, which has been quoted elsewhere.
+> Surge XT and Arturia Mini V3 are unaffected — both showed zero events.
+> Read this section as a two-reference study until Diva is licensed.
 
-Legowelt publishes 222 WAVs from his 1970s **Minimoog serial #5529** at
-<https://legowelt.org/samples/>, free ("the samples are free but please
-consider a donation"), 16-bit/44.1 kHz, explicitly including the instrument's
-noise and instability. We downloaded and audited it.
+**Revision 2026-09-18. Revision 1 of this section concluded that no Minimoog
+validation was possible and produced none. That conclusion was wrong, and one
+of the numbers it rested on was a measurement artefact. Both are corrected
+here.**
 
-**It ships no panel settings.** Three photographs, an info text, and
-filenames that are characterisations — `BASS-Mudsy`, `SYNTH-Zoemer`,
-`WEIRD-BlubbyChomper` — not settings. A Model D patch is ~25 controls (three
-oscillators × range/waveform/frequency, five mixer levels, cutoff, emphasis,
-contour amount, two ADS envelopes, glide, mod mix). Without that vector we
-cannot place our model at the same point, so **no emulation experiment is
-possible with this set**; only sound-matching, which would show the engine can
-*reach* those tones and nothing about structure. A wider search (Freesound,
-archive.org, Zenodo, GitHub, AKWF, NSynth, torchsynth, presetpatch, Moog's own
-downloads) found no Minimoog material with documented settings anywhere, and
-the parameter-labelled research datasets — InverSynth, Sound2Synth, DiffMoog —
-are all rendered from *software* synths, so comparing against them would test
-our chip against another emulation.
+Revision 1's argument was: the only free hardware corpus (Legowelt's 222 WAVs
+from Minimoog #5529) ships no panel settings, and the parameter-labelled
+datasets — InverSynth, Sound2Synth, DiffMoog — were rejected because they are
+"rendered from *software* synths, so comparing against them would test our
+chip against another emulation." The material facts are still true. The
+conclusion drawn from them is not.
 
-### The structure probe, which does not need settings
+**Why it is wrong.** A purity standard that admits only a real Model D
+produced *zero* validation instead of imperfect validation, and shipped a
+filter whose only evidence was that it agreed with our own decision records.
+And it gave up the one thing an unlabelled hardware corpus can never
+provide: **a software reference can be set to a known patch, and ours set to
+the same patch.** That is a controlled experiment. Sound-matching against
+222 unlabelled recordings could only ever have been a similarity score.
 
-A self-oscillating Moog ladder is not a pure sine: the per-stage `tanh`
-shapes it, so its harmonic series fingerprints the nonlinear **structure** —
-exactly what DR 0001 decided — and does not depend on where the cutoff knob
-sat. We built the probe and calibrated it on our own model.
+So: three references, all on this machine, all driven headlessly from Python
+through `dawdreamer` (VST3, programmatic parameters, no GUI), all at 48 kHz —
+which is our own `SR`, so **nothing in this study is resampled**.
 
-**The fingerprint is not h2.** The ladder's `tanh` is odd-symmetric, so a
-ladder ringing alone emits only *odd* harmonics; h2 and h4 are absent by
-symmetry in both candidate structures (ours −89…−104 dB, one-tanh
-−133…−160 dB), far below any recording's noise floor. The discriminator is
-**h5 relative to h3** — how far the distortion spreads up the odd series,
-which is precisely what a `tanh` in every stage changes:
+| reference | what it is | what it can be asked |
+|---|---|---|
+| **Surge XT 1.2.3** — `LP Vintage Ladder`, subtype **Type 2** | **open source.** `sst::filters::VintageLadder::Huov` — Huovilainen's DAFx-04 nonlinear ladder, **the same published model DR 0001 implements** | everything, and its cutoff is commanded *and read back* in Hz, so cutoff accuracy is answerable here and nowhere else |
+| **Surge XT 1.2.3** — same filter, subtype **Type 1** | `VintageLadder::RK` — Runge-Kutta 4 integration of the Stilson/Puckette ladder ODE, cubic soft-clip, 4× oversampled | everything |
+| **Arturia Mini V3** | a dedicated Minimoog Model D emulation; 2 audio inputs (the Model D's external-input jack), so a known signal can be put through its filter | shape, drive, self-oscillation. Every parameter is a bare 0..1 with no units and no readback, so **commanded-cutoff accuracy is not answerable against it** |
+| **u-he Diva** — VCF model `Ladder`, 24 dB | a ladder model in a synth with a strong reputation for analogue accuracy; `Accuracy: divine`, `OfflineAcc: best`, all voice-drift slop zeroed | shape and self-oscillation. **0 audio input channels**, so it is excited by its own white noise against a wide-open reference render, and **drive is not answerable against it at all** |
 
-| structure | h5 − h3, at 129 / 258 / 516 Hz |
-|---|---|
-| **ours** (tanh in every stage, DR 0001) | −14.0, −14.1, −14.5 dB |
-| **one-tanh** (linear stages, one tanh in feedback) — negative control | −38.4, −39.1, −40.8 dB |
+**What this does and does not establish, and the label goes on every result
+below: none of the three is a Minimoog.** Agreeing with them means
+"consistent with high-quality emulations", not "sounds like a Minimoog". Two
+of them are commercial products whose internals cannot be inspected. The
+protocol that would settle the real question is written down —
+`docs/moog-recording-protocol.md` — and needs one person with the instrument
+and an hour.
 
-**25 dB of separation.** The probe has real power and is settings-independent.
-It needs material.
+Run it:
 
-**The material is not there.** Admission requires both (a) h2 − h3 ≤ −12 dB
-(odd-symmetric) and (b) h3 ≤ −25 dB (a near-sine; a square wave is
-odd-symmetric too, at h3 = −9.5 dB). Of 222 recordings:
+```
+.venv/bin/pip install dawdreamer
+.venv/bin/python -m pytest model/test_reference_compare.py -q      # the estimators, first
+.venv/bin/python model/reference_compare.py --stage all --devices ours,surge-rk,surge-huov,diva,miniv3
+.venv/bin/python model/reference_compare.py --stage peakdrive,bigdrive --devices ...
+.venv/bin/python model/reference_compare.py --report --out /tmp/refcmp
+```
 
-- 80 pass (a) but are oscillator waveforms — median h3 **−19 dB**
-- 27 pass (b) but carry even harmonics *at or above* their odd ones — median
-  h2 − h3 **+1 dB**, an asymmetric source in the path
-- **0 pass both.**
+`model/reference_rigs.py` holds the five rigs (ours, its injected defects, and
+the three plugins), `model/reference_compare.py` the measurements and the
+report, `model/test_reference_compare.py` their ground truth.
 
-Not one recording in the set is a ladder ringing on its own. The slope and
-resonant-peak probes fail for the same reason: they need a broadband source
-under an identifiable resonant peak, and the set's steady periodic tones give
-spectral lines instead — the two self-documenting files,
-`SYNTH-SimpleThinSquareFilterSlope` and `WEIRD-ResonanceZone`, return a
-*rising* "rolloff" of +7.6 dB/oct and Q of 92 and 361, which are the
-diagnostics of invalid input, not measurements. `model/moog_probe.py` refuses
-to report them as results.
+---
 
-**Conclusion.** The available recordings do not support a ladder-structure
-probe. **DR 0001 remains supported by circuit derivation alone, which is where
-it already was.** The probe is built, calibrated and checked in; it needs one
-recording of the filter self-oscillating — a few seconds, resonance past
-threshold, all oscillator levels at zero — which anyone with a Model D could
-make in a minute.
+### 8.1 The number revision 1 got wrong, and how
 
-Patch-fitting was **not run**, within the session's time cap. It would have
-supported only the weaker claim.
+Revision 1 published this table and called it 25 dB of structural separation:
+
+| structure | h5 − h3, at 129 / 258 / 516 Hz | as published |
+|---|---|---|
+| ours (tanh in every stage) | −14.0, −14.1, −14.5 dB | |
+| one-tanh (linearised) — negative control | −38.4, −39.1, −40.8 dB | |
+
+**Re-measured on the identical signals with a validated estimator, four of
+those six numbers do not exist.** `model/moog_probe.py`'s `harmonics()`
+integrates FFT bins around each harmonic with no window and no floor check. A
+*rectangular* coherent projection leaks the fundamental sideways at roughly
+1/(π·Δbins), which for a half-second record puts a phantom "harmonic" at −55
+to −75 dB — precisely the range these h5 values live in. Measured with a
+Blackman-Harris window (sidelobes 92 dB down) and a floor probed at four
+off-harmonic offsets, `ours` at 258 Hz and `one-tanh` at 258 and 516 Hz have
+**no fifth harmonic above their own noise floor at all**, and where h5 does
+exist the spread is −25.5 dB, not −14.0.
+
+This is the failure `docs/verification-rules.md` exists about, in the section
+that was arguing for the rest of the filter. `audio_measure.harmonic_signature`
+replaces it: windowed projection, a floor measured at (k ± 0.3) and
+(k ± 0.5)·f0 taking the **largest** of the four, harmonics above Nyquist
+returned as `None` rather than 0, and a `drift_db` so that a still-growing
+ring is not analysed as a steady one. Its ground truth recovers harmonics at
+−60 and −75 dB from a record that is *not* a whole number of periods, to
+0.003 dB.
+
+**The second thing revision 1 got wrong: h5 − h3 is not settings-independent.**
+It depends strongly on how hard the limit cycle drives the nonlinearity, and
+h3 is the measure of that. Against the fixed-point one-tanh control the probe
+separates the two structures by **21 dB at res 1.3, 8 dB at res 1.05 and 3 dB
+at res 2.0** — because at the top of the range the control's hard input clip
+takes over. Quoted without a resonance, the number means nothing. Everything
+below is quoted either at a stated resonance or at **matched h3**, which
+controls the drive.
+
+---
+
+### 8.2 Method, and the four ways it could have been a gain error
+
+- **Stepped tone, coherent projection** — the measured transfer function, the
+  same probe `model/test_moog_acceptance.py` already uses on our filter, at
+  the same drive, for all five rigs. Not an impulse response: it would presume
+  a linearity that none of these four filters has. Never a spectral centroid.
+- **Everything quoted is a ratio** — dB over a passband plateau, dB per
+  octave, a harmonic over its own fundamental, a frequency over another
+  frequency. A fixed gain difference between two synthesisers cancels out of
+  every one of them by construction.
+- **48 kHz end to end.** No result can be a resampler.
+- **Every estimator is ground-truthed against a closed-form signal before any
+  number it produces is quoted** (`model/test_reference_compare.py`, 17
+  tests): −24.00 dB/oct recovered exactly from a −24 dB/oct line and *refused*
+  on a resonant skirt; the −3 dB corner of four cascaded one-poles against its
+  algebraic value 0.434995·f_p; a resonator's peak height, peak frequency and
+  Q against their closed forms; harmonics at −60/−75 dB recovered; a pure sine
+  under noise reported as **having no third harmonic** rather than as the
+  noise level.
+- **Start red.** Three deliberately-wrong ladders are carried through the same
+  measurements (§8.7). If a broken model landed inside the reference spread on
+  a property, that property proves nothing and is reported as proving nothing.
+- **Level.** Input levels are referred to each plugin's own full scale, which
+  is a matched documented setting (it is the rail) but is *not* the level at
+  each filter's input. §8.6 measures where each filter actually starts to
+  saturate, which is what makes the drive columns comparable.
+
+---
+
+### 8.3 Surge XT gets its own verdict
+
+Surge is not the same kind of evidence as the other two. Its Vintage Ladder
+"Type 2" is an implementation of the *same paper* DR 0001 implements, so a
+disagreement is a bug in one of the two, not a difference of modelling taste.
+Read from `sst-filters` `include/sst/filters/VintageLadders.h` (the Huov
+namespace is mathematically identical at the 1.2.3-era commit `8ea9b8d` and on
+`main`, checked), here is every place the two differ **by design**:
+
+| | ours (DR 0001, contract 11.4) | Surge `VintageLadder::Huov` |
+|---|---|---|
+| topology | four one-poles, `y[s] += g·(tanh(y[s−1]) − tanh(y[s]))` | identical |
+| oversampling | 2× (96 kHz) | 2×, input fed at both sub-steps (no zero-stuffing), same |
+| feedback tap | `(y3[n−1] + y3[n−2])/2`, half-sample phase compensation | `(stage3 + delay4)/2`, the same |
+| **output tap** | `y[3]`, **before** the averaging | `delay[5]`, **after** it |
+| arithmetic | integer, Q1.15 signal, 24-bit Q4.20 state | float32 SIMD |
+| **tanh** | **16-entry table over [0,4), linear interpolation**, max error **0.0060** | Padé rational, clamped at ±5, max error **1.5e-5** |
+| **tuning** | `g = 1 − exp(−2π f / f_os)`, no correction | **`fcr = 1.8730 fc³ + 0.4955 fc² − 0.6490 fc + 0.9988`**, Huovilainen's published tuning polynomial, applied to the exponent |
+| resonance law | `k = 4·res`, corrected per cutoff by DR 0006's own measured ROM | `4·res·acr`, `acr = −3.9364 fc² + 1.8409 fc + 0.9968`, Huovilainen's published polynomial |
+
+> **The `fcr` quadratic term is `0.4955`, and `sst-filters` ships `0.4995`.**
+> Surge's own comment in `VintageLadders.h` reads `0.4955 * fc2` and the
+> constant beside it is *named* `m04955` — but it is *initialised* to
+> `0.4995f`, in both the 1.2.3-era commit `8ea9b8d` and on `main`. The cited
+> source spells it **`0.4955`**, so the paper's value is 0.4955 and Surge
+> ships a typo: its comment and its constant name both agree with the paper
+> against its own code.
+>
+> **This repository implements 0.4955**, in `model/reference_rigs.py`'s
+> `OurLadder.fcr` and in the table above. It is recorded here because the next
+> person to compare our implementation against Surge's source will find our
+> value differing from the code in front of them and reasonably assume we are
+> wrong.
+>
+> **It changes nothing measured.** At a 10 kHz cutoff the two differ by
+> 1.7e−4 in an `fcr` of 0.9022 — **0.003 cents**. Every figure in §8.4 stands
+> as measured.
+>
+> Worth the line for its own sake: a reference can be **authoritative about
+> its intent and wrong in its artefact**, and the two have to be read
+> separately.
+| **resonance range** | `res` clamps at 2.0 (the 17-bit `k` register); **res = 1 is the onset at every cutoff** (DR 0006) | `res` clamped to ≤ 0.9925 and reduced further above f_s/3: **it never reaches the onset and cannot self-oscillate** |
+| **signal scale into the tanh** | `gain = drive·0.13/0.05 = 2.6`, so full scale is 2.6 in tanh units | `thermal = 1/70`, so full scale is **0.0143** in tanh units |
+| gain compensation | `ogain = (2V_T/v_pu)·(1 + 2·res)` at the output | `gComp = 0.5` inside the feedback, on the "Compensated" subtypes only |
+
+Two of those rows decide what Surge can be used for:
+
+**Surge's Huovilainen subtype cannot self-oscillate.** Measured: at resonance
+100 % its free ring decays monotonically from −82.5 dB to −127.3 dB over
+1.65 s. That is not a defect, it is the `0.9925` clamp doing its job. It means
+Surge Type 2 contributes nothing to the self-oscillation fingerprint.
+
+**Surge's Huovilainen subtype does not reach its own nonlinearity at any
+usable level.** With `thermal = 1/70`, a full-scale ±1.0 signal presents 0.014
+to a `tanh` that is linear to one part in 10⁴ there. Predicted h3 at 0 dBFS:
+−101 dB. **Measured: −102 dB.** It first produces −40 dB of third harmonic at
+**+18 dBFS** — 18 dB past the rail. Ours reaches that at **−6.6 dBFS**, Mini
+V3 at **−5.7 dBFS**, Surge's RK model at **−0.6 dBFS**.
+
+So the honest verdict on Surge: **on the linear structure it is an excellent
+reference and we should agree with it exactly. On the nonlinearity it is not a
+reference at all — at normal levels it is a linear 4-pole ladder with
+Huovilainen's tuning polynomials bolted on.** Our input scaling, which is 27×
+hotter, is the one that matches both the physics (a transistor ladder sees a
+few hundred mV against 2V_T ≈ 50 mV) and the dedicated Minimoog emulation.
+
+---
+
+### 8.4 Result: the cutoff control does not mean the same thing across its range
+
+Self-oscillation pitch against **commanded** cutoff, at maximum resonance, over
+six octaves:
+
+| filter | 100 Hz | 800 Hz | 6400 Hz | **spread** |
+|---|---|---|---|---|
+| **ours** | −8.30 % | −6.77 % | −0.38 % | **7.92 pp** |
+| Surge Type 2 (Huov) | −0.37 % | −0.23 % | +0.25 % | **0.62 pp** |
+| Surge Type 1 (RK) | −2.18 % | −2.32 % | −3.46 % | **1.28 pp** |
+| Diva *(knob calibrated on f_osc — circular, not evidence)* | +0.10 % | +0.04 % | +0.04 % | 0.09 pp |
+| Mini V3 *(same, circular)* | +0.03 % | −0.15 % | −0.24 % | 1.02 pp |
+
+A frequency-*independent* offset is one scale factor and is removable in an
+afternoon; the **spread** is the defect, and ours is 6 to 13 times the
+spread of either Surge model. Contract 17.12 already records the symptom
+(+7.2 % at 10 kHz, ±2 % from 400 Hz to 1.6 kHz) as an open item. What the
+reference adds is **the cause and the fix**, both read out of Surge's source:
+Huovilainen's `fcr` tuning polynomial, which Surge applies and we do not.
+
+Applying `fcr` to our own cutoff lookup — one multiply in the ROM build, no
+change to the datapath — and then one constant scale:
+
+| cutoff | ours | + `fcr` | + `fcr` × 1.030 |
+|---|---|---|---|
+| 200 Hz | −2.51 % | −2.98 % | **+0.03 %** |
+| 800 Hz | −1.41 % | −2.66 % | **+0.31 %** |
+| 3 kHz | +1.56 % | −2.61 % | **+0.42 %** |
+| 10 kHz | **+6.85 %** | −3.90 % | **−0.89 %** |
+
+**Worst error 6.85 % (115 cents) → 0.89 % (15 cents)**, measured at
+res = 1.05. It also flattens the measured −3 dB corner: the corner/commanded
+ratio goes from 0.752–0.818 (8.8 % drift) to 0.748–0.775 (3.5 %). The
+constant differs with resonance — at maximum resonance the residual offset is
+−8 % rather than −2.6 % — so the scale has to be chosen for a stated operating
+point, and that choice is a decision record, not a measurement.
+
+**This is the strongest result in the study**: we differ from every reference
+in the same direction, the mechanism is identified in the source of a
+reference implementing the same paper, and applying the published correction
+removes 87 % of the error.
+
+---
+
+### 8.5 Result: the shipped tanh table, not the structure, is what our fifth harmonic measures
+
+The self-oscillation fingerprint at each device's own maximum resonance, and
+at **matched h3 = −42 dB** (equal drive into each nonlinearity):
+
+| filter | onset | h2 | h3 | h5 | h7 | h5 − h3 | **at matched h3** |
+|---|---|---|---|---|---|---|---|
+| **ours** | res 1.02 | −95.5 | −40.0 | −63.4 | −62.6 | −23.4 | **−20.4** |
+| ours, 256-entry tanh table | res 1.02 | −95.9 | −39.8 | −81.7 | −105.2 | −41.8 | **−46.0** |
+| Surge Type 1 (RK) | 0.90 | *< floor* | −50.4 | −100.6 | −138.3 | −50.3 | — |
+| Diva Ladder | 0.90 | **−33.9** | −36.0 | −71.4 | −107.1 | −35.3 | **−41.2** |
+| Mini V3 | 0.78 | *< floor* | −41.8 | −70.5 | −87.4 | −28.7 | **−28.7** |
+| Surge Type 2 (Huov) | **never** | — | — | — | — | — | — |
+| *one-tanh — injected defect* | 1.02 | −94.8 | −39.7 | −66.2 | −97.2 | −26.4 | *−38.7* |
+
+Three things come out of this, and only the first is comfortable.
+
+**Our third harmonic sits inside the references' range** (−40.0 against −36.0,
+−41.8 and −50.4). h3 is the measure of the nonlinearity's real curvature, and
+on it we agree.
+
+**Our fifth harmonic does not, and the excess is our tanh look-up table.**
+Rebuilding the identical filter with a 256-entry table instead of the shipped
+16 leaves h3 unchanged (−39.8 vs −40.0) and drops **h5 by 18 dB and h7 by
+43 dB**. The full sweep, at res 1.1:
+
+| entries | ROM bits | max table error | h3 | h5 |
+|---|---|---|---|---|
+| 8 | 128 | 0.0233 | −53.9 | −93.1 |
+| **16 (shipped)** | **256** | **0.0060** | **−50.8** | **−70.1** |
+| 32 | 512 | 0.0015 | −50.9 | −76.7 |
+| 64 | 1024 | 0.00067 | −51.1 | −83.4 |
+| 128 | 2048 | 0.00067 | −51.2 | −95.1 |
+| 256 | 4096 | 0.00067 | −51.2 | −96.1 |
+| 1024 | 16384 | 0.00067 | −51.2 | −97.1 |
+
+A 16-segment piecewise-linear `tanh` has 16 corners in its derivative, and the
+corners — not the saturation — are what emit the fifth and seventh. **128
+entries converges** (2048 ROM bits against 256, a 1792-bit increase: the whole
+ladder is 1,917 cells, so this is worth costing rather than guessing at). At
+16 entries, the "structural fingerprint" this section was built around is
+measuring our LUT resolution.
+
+**The fingerprint does not support DR 0001 on its own.** At matched drive ours
+sits at −20.4 dB, the references at −28.7 and −41.2, and **the injected
+one-tanh defect at −38.7 — closer to Diva than we are.** A discriminator that
+ranks a structure we know is wrong above the one we ship cannot be used to
+argue the structure is right. With a 256-entry table ours moves to −46.0,
+inside the references' spread, but by then the argument is about the table.
+DR 0001 remains supported by circuit derivation; this measurement does not add
+to it, and revision 1's claim that it did was resting on the leakage of §8.1.
+
+**A fourth thing, about the references rather than about us.** Diva's ladder
+emits h2 at −33.9 dB, *2.1 dB above its own h3*: its nonlinearity is
+**asymmetric**, which an odd-symmetric `tanh` cannot be, and which a real
+transistor ladder with a mismatched differential pair is. Ours and Mini V3 are
+odd-symmetric (h2 below the floor, or −95 dB). This is a genuine disagreement
+*among the references*, and it means the target itself is uncertain: at least
+one of the two commercial emulations is modelling something the other decided
+not to.
+
+---
+
+### 8.6 Result: slope, corner and resonance
+
+**Stopband slope.** Ours −21.4 to −21.9 dB/oct over 2.2–7× the measured
+corner, fit residual 0.21–0.34 dB. The references over the same band: Surge
+Type 2 −19.4 to −21.5, Surge Type 1 −19.2 to −21.4, Diva −18.2 to −21.2,
+Mini V3 −17.6 to −21.6. **An ideal analogue 4-pole gives −17.6 dB/oct over
+that band** (closed form, in the report's `ideal4p` column) — 24 dB/octave is
+the asymptote, not what any 4-pole does two octaves above its corner. So the
+24 dB/oct claim holds: ours is the *steepest* of the five, and the injected
+dropped-pole control reads −11.6 to −11.8.
+
+**−3 dB corner against commanded cutoff.** Nobody's ratio is constant:
+ours 0.752→0.818 (drifting up), Surge Type 2 0.627→0.566 and Mini V3
+0.697→0.730 (drifting the other way), Diva 0.584–0.697 with no clean trend.
+The corner is the weaker discriminator of the two frequency measurements —
+it moves with resonance and with the passband reference band — and §8.4's
+self-oscillation pitch is the one to read.
+
+**Resonant peak, at 0.9 of each filter's own self-oscillation threshold**,
+against input level:
+
+| filter | −60 dBFS | −48 | −36 | −24 | −12 dBFS |
+|---|---|---|---|---|---|
+| **ours** | 23.3 dB / Q 14.3 | 23.2 / 14.1 | 21.8 / 12.8 | 14.5 / 6.3 | **8.0 / 2.6** |
+| ours, 256-entry table | 20.2 / 11.2 | 20.1 / 11.0 | 20.8 / 11.7 | 14.7 / 6.5 | 8.1 / 2.7 |
+| Surge Type 2 | 21.9 / 12.7 | 21.9 | 21.9 | 21.9 | **21.9 / 12.7** |
+| Surge Type 1 | 22.0 / 12.7 | 22.0 | 22.0 | 22.0 | 22.5 / 13.2 |
+| Diva | 17.7 / 9.7 | 18.4 | 19.7 | 20.9 | 20.0 / 10.6 |
+| Mini V3 | 14.1 / 3.4 | 14.1 | 13.7 | 14.4 | 16.6 / 7.5 |
+| *2-pole — injected defect* | 2.1 / — | 2.1 | 2.0 | 2.0 | 1.6 / — |
+
+**At small signal the five agree**: 23.3, 22.0, 21.9, 17.7, 14.1 dB. Ours is
+at the top of the spread, not outside it.
+
+**With drive we are the only one whose resonance collapses**: −15.2 dB from
+−48 to −12 dBFS, against +0.0, +0.5, +1.6 and +2.5 for the four references.
+This is the "thickens vs flat-tops" question and the answer is not flattering,
+but **it is confounded** and the confound must be stated: at 0.9 of its own
+threshold ours reaches Q 14.3 while Mini V3 reaches only Q 3.4, so our
+internal signal is four times larger before the nonlinearity ever sees it. Our
+*input-referred* saturation threshold (−6.6 dBFS) agrees with Mini V3's
+(−5.7 dBFS) to within a dB. What differs is how much Q each knob buys, which
+is a resonance-law difference, not a gain-staging one. **Reported as a
+measured difference with its confound named, not as a defect.**
+
+---
+
+### 8.7 The controls: does any of this have power?
+
+Three deliberately-wrong ladders through the identical measurements:
+
+| injected defect | what it must move | measured | ours |
+|---|---|---|---|
+| **dropped pole** (2 stages) | the slope, the peak | −11.6 to −11.8 dB/oct; peak 2.1 dB, no Q at any drive | −21.4 to −21.9; 23.3 dB, Q 14.3 |
+| **cutoff ROM read 30 % high** | the corner | corner/commanded 0.97–1.08 | 0.752–0.818 |
+| **one-tanh** (four linear poles, one saturating element in the feedback — the structure DR 0001 rejected) | the fingerprint | h5 − h3 at matched h3 **−38.7 dB** | **−20.4 dB** |
+
+Each is separated from ours by far more than the spread between the three
+references, so the measurements can see a broken filter. The one-tanh control
+carries the caveat of §8.1: it separates by 21 dB at res 1.3, 8 dB at 1.05 and
+**3 dB at res 2.0**, where its hard input clip dominates — so the structural
+probe has power only at a stated resonance, and `model/test_reference_compare.py`
+asserts *both* the separation and its disappearance, so that the caveat cannot
+quietly stop being true.
+
+`_Variant(stages=4, nonlin='every')` is asserted bit-exact against `LadderFx`,
+as in the acceptance suite: a control that has drifted measures its own drift.
+
+---
+
+### 8.8 Ranked: what this says to fix
+
+1. **Apply Huovilainen's `fcr` tuning polynomial to the cutoff ROM** (contract
+   17.12). One multiply at ROM-build time, no datapath change. Worst
+   self-oscillation tuning error 6.85 % → 0.89 % with one accompanying
+   constant; corner-ratio drift 8.8 % → 3.5 %. We are outside all four
+   references in the same direction and the fix is published.
+2. **Cost a wider `tanh` table.** 16 → 128 entries removes 25 dB of excess
+   fifth harmonic and 43 dB of seventh at self-oscillation, for 1792 extra ROM
+   bits against a 1,917-cell datapath. Whether that is audible is a separate
+   question and should be asked with a listening test, not asserted here;
+   whether it is affordable is an area question and should be measured, not
+   guessed.
+3. **Decide whether the resonance law is right.** Ours buys Q 14 at 0.9 of
+   threshold where Mini V3 buys Q 3.4. That is not a defect on any evidence
+   here, but it is the mechanism behind the only property on which we behave
+   unlike all three references, and nobody has chosen it deliberately.
+4. **Nothing here impeaches the 24 dB/octave claim or the −3 dB corner**, and
+   the third-harmonic depth at self-oscillation is inside the references'
+   range.
+
+---
+
+### 8.9 What is still not established
+
+- **None of this is a Minimoog.** It is three emulations, two of them
+  closed. Where they disagree with each other — Diva's asymmetric
+  nonlinearity, Mini V3's Q 3.4 against Surge's Q 12.7 at the same fraction
+  of threshold — the target is genuinely uncertain and no amount of averaging
+  would fix that.
+- **Surge Type 2 is a linear reference.** Every nonlinearity result above
+  rests on Mini V3, Diva and Surge's RK model, i.e. on two closed products and
+  one model of a different paper.
+- **Diva's and Mini V3's cutoff scales have no units.** Their tracking rows are
+  circular by construction and are printed only so the circularity is visible.
+- **Nothing here is a listening test**, and none of it should be reported as
+  one. The one measurement that would settle the structure question against
+  the real instrument is a few seconds of a Model D's filter self-oscillating
+  with the mixer at zero; `docs/moog-recording-protocol.md` §4.1 is how to
+  capture it, and `model/moog_probe.py` reads it the day it exists.
 
 ---
 

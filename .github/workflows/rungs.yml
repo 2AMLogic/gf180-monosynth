@@ -18,6 +18,30 @@ jobs:
         with: { python-version: '3.12' }
       - run: python -m pip install --upgrade pip numpy scipy pytest
 
+      # The roadmap is compiled from evidence, not maintained by hand. This
+      # document twice carried findings that had already been fixed -- the
+      # modal_dp exc hazard, and red on four repaired drum circuits. --check
+      # fails if README's diagram is out of date, or if any node is STALE:
+      # a green claim whose evidence has gone out from under it.
+      # The roadmap is compiled from evidence that is ACTUALLY EXECUTED here,
+      # not from the presence of a file. An earlier version of this script
+      # called a node green when its test file existed -- so a suite with every
+      # assertion deleted would have rendered green, which is the exact failure
+      # the tool exists to prevent.
+      #
+      # --run executes each fast node's suite and records pass/fail with the
+      # commit. --check then fails if README disagrees, if a node is RED, or if
+      # a node is STALE -- passed once, but a file it `covers` has changed
+      # since, so the result no longer describes this code. Slow nodes
+      # (iverilog, hours) carry their status from the nightly job.
+      # On a PR branch the dag workflow does not run, so this is what keeps a
+      # pull request honest about what it claims. On main the bot regenerates
+      # and commits instead -- see .github/workflows/dag.yml.
+      - name: the roadmap matches the evidence
+        run: |
+          python tools/compile_dag.py --run || true   # a RED node is a result
+          python tools/compile_dag.py --check
+
       # First on purpose: every node above F1 measures with these estimators,
       # so a suite built on untested analysers measures the analysers.
       - name: F3 -- measurement ground truth
@@ -99,6 +123,28 @@ jobs:
       - name: M1 -- one Moog voice bit-exact (quick set)
         run: python rtl-sketch/verify_voice.py --set quick
 
+      # The integration checks. These are the ones that matter most and were
+      # the last to reach CI: every block in this design was bit-exact against
+      # its model while the control link silently delivered 37 of 155 register
+      # writes, because every bench drove the register write port rather than
+      # the link. Block-level green is not integration green.
+      - name: F2 -- modal bank bit-exact
+        run: python rtl-sketch/verify_modal.py
+      - name: I2 -- the control link carries every register write
+        run: python rtl-sketch/verify_ctl.py
+      - name: I4 -- the whole chip at its pins, SPI in to I2S out
+        run: python rtl-sketch/verify_synth_top.py
+
+      # Each integration check carries a control that must turn it red. The
+      # SPI_ADDR7 mutant reinstates the rev-1 seven-bit address field -- the
+      # exact defect that shipped -- so it can never return silently.
+      - name: the integration checks can still fail
+        run: |
+          python rtl-sketch/verify_ctl.py --inject SPI_ADDR7 --expect-fail
+          python rtl-sketch/verify_ctl.py --inject SPI_DATA24 --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject VOICE_MASTER_PRESHIFT --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject I2S_SHIFT --expect-fail
+
   # The full 255,060-frame voice run and the drum runs, on demand and nightly
   # rather than per push.
   rtl-full:
@@ -113,3 +159,5 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y iverilog
       - name: M1 -- one Moog voice bit-exact (full)
         run: python rtl-sketch/verify_voice.py --set full
+      - name: D -- the eight-stop drum kit bit-exact
+        run: python rtl-sketch/verify_drums.py

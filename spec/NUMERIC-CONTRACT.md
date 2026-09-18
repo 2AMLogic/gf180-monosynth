@@ -1,16 +1,16 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 8 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 10 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
 saturating mixer, Huovilainen's nonlinear ladder with a resonance-compensation
 ROM, two integer ADSRs and a VCA — and, since revision 5, the drum section: a
-TR-808-shaped set of eight stops whose bodies and filters are the modal
+TR-808-shaped set of eleven stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 8,
+through the two-key process this fleet uses; until then it is revision 10,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -525,17 +525,31 @@ sequences of the one-oscillator whistle patch exercise it.
 Let `p` be the 24-bit phase before advance. `naive` is signed 16-bit
 (`voice_fx.naive_fx`):
 
-| shape | formula |
-|---|---|
-| saw | `(p >> 8) − 32768` — rising ramp, −32768 at p = 0, +32767 at p ≥ 0xFFFF00 |
-| square | `+32767` if `p < 0x800000`, else `−32768` |
-| pulse25 | `+32767` if `p < 0x400000`, else `−32768` |
-| tri | `q = p >> 7` (0..131071); `q − 32768` if `q < 65536`, else `98303 − q` |
-| sine | `SINE(p)`, section 6.5 |
+| code | shape | formula |
+|---:|---|---|
+| 0 | saw | `(p >> 8) − 32768` — rising ramp, −32768 at p = 0, +32767 at p ≥ 0xFFFF00 |
+| 1 | square | `+32767` if `p < 0x800000`, else `−32768` — **50 % duty** |
+| 2 | pulse25 | `+32767` if `p < 0x400000`, else `−32768` — 25 %; **not a Model D width** |
+| 3 | tri | `q = p >> 7` (0..131071); `q − 32768` if `q < 65536`, else `98303 − q` |
+| 4 | sine | `SINE(p)`, section 6.5; **not a Model D waveform** |
+| 5 | shark | `sat16(( 5749 · saw + 27019 · tri ) >> 15)` — the shark-tooth |
+| 6 | revsaw | `sat16(−saw)` — oscillator 3's reverse sawtooth |
+| 7 | pulse29 | `+32767` if `p < 4 865 393`, else `−32768` — **29 % duty**, the wide rectangle |
+| 8 | pulse15 | `+32767` if `p < 2 516 582`, else `−32768` — **15 % duty**, the narrow rectangle |
+| 9–15 | sine | every register value is defined |
 
-The square and pulse steps **up** at the wrap (p = 0) and **down** at the
+Codes 5–8 and the register's fourth bit are revision 9 (DR 0012). Six of the
+nine are the Model D's waveform switch, and `docs/minimoog-reference.md` W1–W7
+carries the source for each: the shark-tooth's 10/57 and 47/57 are the R030 /
+R031 divider on drawing 1448, and the three rectangular duties are that
+drawing's pulse-width divider read against SM 2.3's 50 % and 15 %.
+
+The square and pulse step **up** at the wrap (p = 0) and **down** at the
 duty point; the saw steps **down** at the wrap. That difference fixes the sign
-of the correction in 6.6.4.
+of the correction in 6.6.4. The shark-tooth mixes the **corrected** saw (6.6)
+with the naive triangle, as the switch mixes two buffered outputs, so its step
+at the wrap is 10/57 of the sawtooth's and needs no second correction; the
+reverse sawtooth negates the corrected saw, for the same reason.
 
 ### 6.5 Sine
 
@@ -697,16 +711,76 @@ patch by design (`voice_fx_render.py`).
 
 ---
 
+### 6.9 Modulation (DR 0012)
+
+State: `mod_sig`, signed 16-bit, **computed at the END of a frame and read at
+the START of the next**. Oscillator 3 is the modulation source and, with
+`MROUTE.OSC3` set, also a destination; the register is what breaks that loop.
+One frame is 20.8 µs.
+
+Per frame, before the oscillators (`voice_fx.VoiceFx._modulate`):
+
+```
+amt    = sat16( ( mod_sig · MWHEEL ) >> 15 )                       Q1.15
+oct_p  = MROUTE.OSC  ? sat_oct( ( amt · MPD ) >> 15 ) : 0          Q3.12 octaves, ±4
+oct_f  = MROUTE.FILT ? sat_oct( ( amt · MFD ) >> 15 ) : 0
+(m, s) = EXP2(oct)          m = 32768 + EXP_ROM65[i] + (((EXP_ROM65[i+1] − EXP_ROM65[i]) · f) >> 6)
+                            i = oct[11:6],  f = oct[5:0],  s = 15 − oct[15:12]  (signed; 12..19)
+inc_k  = usat24( ( inc_k · m_p ) >> s_p )   for k = 0, 1, and for k = 2 only if MROUTE.OSC3
+cut    = clamp( ( cut · m_f ) >> s_f , 30, 21600 )                 applied after 10's clamp
+```
+
+and at the end of the frame, after the oscillators have run:
+
+```
+mmix'    = min( MMIX, 32768 )
+mod_sig  = sat16( ( naive_3 · (32768 − mmix') + noise_mod · mmix' ) >> 15 )
+```
+
+`naive_3` is oscillator 3's **naive** waveform (6.4) at the phase that produced
+this frame's sample — before PolyBLEP, because the modulation path is a control
+voltage and is never summed into the mixer. `noise_mod` is 6.10's pink or red.
+The two pan weights sum to exactly 32768, so `mod_sig` is a convex combination.
+`oct = 0` gives `(m, s) = (32768, 15)`, i.e. `(v · 32768) >> 15 = v` exactly —
+so a voice with `MWHEEL = 0` is bit-identical to one with no modulation path at
+all, which is what makes every pre-revision-10 reference sequence unchanged.
+
+### 6.10 The noise source (DR 0012)
+
+State: a 31-bit LFSR (reset to `0x7F215FF7`, **not** zero), the pink biquad's
+`x1, x2` (Q1.15) and `y1, y2` (32-bit Q5.27), and the red pole's 32-bit state.
+
+```
+w      = lfsr[30:15] ^ lfsr[15:0] ^ lfsr[17:2] ^ lfsr[19:4]        16 new bits at once
+lfsr  <- (lfsr << 16) | w                                          x^31+x^15+x^13+x^11+1
+x0     = signed(w)
+T      = (( 912164·x0 − 741208·x1 − 117831·x2 ) << 5) − ( −28689·y1 + 12348·y2 )
+y0     = sat32( T >> 14 )                                          Q5.27; ONE floor
+rl    <- sat32( rl + ((( y0 − rl ) · 904 ) >> 16) )                 one pole, 106.1 Hz
+white  = x0 >> 2      pink = sat16( y0 >> 14 )      red = sat16( ( rl · 29841 ) >> 28 )
+```
+
+The `>> 2` is `NOISE_SHIFT`, applied to all three colours equally: they leave at
+the same RMS because the instrument's do (drawing 1431 labels all three outputs
+−4 dBm), and pink's crest factor of 4.6 needs the headroom. `NSEL` selects the
+pair: clear puts **white** in the mixer and **pink** on the modulation bus, set
+puts **pink** in the mixer and **red** on the bus.
+
+---
+
 ## 7. Mixer
 
 Per frame (`voice_fx.mix_fx`):
 
 ```
-acc   = osc_0 · w_0 + osc_1 · w_1 + osc_2 · w_2      exact; |acc| < 3 · 2^31
-mixed = sat16( acc >> 15 )                           arithmetic shift, then clamp
+acc   = osc_0 · w_0 + osc_1 · w_1 + osc_2 · w_2 + noise · WN   exact; |acc| < 4 · 2^31
+mixed = sat16( acc >> 15 )                                     arithmetic shift, then clamp
 ```
 
-`w_k` are 16-bit unsigned. Weights the host derives by 5.5 sum to at most
+`noise` is 6.10's white or pink, per `NSEL`. The fourth term is revision 9
+(DR 0012): the Model D's mixer has five sources and this chip has four, the
+external input being the one it does not have. `w_k` and `WN` are 16-bit
+unsigned. Weights the host derives by 5.5 sum to at most
 32768 and cannot clip (`test_normalised_mix_cannot_clip`); unnormalised
 weights are legal and saturate, never wrap (`test_mixer_saturates_instead_of_wrapping`).
 With the default weights and oscillators 1 and 2 at the values of 6.6.4's
@@ -1022,10 +1096,12 @@ at a fixed `k = 4 · 1.08`, rev 1 did not sustain above about 3 kHz — and is
 within 0.25 % of the linearised prediction the ROM is built from at every
 cutoff. With the ROM, the ring decays at `res = 0.995` and grows at `1.005`
 at 200 Hz, 3 kHz and 10 kHz (`test_self_oscillation_starts_at_res_1_everywhere`).
-The frequency it oscillates at is 0.968 × the cutoff at 30 Hz, 1.00 at
-1.6 kHz, 1.072 × at 10 kHz and 0.906 × at the clamp: a tuning error, not
-corrected in this revision (17.12). `ogain`'s `(1 + 2·res)` term is a partial
-passband-loss compensation.
+The frequency it oscillates at is 1.002 × the cutoff at 30 Hz, 1.004 at
+1.6 kHz, 0.991 × at 10 kHz and 0.988 × at the clamp — worst error 0.90 % from
+30 Hz to 10 kHz, against revision 8's 6.85 %, since revision 9 built
+Huovilainen's `fcr` tuning polynomial and one constant scale into the g ROM
+(DR 0011). What remains is the paper's own two-dimensional caveat and is
+17.12. `ogain`'s `(1 + 2·res)` term is a partial passband-loss compensation.
 
 ### 11.6 Where the ladder saturates
 
@@ -1209,7 +1285,7 @@ The drum section's control image, host-written like the voice's (5.1);
 addresses are 8 bits, values up to 32 (`drums_fx.write`). On the wire this
 page is reached with `SEC` = 1 in the 48-bit control frame (5.4, DR 0007
 revision 2); `rtl-sketch/drum_regs.v` holds the image (**3 232 flops** at
-revision 9's sizes, 2 276 at revision 8's — DR 0007 section 9) and drives the
+revision 10's sizes, 2 276 at revision 8's — DR 0007 section 9) and drives the
 engine's buses. Every register the engine reads is
 stable from the frame's `go` to `body_valid`, because the write drain runs at
 cycles 2..5 and `go` is at cycle 8. Every value is
@@ -1235,7 +1311,7 @@ e = 0..17, p = 0..22, m = 0..15. Sizes (`drums_fx.N_*`): **11 stops, 18
 envelopes, 23 paths, 16 modes of which the first 11 (`N_NUMS`) carry a
 numerator**, 6 oscillators.
 
-**Revision 9 moved `PATH` and `MODE` and widened `PATH`, and neither was
+**Revision 10 moved `PATH` and `MODE` and widened `PATH`, and neither was
 cosmetic.** Eighteen envelopes span `0x40..0x87` and collide with `PATH` at
 `0x80`; sixteen modes based at `0xC0` span `0xC0..0xFF`, so `MODE_NUM[15]`
 would be `0xFF` — which is `RESET`. `drum_regs.v` decodes `RESET` as a
@@ -1529,25 +1605,25 @@ output stage's `dvol` and `bvol` reset to 0 with the voice's `vol` (14).
 
 ### 15.9 Cycles and area (informative)
 
-Measured at **revision 9's** sizes (`tb_drums.v`): the drum datapath takes 68
+Measured at **revision 10's** sizes (`tb_drums.v`): the drum datapath takes 68
 clocks per frame (1 + 18 envelopes + 1 + 2 × 23 paths + 2) and the bank 50
 (3 × 16 + 2), **117 from tick to `body_valid`** with one overlapped — `tb_drums`
 reports mean 117 and worst 117 over 191 560 frames. With the ladder's 24 that is
 141 of the 256, before the voice's own front end, and `synth_top`'s `overrun`
 flag stays clear.
 
-AREA AT REVISION 9 IS NOT IN gf180 UNITS. The PDK was not installed on the
-machine revision 9 was built on, so the figures below are **yosys generic
-`synth`, no liberty**, revision-8 RTL and revision-9 RTL in the same flow, and
+AREA AT REVISION 10 IS NOT IN gf180 UNITS. The PDK was not installed on the
+machine revision 10 was built on, so the figures below are **yosys generic
+`synth`, no liberty**, revision-8 RTL and revision-10 RTL in the same flow, and
 a cell count is not an area (rule 3):
 
 | | cells | flip-flops |
 |---|---:|---:|
 | `drum_kit` rev 8 | 24 484 | 3 017 |
-| `drum_kit` rev-9 RTL at rev-8 sizes | 24 885 | 3 023 |
+| `drum_kit` rev-10 RTL at rev-8 sizes | 24 885 | 3 023 |
 | + `MODES` 12→16, `NUMS` 6→11 | 26 433 | 3 233 |
 | + `ENVS` 18, `PATHS` 23, `STOPS` 11 | 31 972 | 4 186 |
-| `drum_regs` rev 8 → rev 9 | 2 598 → 3 754 | 2 276 → 3 232 |
+| `drum_regs` rev 8 → rev 10 | 2 598 → 3 754 | 2 276 → 3 232 |
 | whole drum section | 27 082 → 35 726 (+32 %) | 5 293 → 7 418 (+40 %) |
 
 `modal_dp` alone is **1 656 flops at 12 modes / 6 nums and 1 866 at 16 / 11** —
@@ -1684,20 +1760,100 @@ record that extends this document; none may be resolved by picking a reading.
     section 10 is computed exactly at 19 bits before the clamp.
 11. **Ratification itself.** This document is proposed. Ratification is the
     two-key act this fleet uses and is not claimed here.
-12. **Self-oscillation tuning** (11.5, DR 0006): the resonant frequency is
-    0.968 × the cutoff at 30 Hz and 1.072 × at 10 kHz. A retuned g ROM would
-    move the zero-resonance corner by the same amount (Huovilainen's
-    two-dimensional caveat); whether to, and how, is a separate decision.
-13. **The drum section's size** (15.9): **closed in rev 9** at 16 modes /
+12. **Self-oscillation tuning** (11.5, DR 0006, DR 0011): mostly closed.
+    Revision 9 put Huovilainen's `fcr` polynomial and a constant trim into the
+    g ROM and the worst error over 30 Hz .. 10 kHz went from 6.85 % to 0.90 %.
+    What is left is the paper's two-dimensional caveat: one table cannot make
+    both the zero-resonance corner and the self-oscillation frequency exact,
+    and DR 0011 chose the latter at `res = 1.05`. The residual is also
+    resonance-dependent — the trim was fitted at one operating point — and the
+    top two octaves (16 kHz, the 21.6 kHz clamp) still run 1.2 .. 1.3 % flat.
+13. **The cutoff registers are integer hertz** (5.1, 10): one LSB of
+    `CUT_LO` / `CUT_HI` / `TRACK_HZ` is one hertz, and one hertz at 30 Hz is
+    **53.7 cents** — 27 cents at 60 Hz, 10.2 at 200 Hz, 0.9 at 2 kHz, and a
+    1.07 dB gain step at 30 Hz against a 24 dB/octave slope. The `g` ROM is
+    **not** the limit here: it interpolates. This is a register-format
+    question — a fractional-hertz or log-domain cutoff register are both
+    plausible and the 48-bit frame has room in its 32-bit data field — and it
+    is therefore a change to the control interface (DR 0007), not to the voice
+    alone. Not taken in this revision.
+14. **The `g` ROM's first bin.** Separately from 13, the ROM is EDGE sampled
+    every 256 Hz and linearly interpolated, and `1 − exp(−x)` is concave, so
+    below the first entry the chord runs under the curve: measured against its
+    own target the ROM is **29 cents flat at 30 Hz, 20 at 60 Hz, 12 at 120 Hz**
+    and under 1 cent above 1 kHz. DR 0011's polynomial and trim did **not** fix
+    this — they changed the offset, not the interpolation — and against the
+    COMMANDED cutoff the tuned ROM now reads 19 to 35 cents sharp below 200 Hz
+    where the untuned one read 9 to 21 flat. Closing it is a ROM-size decision
+    (128 → 256 entries is 2048 more ROM bits) or a non-uniform first bin, and
+    both want the self-oscillation probe of DR 0011 re-run against them.
+15. **Oscillator aliasing is the largest measured defect in the voice.**
+    PolyBLEP removes about 15 dB of inharmonic energy uniformly (6.6, DR
+    0001) and the acceptance suite proves it removes the predicted fold-back
+    images — but against software references it is **19–32 dB behind Mini V3
+    and 9–32 dB behind Surge on every waveform**, and ours **degrades with
+    pitch** where Surge's is flat. Our own numbers, which were always in the
+    suite's docstring and never had a target beside them, say the same thing:
+    sawtooth inharmonic fraction **−42.7 dB at 82 Hz, −36.6 at 330 Hz, −31.0
+    at 1.3 kHz, −28.5 at 2.6 kHz** — about 2.8 dB lost per octave, worst
+    exactly where a lead line lives. Textbook-exact waveform shapes (all four
+    match the closed form within 0.1 dB) with poor aliasing is the signature
+    of a correct implementation of an insufficient method.
+
+    **One option has been measured and is ruled out.** Oversampling the
+    oscillators to join the rate the ladder already runs at, and letting the
+    ladder's existing naive decimation do the rest, makes it **worse, not
+    better**: sawtooth at 82 Hz goes −42.7 → **−33.1** at 2× and **−29.8** at
+    4×. Decimating by dropping samples folds the whole 24–48 kHz band straight
+    back, and PolyBLEP at the oversampled rate suppresses images near the
+    oversampled Nyquist, not near 24 kHz. Oversampling the oscillators is
+    therefore **not** the cheap option; it needs a real decimation filter
+    before it is even neutral.
+
+    A sizing study of longer band-limited-step residuals (2, 4, 8, 16, 32
+    correction samples) was built and **withdrawn**: it failed its own sanity
+    check, reporting worse suppression at 32 samples than our 2-sample
+    PolyBLEP achieves, which is impossible. No number from it is quoted. The
+    remaining options — a higher-order PolyBLEP, a longer BLEP residual, or
+    oversampling with a decimator — are each a different area cost and none
+    has a number yet.
+16. **The shark-tooth's saw share disagrees with a reference by one
+    parameter** (6.4, `docs/minimoog-reference.md` W3). Drawing 1448's R030 /
+    R031 give 10/57 = 0.175, load-independently; the reference-emulation
+    comparison implies 0.25–0.30. Our odd harmonics match its target within
+    0.6 dB and every even harmonic is uniformly 4.8 dB low, which is exactly
+    what a smaller saw share looks like. Not changed on an emulation's
+    evidence; settling it needs a real Model D or a second source for the two
+    resistors.
+17. **Raw white noise is uniform, not Gaussian** (6.10,
+    `docs/minimoog-reference.md` N6a). A multi-bit LFSR slice is uniform by
+    construction: kurtosis 1.80, crest 4.8 dB, against references at 2.23–2.64
+    and 8.1–11.3. **Through the ladder it is not a defect** — measured at res
+    0.7, crest 10.0–11.8 dB and kurtosis 2.54–2.92, every value inside the
+    references' own span, because a four-pole low-pass Gaussianises. The
+    residual case is a patch with the cutoff wide open and no resonance. The
+    cheap fix was measured and rejected: summing k independent slices buys
+    2.40 at k = 2 and 2.60 at k = 3, for two or three times the LFSR work and
+    an adder tree, to reach what the filter already delivers.
+18. **Per-unit oscillator drift is not modelled** (6.4,
+    `docs/minimoog-reference.md` W3a). Our square is a true 50 % and has no
+    even harmonics; a reference emulation measures 52 % with h2 at −24 dB.
+    SM 2.3 is explicit that 50 % is the design and that Moog hand-selected
+    R137 per unit to hit it, so 52 % is a unit out of trim rather than the
+    instrument. Whether to model drift anyway — three oscillators beating
+    against each other is part of the sound — is a musical decision and one
+    constant.
+19. **The drum section's size** (15.9) — **closed in rev 10** at 16 modes /
     11 with numerators / 18 envelopes / 23 paths / 11 stops, which is the
-    complete TR-808 — all sixteen named sounds on eleven circuits. Rev 8 asked
-    which size the product takes; rev 9 answers "the one that plays the whole
+    complete TR-808: all sixteen named sounds on eleven circuits. Rev 8 asked
+    which size the product takes; rev 10 answers "the one that plays the whole
     machine", at +32 % cells and +40 % flip-flops on the drum section (15.9).
     Whether the ladder and the bank share a multiplier
-    (docs/area-budget.md 3.2) is still a budget decision, and the gf180 area
-    of the revision-9 configuration has not been measured.
-14. **What the reference kit does not model** (15.7) — **mostly closed in
-    rev 9**: the cymbal, rimshot, claves, maracas, the mid tom and the three
+    (docs/area-budget.md 3.2) is still a budget decision, and the **gf180 area
+    of the revision-10 configuration has not been measured** — the PDK was not
+    installed where it was built.
+20. **What the reference kit does not model** (15.7) — **mostly closed in
+    rev 10**: the cymbal, rimshot, claves, maracas, the mid tom and the three
     congas are all in `kit_808()` and `preset_writes()` now, and the BD attack
     and both tom pitch drops have been coefficient sequences since rev 6.
     What is still not modelled: the **toms' pink-noise rumble** (no measured
@@ -1705,19 +1861,19 @@ record that extends this document; none may be resolved by picking a reading.
     high-pass (reference 10's Hh1) and its +6 dB/oct output tilt, and the
     maracas' 18 ms attack ramp — the envelope generator has no rising segment
     and its `hold` tops out at 5.3 ms.
-15. **The snare's cascade** (15.7): the 808 drives the high resonator from
+21. **The snare's cascade** (15.7): the 808 drives the high resonator from
     the low one's output ×1/38; the kit drives both from the pulse.
-16. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
+22. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
     DR 0010**: fitted to a recording of the reference unit, 16 identified
     partials with the duty cycle and the two gates' relative level free:
     **1100 Hz, Q 2.8**, rms residual 2.8 dB. Sound On Sound's 2.64 kHz is
     refuted; the reference's own 0.9 kHz is ~200 Hz low with the Q too high.
-17. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
+23. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
     and −10 dB are the reference's bounds, not measurements.
-18. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
+24. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
     oscillators vary by tens of percent between units; the kit uses the
     schematic's nominal values. A host models a unit by writing `OSC_INC`.
-19. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
+25. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
     voice's reference) the combined render clips 65 samples where all
     eight stops land accented under a bass note; at 0.30 it clips 5, and
     all eight stops in one frame at accent 1.4 clip 5 on their own (rev 5
@@ -1725,7 +1881,7 @@ record that extends this document; none may be resolved by picking a reading.
     peaks 2.37 × full scale of the word's 8.0 where it peaked 2.8). The
     rail is the host's to manage (DR 0005); a reference value for the two
     gains is not decided.
-20. **The excitation is an impulse where the machine's is a shaped pulse**
+26. **The excitation is an impulse where the machine's is a shaped pulse**
     (15.5, 15.7). Every bridged-T voice is struck with `PULSE` under a
     0.1 ms exponential — effectively an impulse — where the 808's pulse
     shaper produces a positive kick at t = 0 and a clamped negative kick
@@ -1739,7 +1895,7 @@ record that extends this document; none may be resolved by picking a reading.
     of the separability on every voice — including after every fix this
     revision makes. **This is the next thing to do to the drum section**,
     and it is a change to the sources of 15.4, not to the kit.
-21. **What the kit still does not match on the reference unit** (15.7).
+27. **What the kit still does not match on the reference unit** (15.7).
     Recorded rather than tuned away, because the rule is that the
     reference document wins over a single machine (17.18): the BD's body
     rings at the circuit table's τ = 144 ms where the unit measures
@@ -1748,7 +1904,7 @@ record that extends this document; none may be resolved by picking a reading.
     4 ms band-energy gap and not all of it (20); the hats are ≈6 % bright
     and their filters too selective; the clap's burst period is 10.0 ms
     against the unit's 12.3 ms; the toms have no pink-noise rumble (14).
-22. **The snappy filter's numerator is the measurement's, not the
+28. **The snappy filter's numerator is the measurement's, not the
     reference document's** (15.7). Reference 3 describes the snare's noise
     path as a 2-pole **high-pass** at 2.75 kHz, Q 0.7. On that pole a
     high-pass numerator is flat to Nyquist, and the reference unit's noise
@@ -1760,7 +1916,7 @@ record that extends this document; none may be resolved by picking a reading.
     schematic supports that reading, or whether a further stage the
     walk-through missed does the band-limiting, is not settled;
     `docs/tr808-reference.md` §3 carries the amendment.
-23. **The chip does not yet carry this drum section** (12, 15):
+29. **The chip does not yet carry this drum section** (12, 15):
     `rtl-sketch/synth_top.v` instantiates `drum_section_placeholder` — the
     modal bank alone on a single 19-bit bus, no sources of its own — and its
     master mix is the two-term `sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`
@@ -1771,7 +1927,7 @@ record that extends this document; none may be resolved by picking a reading.
     verifies the two joined. Replacing the placeholder with `drum_kit` and
     the mix with 12's formula, and re-running `rtl-sketch/headroom_check.py`
     and the area flow on the result, is unscheduled work, not a decision.
-24. **The snare's two partials are balanced by MEASUREMENT, not from the
+30. **The snare's two partials are balanced by MEASUREMENT, not from the
     schematic** (15.7). Roland states that VR8 TONE sets "the output ratio of
     the two" bridged-T resonators, and the reference unit at TONE 5.0 puts the
     336 Hz partial at 1.42× the 173 Hz one — the same figure with the snappy
@@ -1782,7 +1938,7 @@ record that extends this document; none may be resolved by picking a reading.
     with R200 shorted by the 1983 design change, and nobody has computed the
     resulting ratio from those values. The number is right because it was
     measured; the circuit explanation is open.
-25. **The snappy envelope's rate is MEASURED, and disagrees with the
+31. **The snappy envelope's rate is MEASURED, and disagrees with the
     reference's RC by 2×** (15.7). Reference 3 gives the snare's noise
     envelope as C51 0.47 µF charged through R186 33 kΩ, τ ≈ 15.5 ms — and
     that is the **charge** path. The machine's burst measures T20 63–78 ms
@@ -1839,10 +1995,18 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
-- **Rev 9 (2026-09-18)** — **the complete TR-808: all sixteen named sounds on
+- **Rev 10 (2026-09-18)** — **the complete TR-808: all sixteen named sounds on
   eleven circuits.** No width, clamp or formula of the VOICE changes; what
   changes is the drum section's sizes, the PATH word, the drum page's address
-  map and the mix bus's width. Appendix G's kit moves, so its hash moves.
+  map and the mix bus's width.
+
+  **One pinned table moves, loudly: KIT808**
+  `7ea9a2e3…` → `feb8c6fd…`, **100 → 147 writes**. Every other hash is
+  byte-identical, G_ROM128 and K_ROM32 (which revision 9 moved) and TANH16_ROM
+  included — `spec/reference/test_tables.py` checks exactly that against
+  revision 9's pins before accepting the new one, so re-pinning cannot hide a
+  second table moving at the same time. This is the kit's third move and the
+  first that is not a refit of a voice already there: it is six more sounds.
   - **Sizes** (15.1, 15.9): 8 → **11 stops**, 12 → **18 envelopes**, 16 → **23
     paths**, 12 → **16 modes**, `N_NUMS` 6 → **11**. The first eight stops keep
     their indices, so every revision-8 register image still means the same
@@ -2081,7 +2245,7 @@ SHA-256 of the derived 1024-entry full table (`voice_fx.sine_fx` at phases `i <<
 
 ### Appendix C -- TANH16: the ladder's tanh table, i = 0..15
 
-Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, used above entry 15, is 32767 and is NOT tanh(4.0) (which would round to 32745).
+Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, used above entry 15 AND returned by the clamp for |v| >= 4.0, is `fixed.TANH_GUARD` = 32767 and is NOT tanh(4.0) (which would round to 32745). That leaves the top bin [3.75, 4) up to 6.5e-4 high. It is a known wrong constant and DR 0013 records BOTH the measurement of what correcting it buys -- the top bin twelve times more accurate, and no movement at all in the harmonic fingerprint at self-oscillation, because the 16-entry table's own worst error is nine times larger -- and why it is not corrected here: `rtl-sketch/drum_dp.v` reads this same image with its own hardcoded clamp, so the word cannot move without a matching change in the drum section.
 
 | i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -2089,7 +2253,7 @@ Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over 
 | 8 | 31588 | 32047 | 32328 | 32500 | 32605 | 32669 | 32707 | 32731 |
 
 SHA-256 of the 16 decimal values joined by commas: `65a5fa4b38b807735e09eed0eadd49b2a42850151daa47e3abb97a1641542c04`  
-SHA-256 of the 17-word ROM image (`TANH16` followed by 32767), which is exactly `rtl-sketch/tanh16.hex`: `3aa73628ec4f1b6eec99e77524a5460813c531dd9703a8fdea6df799dc91efeb`
+SHA-256 of the 17-word ROM image (`TANH16` followed by the guard word), which is exactly `rtl-sketch/tanh16.hex`: `3aa73628ec4f1b6eec99e77524a5460813c531dd9703a8fdea6df799dc91efeb`
 
 ### Appendix D -- G_ROM128: cutoff (Hz) -> ladder coefficient g, i = 0..128
 
@@ -2097,25 +2261,25 @@ Normative. `G_ROM128[i] = clip(round((1 - exp(-2*pi * (256*i) / 96000)) * 65536)
 
 | i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0 | 0 | 1089 | 2160 | 3213 | 4248 | 5267 | 6268 | 7253 |
-| 8 | 8221 | 9174 | 10110 | 11031 | 11937 | 12827 | 13703 | 14564 |
-| 16 | 15411 | 16244 | 17063 | 17868 | 18660 | 19439 | 20205 | 20958 |
-| 24 | 21699 | 22427 | 23144 | 23848 | 24541 | 25222 | 25892 | 26551 |
-| 32 | 27198 | 27835 | 28462 | 29078 | 29683 | 30279 | 30865 | 31441 |
-| 40 | 32008 | 32565 | 33113 | 33651 | 34181 | 34702 | 35214 | 35718 |
-| 48 | 36214 | 36701 | 37180 | 37651 | 38114 | 38570 | 39018 | 39459 |
-| 56 | 39892 | 40318 | 40737 | 41149 | 41554 | 41953 | 42345 | 42730 |
-| 64 | 43109 | 43482 | 43848 | 44208 | 44563 | 44911 | 45254 | 45591 |
-| 72 | 45922 | 46248 | 46569 | 46884 | 47194 | 47499 | 47798 | 48093 |
-| 80 | 48383 | 48668 | 48948 | 49224 | 49495 | 49761 | 50023 | 50281 |
-| 88 | 50535 | 50784 | 51029 | 51270 | 51507 | 51740 | 51969 | 52195 |
-| 96 | 52416 | 52634 | 52849 | 53060 | 53267 | 53471 | 53671 | 53868 |
-| 104 | 54062 | 54253 | 54440 | 54625 | 54806 | 54984 | 55160 | 55332 |
-| 112 | 55502 | 55668 | 55832 | 55993 | 56152 | 56308 | 56461 | 56612 |
-| 120 | 56760 | 56906 | 57050 | 57191 | 57329 | 57466 | 57600 | 57732 |
-| 128 | 57861 |  |  |  |  |  |  |  |
+| 0 | 0 | 1116 | 2206 | 3270 | 4309 | 5324 | 6315 | 7284 |
+| 8 | 8231 | 9157 | 10062 | 10947 | 11813 | 12661 | 13490 | 14301 |
+| 16 | 15096 | 15875 | 16637 | 17385 | 18117 | 18835 | 19540 | 20231 |
+| 24 | 20910 | 21576 | 22230 | 22872 | 23504 | 24124 | 24735 | 25335 |
+| 32 | 25927 | 26508 | 27081 | 27646 | 28202 | 28751 | 29292 | 29826 |
+| 40 | 30353 | 30873 | 31387 | 31895 | 32397 | 32893 | 33384 | 33870 |
+| 48 | 34352 | 34828 | 35300 | 35768 | 36232 | 36691 | 37147 | 37600 |
+| 56 | 38049 | 38495 | 38938 | 39378 | 39814 | 40249 | 40680 | 41109 |
+| 64 | 41536 | 41960 | 42382 | 42801 | 43219 | 43634 | 44047 | 44458 |
+| 72 | 44867 | 45274 | 45679 | 46082 | 46483 | 46881 | 47278 | 47673 |
+| 80 | 48065 | 48455 | 48843 | 49228 | 49611 | 49992 | 50370 | 50745 |
+| 88 | 51118 | 51487 | 51854 | 52218 | 52578 | 52936 | 53289 | 53640 |
+| 96 | 53986 | 54329 | 54668 | 55003 | 55333 | 55660 | 55982 | 56299 |
+| 104 | 56612 | 56920 | 57223 | 57520 | 57813 | 58100 | 58382 | 58659 |
+| 112 | 58930 | 59195 | 59454 | 59708 | 59955 | 60197 | 60432 | 60661 |
+| 120 | 60884 | 61101 | 61312 | 61517 | 61715 | 61907 | 62092 | 62272 |
+| 128 | 62445 |  |  |  |  |  |  |  |
 
-SHA-256 of the 129 decimal values joined by commas: `c5ee86efeffbe3cadd040ca3851b5c90806f05f9fab13d5f3cea1cf7730fbe2a`
+SHA-256 of the 129 decimal values joined by commas: `7d03fb29bdf97a177c31274f95864cb69111b70b7164dc5eb05c0e04a6f83414`
 
 ### Appendix E -- K_ROM32: cutoff (Hz) -> resonance compensation, i = 0..32
 
@@ -2123,13 +2287,31 @@ Normative (DR 0006). `K_ROM32[i] = round(k_onset(clamp(1024*i, 30, 21600)) / 4 *
 
 | i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0 | 32799 | 33832 | 34861 | 35839 | 36748 | 37571 | 38290 | 38890 |
-| 8 | 39357 | 39681 | 39856 | 39879 | 39755 | 39489 | 39093 | 38582 |
-| 16 | 37971 | 37279 | 36524 | 35722 | 34890 | 34043 | 33964 | 33964 |
-| 24 | 33964 | 33964 | 33964 | 33964 | 33964 | 33964 | 33964 | 33964 |
-| 32 | 33964 |  |  |  |  |  |  |  |
+| 0 | 32800 | 33847 | 34863 | 35806 | 36666 | 37436 | 38110 | 38681 |
+| 8 | 39147 | 39503 | 39746 | 39871 | 39875 | 39753 | 39501 | 39114 |
+| 16 | 38588 | 37923 | 37119 | 36182 | 35120 | 33951 | 33837 | 33837 |
+| 24 | 33837 | 33837 | 33837 | 33837 | 33837 | 33837 | 33837 | 33837 |
+| 32 | 33837 |  |  |  |  |  |  |  |
 
-SHA-256 of the 33 decimal values joined by commas: `514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a`
+SHA-256 of the 33 decimal values joined by commas: `19da75793533fc6d34eed44858cac4e934388d20ab0916fb7e54fea0afe69c28`
+
+### Appendix H -- EXP_ROM65: 2^x for the modulation path, i = 0..64
+
+Normative (DR 0012). `EXP_ROM65[i] = round(2^(i/64) * 32768) - 32768` -- the modulation path's exponential, EDGE sampled over ONE octave, 64 entries plus entry 64 as the interpolation guard (`voice_fx.make_exp_rom`). Stored biased by -32768 so that the top entry (2.0 in Q1.15, 65536) still fits in 16 bits; `voice_fx.exp2_q` adds it back, reads the table on the top 6 bits of the Q3.12 octave word's fraction and interpolates on the low 6, and turns the integer part into a right shift of 12..19 places. Worst relative error over the octave 3.57e-5, which is 0.062 cents. Eight entries per row.
+
+| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 357 | 718 | 1082 | 1451 | 1823 | 2200 | 2581 |
+| 8 | 2966 | 3355 | 3748 | 4146 | 4548 | 4954 | 5365 | 5780 |
+| 16 | 6200 | 6624 | 7053 | 7487 | 7925 | 8368 | 8816 | 9269 |
+| 24 | 9727 | 10190 | 10657 | 11130 | 11608 | 12091 | 12580 | 13074 |
+| 32 | 13573 | 14078 | 14588 | 15103 | 15625 | 16152 | 16684 | 17223 |
+| 40 | 17767 | 18317 | 18874 | 19436 | 20005 | 20579 | 21160 | 21747 |
+| 48 | 22341 | 22941 | 23548 | 24161 | 24781 | 25408 | 26041 | 26681 |
+| 56 | 27329 | 27983 | 28645 | 29313 | 29989 | 30673 | 31364 | 32062 |
+| 64 | 32768 |  |  |  |  |  |  |  |
+
+SHA-256 of the 65 decimal values joined by commas: `6a1cbbf81f383149c4ececcbd0eef37e979c24e9f700bfd6efc31185f520d557`
 
 ### Appendix F -- NOISE64: the first 64 noise words from reset
 

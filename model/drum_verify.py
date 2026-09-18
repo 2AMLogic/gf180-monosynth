@@ -72,7 +72,7 @@ REF_MAIN = {
     "OH": ("oh8/OH50.WAV", "DECAY 5.0"),
     "CP": ("cp8/CP.WAV", "no knob"),
     "CB": ("cb8/CB.WAV", "no knob"),
-    # revision 9's eight
+    # revision 10's eight
     "LC": ("lc8/LC50.WAV", "TUNING 5.0"),
     "MT": ("mt8/MT50.WAV", "TUNING 5.0"),
     "MC": ("mc8/MC50.WAV", "TUNING 5.0"),
@@ -166,7 +166,7 @@ SPEC = {
                note="3 bursts ~10 ms in 30 ms + tail; E_CPTAIL's RC is 47 ms, which is not this"),
     "CB": dict(f0=800.0, tau_ms=98.0, chart_ms=50.0, source="hardware cb8/CB.WAV (DR 0010)",
                note="squares 540 + 800 -> BP 1100 Hz Q 2.8; was 22 ms, withdrawn by DR 0010"),
-    # revision 9. Every conga tau is the machine's; reference 4's inferred conga
+    # revision 10. Every conga tau is the machine's; reference 4's inferred conga
     # Q column is 12-30 % long and is amended by it. The toms keep the
     # reference's, which already land within 3 %.
     "LC": dict(f0=185.0, tau_ms=76.9, chart_ms=180.0, source="hardware lc8/LC50.WAV",

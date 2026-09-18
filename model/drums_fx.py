@@ -76,7 +76,7 @@ SQPAIR = (4, 5)                  # the 808's trimmed oscillators 5 and 6 (800 an
 TAP_SHIFT = 3                    # TAP m = sat16(y1[m] >> 3): the state / 8, rails at +-8.0 (15.5)
 SRC_OFF, SRC_NOISE, SRC_SQSUM, SRC_PULSE, SRC_SQPAIR, SRC_SQ, SRC_TAP = 0, 1, 2, 3, 4, 5, 16
 NL_LIN, NL_SWING, NL_TANH = 0, 1, 2
-# Revision 9 widens the path word's envelope and destination fields to 5 bits
+# Revision 10 widens the path word's envelope and destination fields to 5 bits
 # each (22 -> 25 bits). At revision 8 both were 4 bits, which put a hard
 # ceiling of 12 addressable envelopes and 15 addressable modes on the block --
 # DEST_MIX was 15 and so was the last mode, and the two collided the moment
@@ -108,7 +108,7 @@ def env_ctl(stop: int, choke: int = 15, hold: int = 0, bursts: int = 0, period: 
 
 def path_word(src: int, e1: int, e2: int = ENV_NONE, nl: int = NL_LIN, att: int = 0,
               dest: int = DEST_MIX) -> int:
-    """PATH word (25 bits, revision 9): [4:0] src, [9:5] e1, [14:10] e2,
+    """PATH word (25 bits, revision 10): [4:0] src, [9:5] e1, [14:10] e2,
     [16:15] nl, [19:17] att, [24:20] dest. An envelope index of ENV_FULL (31)
     reads as full scale and any other index >= N_ENV as zero, so e2 = ENV_NONE
     is 'no second envelope'; dest = DEST_MIX (31) is the mix bus."""

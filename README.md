@@ -14,15 +14,106 @@ Being precise about this, because "synth" covers six different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank, the whole voice (`rtl-sketch/voice_dp.v`: 255,060 frames over 24 scenario segments — every waveform, every note and the clamped increments, glide up/down/at its limits, gate/trig/retrigger, a release to exactly zero, paraphonic keys, the register extremes, three audition sequences — every sample, every tap of contract 16.4 and the final state) and the drum section (`rtl-sketch/drum_kit.v`: 172,063 frames, both buses) are each identical to their model with no tolerance, and every bench is shown to fail: **24 injected defects** (3 ladder, 5 modal, 8 voice, 8 drum), a timing control that violates the coefficient hold, and two stubs — `voice_dp_stub.v` with every output X and `ladder_dp_stub.v` with every output 0. `touch_dp.v` is deleted |
+| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank, the whole voice (`rtl-sketch/voice_dp.v`: 383,460 frames over 37 scenario segments — every waveform including the Model D set revision 9 adds, the noise source in both colours, oscillator 3 as a modulator on both destinations, every note and the clamped increments, glide up/down/at its limits, gate/trig/retrigger, a release to exactly zero, paraphonic keys, the register extremes, three audition sequences — every sample, every tap of contract 16.4 and the final state) and the drum section (`rtl-sketch/drum_kit.v`: 172,063 frames, both buses) are each identical to their model with no tolerance, and every bench is shown to fail: **28 injected defects** (3 ladder, 5 modal, 12 voice, 8 drum), a timing control that violates the coefficient hold, and two stubs — `voice_dp_stub.v` with every output X and `ladder_dp_stub.v` with every output 0. `touch_dp.v` is deleted |
 | 4 | The chip: `rtl-sketch/synth_top.v` — SPI link (DR 0007 rev 2), voice, the real drum engine, I2S | **bit-exact at its pins against `model/synth_top_model.py`** — 2 040 I2S periods decoded from BCLK/LRCLK/SDATA, every one identical to the model, 14 negative controls each shown to turn it red (`rtl-sketch/verify_synth_top.py`). The placeholder is gone; `drum_regs.v` + `drum_kit.v` are wired in (contract 17.23 closed) |
 | 5 | FPGA bitstream on real hardware | not started |
-| 6 | gf180mcu ASIC | **placed and routed** ([docs/pnr-synth-top.md](docs/pnr-synth-top.md)). The chip *with the placeholder drums* routes inside the 1.73 mm² quarter slot at **56.7 % utilisation**, 2 DRC violations, positive setup and hold slack at all three corners. The chip **as it now stands, with `drum_kit`, does not**: 59 289 instances, **1.979 mm² of standard cells — larger than the whole 1.73 mm² die**, 118.3 % utilisation. The drum section is 62 % of it. No LVS, no sign-off DRC, no gate-level simulation |
+| 6 | gf180mcu ASIC | **placed and routed** ([docs/pnr-synth-top.md](docs/pnr-synth-top.md)). The chip as it now stands, with `drum_kit`, is **1.979 mm² of standard cells in 59 289 instances — larger than the whole 1.73 mm² quarter slot** (118.3 % utilisation, will not place). It routes clean in **two** quarter slots: 3.465 mm² die, **60.1 % utilisation, 0 DRC violations**, setup +10.17 ns and hold +1.14 ns at ss_125C_4v50. The drum section is 62 % of it. The earlier chip with the placeholder drums did fit the quarter slot, at 56.7 %. No LVS, no sign-off DRC, no gate-level simulation |
 
 The cell counts in the sections below are PDK-neutral yosys output from the
 block benches; the mm² figures are gf180mcu cell area at tt/5 V with `*_1`
 cells allowed, and **cell area is not die area** — see ARCHITECTURE.md
 section 10 for where the chip sits against the wafer.space quarter slot.
+
+## Where we are
+
+<!-- DAG:BEGIN -->
+```mermaid
+graph LR
+  subgraph foundation["Foundation"]
+    F1["! Ladder bit-exact"]
+    F2["✓ Modal bank bit-exact"]
+    F3["· Measurement ground truth"]
+  end
+  subgraph minimoog["Minimoog voice"]
+    M1["! One Moog voice bit-exact"]
+    M2["✓ Matches our own spec"]
+    M3["· Matches software references"]
+    M4["✗ Matches real hardware"]
+    M5["○ Noise, osc-3 modulation, full waveform set"]
+  end
+  subgraph drums["TR-808 drums"]
+    D1["! Drum kit bit-exact"]
+    D2["· Is an 808, per the reference"]
+    D3["✗ Per-voice measured against targets"]
+    D4["○ Complete 808 -- all 16 sounds"]
+  end
+  subgraph integration["Integration"]
+    I1["○ Control link carries every write"]
+    I2["○ Whole chip at its pins"]
+  end
+  subgraph silicon["Silicon"]
+    S1["· Routed on gf180, DRC clean"]
+    S2["✗ Fits a real shuttle padframe"]
+    S3["· FPGA build of the real engine"]
+  end
+  F1 --> M1
+  M1 --> M2
+  F3 --> M2
+  M2 --> M3
+  M3 --> M4
+  M2 --> M5
+  F2 --> D1
+  D1 --> D2
+  F3 --> D2
+  D2 --> D3
+  D2 --> D4
+  M1 --> I1
+  D1 --> I1
+  I1 --> I2
+  I2 --> S1
+  S1 --> S2
+  I2 --> S3
+  style F1 fill:#9A6510,color:#fff
+  style F2 fill:#0E6B5E,color:#fff
+  style F3 fill:#3f8f5f,color:#fff
+  style M1 fill:#9A6510,color:#fff
+  style M2 fill:#0E6B5E,color:#fff
+  style M3 fill:#3f8f5f,color:#fff
+  style M4 fill:#8E2438,color:#fff
+  style M5 fill:#5a6468,color:#fff
+  style D1 fill:#9A6510,color:#fff
+  style D2 fill:#3f8f5f,color:#fff
+  style D3 fill:#8E2438,color:#fff
+  style D4 fill:#5a6468,color:#fff
+  style I1 fill:#5a6468,color:#fff
+  style I2 fill:#5a6468,color:#fff
+  style S1 fill:#3f8f5f,color:#fff
+  style S2 fill:#8E2438,color:#fff
+  style S3 fill:#3f8f5f,color:#fff
+```
+
+| | node | status | evidence |
+|---|---|---|---|
+| `F1` | Ladder bit-exact | **STALE** | rtl-sketch/ladder_dp_n.v changed since node/F1-ladder was cut |
+| `F2` | Modal bank bit-exact | **STAMPED** | node/F2-modal (not re-run; verifier is slow) |
+| `F3` | Measurement ground truth | **GREEN** | 90 passed in 2.72s |
+| `M1` | One Moog voice bit-exact | **STALE** | rtl-sketch/voice_dp.v changed since node/M1-voice was cut |
+| `M2` | Matches our own spec | **STAMPED** | node/M2-minimoog |
+| `M3` | Matches software references **fidelity** | **GREEN** | 17 passed in 20.28s |
+| `M4` | Matches real hardware **fidelity** | **BLOCKED** | 0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip |
+| `M5` | Noise, osc-3 modulation, full waveform set | **TODO** | issue #48 |
+| `D1` | Drum kit bit-exact | **STALE** | model/drums_fx.py changed since node/D-drums-bitexact was cut |
+| `D2` | Is an 808, per the reference **fidelity** | **GREEN** | 63 passed in 108.50s (0:01:48) |
+| `D3` | Per-voice measured against targets **fidelity** | **RED** | model/sound_report.py exit 1 |
+| `D4` | Complete 808 -- all 16 sounds | **TODO** | issue #22 |
+| `I1` | Control link carries every write | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `I2` | Whole chip at its pins | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `S1` | Routed on gf180, DRC clean | **GREEN** | pnr/orfs/evidence/synth_top/joined-d1e5068/6_report.json |
+| `S2` | Fits a real shuttle padframe | **BLOCKED** | routed die has padcells: 0 -- LibreLane half-slot in progress |
+| `S3` | FPGA build of the real engine | **GREEN** | fpga/reports/ecp5_25f.txt |
+
+<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py`. Status is derived from evidence, not asserted.</sub>
+<!-- DAG:END -->
 
 ## Why this block exists
 
@@ -148,8 +239,28 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python -m pytest model/test_moog_acceptance.py -q      # "is this really a Minimoog?"
 .venv/bin/python -m pytest model/test_808_acceptance.py -q       # "is this really an 808?"
 TR808_STUB=silent .venv/bin/python -m pytest model/test_808_acceptance.py -q   # the red run: must exit 1
+.venv/bin/python model/sound_report.py                           # per voice, per property, against declared targets
+.venv/bin/python model/sound_report.py --inject sd-noise-6db     # ...and it must be able to go red
+.venv/bin/python -m pytest model/test_reference_compare.py -q    # the reference-comparison estimators
 rtl-sketch/synth_count.sh                                        # the cell counts
 ```
+
+`model/sound_report.py` is what a commit that changes the sound should run.
+It reports **one line per voice per behaviour** -- never an aggregate, because
+an aggregate lets a better kick hide a worse snare -- and each line says what
+was measured, what against, where that figure comes from, and by how much it
+is out **in the property's own unit**: "CB decay tau is 75.15 ms high:
+measured 97.15, target 22 +- 5.5". A `target` is a figure a document states
+(being outside it means the model is wrong); a `lock` is what this model
+measured at a named commit (being outside it means the model changed, which
+may be the point). `--inject` applies one of nine known-broken variants and
+prints which properties moved **and which did not**, because a defect nothing
+measures is a hole in the coverage.
+
+`model/reference_compare.py` is the other half: our ladder measured against
+Surge XT's Vintage Ladder, Arturia Mini V3 and u-he Diva, driven headlessly
+through `dawdreamer` (`docs/discrimination.md` section 8). It found the two
+things `model/sound_report.py` now guards.
 
 Two acceptance suites ask whether the instrument is the instrument it claims to
 be, one property at a time, each assertion citing the section of

@@ -343,9 +343,11 @@ def test_long_attack_is_not_truncated():
 # ---- cutoff ROM ------------------------------------------------------------
 def test_cutoff_rom_tracks_the_float_coefficient():
     """128 entries, interpolated: within 4 LSB of Q0.16 everywhere and
-    within 1 % relative above 100 Hz."""
+    within 1 % relative above 100 Hz. The float reference is the TUNED
+    coefficient of DR 0011 -- `f * CUT_TRIM * fcr(f)` -- because that is what
+    the ROM is built from; this test sizes the ROM, not the tuning."""
     cut = np.arange(vf.CUT_MIN, vf.CUT_MAX + 1)
-    ex = np.clip(np.round((1 - np.exp(-2 * math.pi * cut / (2 * SR))) * 65536), 1, 65535)
+    ex = np.clip(np.round((1 - np.exp(-2 * math.pi * cut * vf.CUT_TRIM * vf.fcr(cut) / (2 * SR))) * 65536), 1, 65535)
     g = vf.g_from_cut(cut, vf.make_g_rom())
     assert np.abs(g - ex).max() <= 4
     rel = np.abs(g - ex) / ex
@@ -355,13 +357,14 @@ def test_cutoff_rom_tracks_the_float_coefficient():
 # ---- resonance compensation (DR 0006) ---------------------------------------
 def test_k_rom_is_the_linearised_onset():
     """32 + 1 entries of k_onset/4 in Q1.15 every 1024 Hz, evaluated at the
-    cutoff clamped to 30..21600 Hz: 1.001 at the bottom, a peak of 1.217 at
-    11 kHz, and flat at the clamp above entry 21. Spot values the contract
-    quotes."""
+    cutoff clamped to 30..21600 Hz: 1.0010 at the bottom, a peak of 1.2168 at
+    12 kHz, and flat at the clamp above entry 21. Spot values the contract
+    quotes. DR 0011 moved this ROM, because it is DERIVED from the cutoff ROM
+    (`k_onset` reads `g_from_cut`) -- the peak walked from entry 11 to 12."""
     rom = vf.make_k_rom()
-    assert len(rom) == 33 and rom[0] == 32799 and rom[1] == 33832
-    assert rom.max() == 39879 and rom.argmax() == 11
-    assert rom[22:].tolist() == [33964] * 11
+    assert len(rom) == 33 and rom[0] == 32800 and rom[1] == 33847
+    assert rom.max() == 39875 and rom.argmax() == 12
+    assert rom[22:].tolist() == [33837] * 11
     for i in (0, 5, 11, 21):
         k, _ = vf.k_onset(max(vf.CUT_MIN, 1024 * i))
         assert rom[i] == round(k / 4 * 32768)
@@ -493,7 +496,8 @@ def test_ladder_accepts_integer_coefficients():
     x = fixed.f2q15(dsp.osc("saw", dsp.ramp(n, dsp.phase_inc(110.0))) * 0.8)
     cut = np.full(n, 900.0)
     a = fixed.LadderFx(tanh_entries=16).process(x, cut, 0.8, drive=2.0)
-    g = np.clip(np.round((1 - np.exp(-2 * math.pi * cut / (2 * SR))) * 65536), 1, 65535).astype(np.int64)
+    g = np.clip(np.round((1 - np.exp(-2 * math.pi * fixed.tuned_cutoff(cut) / (2 * SR))) * 65536),
+                1, 65535).astype(np.int64)
     b = fixed.LadderFx(tanh_entries=16).process(x, None, 0.8, drive=2.0, g_q16=g)
     assert np.array_equal(a, b)
 

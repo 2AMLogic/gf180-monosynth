@@ -111,7 +111,7 @@ module synth_top #(
         .a1_bus(d_a1), .a2_bus(d_a2), .amp_bus(d_amp), .num_bus(d_num));
 
     wire signed [21:0] dmix;                 // the mix bus (15.5), 22 bits, exact:
-                                             // 23 paths x 17 bits needs 22 (revision 9)
+                                             // 23 paths x 17 bits needs 22 (revision 10)
     wire signed [18:0] body;                 // the body bus (15.6), 19 bits Q4.15
     wire               mix_valid, body_valid;
     drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS), .STOPS(STOPS)) u_drums (

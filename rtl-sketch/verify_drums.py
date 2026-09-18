@@ -43,7 +43,7 @@ def stimulus(short: bool = False):
     kit = dx.kit_808()
     hits, writes = [], []
     f = 10
-    # 1. every stop soloed at accent 1.0 -- eleven of them since revision 9, so the cymbal's three
+    # 1. every stop soloed at accent 1.0 -- eleven of them since revision 10, so the cymbal's three
     #    VCA paths and the RS/CL pair's four are all driven, and the BD and the THREE tom circuits
     #    carry the coefficient sequences of 15.7
     for s in range(dx.N_STOPS):

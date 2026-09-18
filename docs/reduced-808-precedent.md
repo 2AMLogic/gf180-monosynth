@@ -93,7 +93,7 @@ defensible; they count different things.
 modal-bank modes per *resonator*, not per voice, so the RS/CL circuit gets two
 modes whichever way it is counted. The complete machine needs **eleven trigger
 stops and sixteen modes** — built, and bit-exact against the RTL, at contract
-revision 9. The open item was real but it was never on the critical path.
+revision 10. The open item was real but it was never on the critical path.
 
 ## What this changes for us
 
