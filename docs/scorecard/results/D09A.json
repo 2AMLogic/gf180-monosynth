@@ -1,0 +1,57 @@
+{
+  "engine": "fixed-model",
+  "case_id": "D09A",
+  "subject": "Claves / anchor",
+  "source_commit": "0d8a763",
+  "analysis_run": "run_case@88e63bc3d689 + audio_measure@ec0ef6c02fa4 at 2026-09-18T20:27:15Z",
+  "reference_profile": "none: the Fischer set's cl voice",
+  "render_run": "not rendered",
+  "audio": "none",
+  "note": "REFUSED: the eight-stop kit in model/drums_fx.py does not implement CL. There is nothing of ours to measure, so this case has no distance -- not a zero one.",
+  "provenance": {
+    "engine": "fixed-model",
+    "worktree": {
+      "commit": "0d8a763",
+      "described": "node/D-drums-bitexact-28-g0d8a763-dirty",
+      "branch": "tools/case-runner",
+      "dirty": true,
+      "uncommitted_sha256": "ee567f52ad65ca91",
+      "untracked_files": 12
+    },
+    "command": "tools/run_case.py --batch First 32",
+    "config": {
+      "voice": "CL",
+      "refs": "/tmp/tr808-ref",
+      "inject": null
+    },
+    "python": "3.14.7",
+    "run_at": "2026-09-18T20:27:15Z",
+    "inputs": {
+      "model/drums_fx.py": "sha256:a0ec4ff4b067ebd4",
+      "model/voice_fx.py": "sha256:fc17442f2e21856a",
+      "model/audio_measure.py": "sha256:ec0ef6c02fa43c0c",
+      "tools/run_case.py": "sha256:88e63bc3d689c418",
+      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
+    },
+    "artefacts": {},
+    "outcome_code": 2,
+    "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
+  },
+  "metrics": {
+    "Pitch": {
+      "units": "",
+      "valid": false,
+      "why": "CL is not implemented by the kit"
+    },
+    "attack duration": {
+      "units": "",
+      "valid": false,
+      "why": "CL is not implemented by the kit"
+    },
+    "tail decay": {
+      "units": "",
+      "valid": false,
+      "why": "CL is not implemented by the kit"
+    }
+  }
+}

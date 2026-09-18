@@ -12,19 +12,20 @@
 PY  := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 RUN := $(PY) tools/run_all.py
 
-.PHONY: help verify verify-fast verify-full controls test dag
+.PHONY: help verify verify-fast verify-full controls test dag board
 
 help:
 	@echo "make verify       every fast check, in parallel, in ONE turn"
 	@echo "make verify-full  adds the hour-long runs (voice full set, drums)"
 	@echo "make controls     every injected defect that must turn something red"
 	@echo "make test         the Python suites only"
+	@echo "make board        fill the scorecard's first batch and re-render the board"
 	@echo "make dag          re-run the evidence and regenerate the README diagram"
 
 ## Everything a push should run.
 verify:
 	@$(RUN) \
-	  "$(PY) -m pytest model/ spec/ -q" \
+	  "$(PY) -m pytest model/ spec/ tools/ -q" \
 	  "$(PY) rtl-sketch/verify_ladder.py" \
 	  "$(PY) rtl-sketch/verify_modal.py" \
 	  "$(PY) rtl-sketch/verify_ctl.py" \
@@ -36,7 +37,7 @@ verify-fast: verify
 ## Adds the runs that take an hour. Still one turn.
 verify-full:
 	@$(RUN) --timeout 7200 \
-	  "$(PY) -m pytest model/ spec/ -q" \
+	  "$(PY) -m pytest model/ spec/ tools/ -q" \
 	  "$(PY) rtl-sketch/verify_ladder.py" \
 	  "$(PY) rtl-sketch/verify_modal.py" \
 	  "$(PY) rtl-sketch/verify_ctl.py" \
@@ -92,10 +93,21 @@ controls:
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_RESET_ALIAS --expect-fail --outdir build/top-resetalias" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_STOPS8 --expect-fail --outdir build/top-stops8" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_BUS_STALE --expect-fail --outdir build/top-busstale" \
-	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_DONE_NOWAIT --expect-fail --outdir build/top-nowait"
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_DONE_NOWAIT --expect-fail --outdir build/top-nowait" \
+	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D01A --results build/case-detune --expect fail" \
+	  "$(PY) tools/run_case.py --inject REF_MISSING D01A --results build/case-noref --expect 'no verdict'"
 
 test:
-	@$(PY) -m pytest model/ spec/ -q
+	@$(PY) -m pytest model/ spec/ tools/ -q
 
 dag:
 	@$(PY) tools/compile_dag.py --run && $(PY) tools/compile_dag.py
+
+## Fill the scorecard and re-render the board from what came back. The runner's
+## own exit convention is 0 match / 1 mismatch / 2 no evidence, and a first
+## batch that holds deliberate not-runs exits 2 by design -- so the board, not
+## the status, is the report.
+board:
+	-@$(PY) tools/run_case.py --batch "First 32"
+	@$(PY) tools/scorecard.py --markdown --readme
+	@$(PY) tools/scorecard.py --check

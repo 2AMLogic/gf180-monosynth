@@ -27,6 +27,12 @@ RULES THIS ENFORCES, because each of them is a way a scorecard starts lying:
     measurement and an integrated-RTL measurement are not interchangeable, and
     optimising 80 cases against a model the instrument does not reproduce is
     the failure this column exists to prevent.
+  * **Every result says what it was measured against.** A commit, a hash of the
+    uncommitted tree, the command, and content hashes of the generated inputs.
+    Without that a stale result is indistinguishable from a current one -- and
+    many worktrees are live on this repository at once, so an earlier green run
+    does not cover a later change to a dependency it does not own. A result
+    without provenance gets NO VERDICT: it is a number nobody can re-derive.
 """
 from __future__ import annotations
 import argparse, csv, json, pathlib, sys
@@ -76,6 +82,14 @@ def evaluate(case: dict, res: dict | None) -> dict:
         return {"state": NO_VERDICT, "worst": None,
                 "why": "no engine recorded -- which thing produced this audio?",
                 "engine": ""}
+
+    # What was this measured against? A result that cannot answer is not
+    # evidence; it is a number. It counts against coverage, never towards it.
+    prov = res.get("provenance") or {}
+    missing_prov = [k for k in ("worktree", "command", "inputs") if not prov.get(k)]
+    if missing_prov:
+        return {"state": NO_VERDICT, "worst": None, "engine": engine,
+                "why": "no provenance: " + ", ".join(missing_prov)}
 
     metrics = res.get("metrics") or {}
 
@@ -256,6 +270,18 @@ def main() -> int:
                if r["state"] in (PASS, FAIL) and r["worst"] is None]
         for b in bad:
             print(f"inconsistent: {b} has a verdict but no distance", file=sys.stderr)
+        # A verdict whose record does not say what produced it is the other way
+        # a board goes quietly wrong, so it is checked here too.
+        for c, r in rows:
+            if r["state"] not in (PASS, FAIL):
+                continue
+            res = load_result(c["case_id"]) or {}
+            code = (res.get("provenance") or {}).get("outcome_code")
+            want = 0 if r["state"] == PASS else 1
+            if code is not None and code != want:
+                print(f"inconsistent: {c['case_id']} is {r['state']} but its record "
+                      f"carries outcome_code {code}", file=sys.stderr)
+                bad.append(c["case_id"])
         return 1 if bad else 0
     return 0
 
