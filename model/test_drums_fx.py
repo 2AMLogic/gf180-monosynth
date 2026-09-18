@@ -697,3 +697,24 @@ def test_toms_drop_in_pitch_by_the_diode_ratio_and_by_accent():
     assert hard == pytest.approx(145.0, rel=0.10), "the reference's own LT example"
     soft = start_hz(0.4, True)
     assert flat < soft < hard, f"accent must move it: {soft} between {flat} and {hard}"
+
+
+def test_a_write_past_the_end_is_dropped_and_a_negative_frame_is_not():
+    """`play(writes, n)` must tolerate a write scheduled at or after frame n:
+    the coefficient sequences of 15.7.1 run to 60 ms past a hit, so any caller
+    rendering a shorter passage would otherwise have to know about them. Such
+    a write cannot affect a sample, so it is dropped and counted. A negative
+    frame is still a caller error and must raise."""
+    d = dx.DrumsFx()
+    hits = [(10, dx.BD, 1.0)]
+    w = dx.hit_writes(hits, dx.kit_808())
+    assert max(f for f, _, _ in w) > 100, "the BD hit must schedule a later write to drop"
+    dm, bd = d.play(w, 100)
+    assert d.n_late_writes > 0 and len(dm) == 100
+    # and the result is exactly the same as feeding it only the in-range writes
+    d2 = dx.DrumsFx()
+    dm2, bd2 = d2.play([t for t in w if t[0] < 100], 100)
+    assert np.array_equal(dm, dm2) and np.array_equal(bd, bd2)
+    assert d2.n_late_writes == 0
+    with pytest.raises(AssertionError):
+        dx.DrumsFx().play([(-1, dx.A_STOPS, 1)], 10)

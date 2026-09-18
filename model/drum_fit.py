@@ -122,6 +122,13 @@ def noise_share(x: np.ndarray, sr: int, bands, win_s: float = 0.25) -> dict:
     x = trim_onset(np.asarray(x, dtype=np.float64), sr)
     x = x[:int(win_s * sr)]
     x = x - x.mean()
+    # The result is a ratio, so normalise: callers pass anything from a
+    # [-1, 1) float to a raw int16 bus, and the amplitude bounds below are
+    # absolute. Without this a bus-scaled input puts the initial guess outside
+    # its bound and the fit refuses to start.
+    peak = float(np.abs(x).max())
+    if peak > 0:
+        x = x / peak
     t = np.arange(len(x)) / sr
     n = len(bands)
     p0, lb, ub = [], [], []

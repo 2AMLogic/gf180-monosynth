@@ -135,7 +135,7 @@ def bd_attack_shift():
     w = [(int((0.05 + 0.7 * i) * SR), dx.BD, 1.0) for i in (1, 3)]
     writes = dx.hit_writes(hits, kit, coef_seq=False)
     for f, _, _ in w:
-        writes += dx.bd_attack_writes(f, dx._kit_amp(kit, dx.M_BD))
+        writes += dx.bd_attack_writes(f, dx._kit_poles(kit, dx.M_BD))
     n = int(2.9 * SR)
     d = dx.DrumsFx()
     dm, bd = d.play(sorted(writes, key=lambda t: t[0]), n)

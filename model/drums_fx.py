@@ -240,6 +240,7 @@ class DrumsFx:
         self.tanh = LadderFx(**LADDER_CFG)
         self.floor = floor
         self.n_tapsat = 0            # coverage: taps that hit the +-8.0 rail (15.5)
+        self.n_late_writes = 0       # writes scheduled past the end of a play()
         self.trace = {}
         self.reset()
 
@@ -359,11 +360,24 @@ class DrumsFx:
     def play(self, writes, n: int):
         """n frames; `writes` is a list of (frame, addr, value), applied at the
         start of their frame in list order. Returns (dmix, body) as int64 /
-        int32 arrays; `self.trace` holds the per-frame internals."""
+        int32 arrays; `self.trace` holds the per-frame internals. A write at a
+        frame at or past `n` is dropped and counted in `self.n_late_writes` --
+        it could not have affected any sample -- and a negative frame raises."""
         ev = {}
+        self.n_late_writes = 0
         for f, a, v in writes:
             f = int(f)
-            assert 0 <= f < n, f"write ({f}, {a:#x}, {v}) outside 0..{n-1}"
+            assert f >= 0, f"write ({f}, {a:#x}, {v}) before frame 0"
+            if f >= n:
+                # A write scheduled after the last frame cannot affect any
+                # sample, so it is DROPPED rather than rejected. The
+                # coefficient sequences of 15.7.1 run to 60 ms past a hit, and
+                # a caller rendering a shorter passage than that must not have
+                # to know it -- `render(..., 0.012)` in an acceptance suite is
+                # a legitimate thing to ask for. Counted so a test can see how
+                # many were dropped; a negative frame is still a caller error.
+                self.n_late_writes += 1
+                continue
             ev.setdefault(f, []).append((a, v))
         dmix = np.empty(n, dtype=np.int64)
         body = np.empty(n, dtype=np.int32)
@@ -494,15 +508,27 @@ def bd_decay_q(knob: float) -> float:
     return float(math.exp(np.interp(k, ks, [math.log(BD_DECAY_Q[x]) for x in ks])))
 
 
-def bd_attack_writes(frame: int, amp: float, decay_knob: float = 5.0) -> list:
+def bd_attack_writes(frame: int, restore: list = None) -> list:
     """The BD attack window as host writes (reference section 2): the body
     mode is retuned to BD_ATTACK_HZ / BD_ATTACK_Q in the frame of the hit and
-    back to its own f0 / Q after BD_ATTACK_MS. Two writes each way -- a1 and
-    a2 -- because `amp` and `num` do not change."""
+    back after BD_ATTACK_MS. Two writes each way -- a1 and a2 only, because
+    the level and the numerator do not move: the circuit shorts a resistor,
+    it does not change the gain.
+
+    `restore` is the (a1, a2) register PAIR to write back, and the caller
+    passes what was in the image before the hit. In the circuit Q43 shorts
+    R165 and then releases, so the resonator returns to whatever the DECAY
+    knob currently sets -- NOT to a fixed preset. Recomputing the preset here
+    would silently overwrite a host that had retuned the decay, which is
+    exactly what it did to `test_808_acceptance.bd_at_decay`. Omitted, it
+    restores the kit's own DECAY 5.0 setting."""
     n = int(round(BD_ATTACK_MS * 1e-3 * SR))
-    hot = mode_writes(M_BD, BD_ATTACK_HZ, BD_ATTACK_Q, amp)[:2]
-    cold = mode_writes(M_BD, BD_HZ, bd_decay_q(decay_knob), amp)[:2]
-    return ([(frame, a, v) for a, v in hot] + [(frame + n, a, v) for a, v in cold])
+    hot = mode_writes(M_BD, BD_ATTACK_HZ, BD_ATTACK_Q, 0.0)[:2]
+    if restore is None:
+        restore = [v for _, v in mode_writes(M_BD, BD_HZ, bd_decay_q(5.0), 0.0)[:2]]
+    base = A_MODE + M_BD * MODE_STRIDE
+    return ([(frame, a, v) for a, v in hot]
+            + [(frame + n, base + i, v) for i, v in enumerate(restore)])
 
 
 def tom_pitch_drop_writes(frame: int, mode: int, f0_hz: float, q: float, amp: float,
@@ -597,6 +623,16 @@ def _kit_amp(kit: list, mode: int) -> float:
     return 0.0
 
 
+def _kit_poles(kit: list, mode: int) -> list:
+    """The (a1, a2) register pair a kit image writes for one mode, or None."""
+    base = A_MODE + mode * MODE_STRIDE
+    got = {}
+    for addr, v in kit or ():
+        if addr in (base, base + 1):
+            got[addr] = v
+    return [got[base], got[base + 1]] if len(got) == 2 else None
+
+
 def hit_writes(hits, kit: list = None, start_frame: int = 0, coef_seq: bool = True) -> list:
     """hits: (frame, stop, accent 0..2.0). Each hit writes its stop's accent
     and raises the stop bit in that frame; the bit is dropped in the next
@@ -621,7 +657,7 @@ def hit_writes(hits, kit: list = None, start_frame: int = 0, coef_seq: bool = Tr
     if coef_seq:
         for f, s_, a_ in hits:
             if s_ == BD:
-                w += bd_attack_writes(int(f), _kit_amp(kit, M_BD))
+                w += bd_attack_writes(int(f), _kit_poles(kit, M_BD))
             elif s_ == LT:
                 w += tom_pitch_drop_writes(int(f), M_LT, 90.0, 25.0, _kit_amp(kit, M_LT), a_)
             elif s_ == HT:
