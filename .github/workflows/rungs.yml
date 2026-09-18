@@ -34,9 +34,12 @@ jobs:
       # a node is STALE -- passed once, but a file it `covers` has changed
       # since, so the result no longer describes this code. Slow nodes
       # (iverilog, hours) carry their status from the nightly job.
+      # On a PR branch the dag workflow does not run, so this is what keeps a
+      # pull request honest about what it claims. On main the bot regenerates
+      # and commits instead -- see .github/workflows/dag.yml.
       - name: the roadmap matches the evidence
         run: |
-          python tools/compile_dag.py --run
+          python tools/compile_dag.py --run || true   # a RED node is a result
           python tools/compile_dag.py --check
 
       # First on purpose: every node above F1 measures with these estimators,
