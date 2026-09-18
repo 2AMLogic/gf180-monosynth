@@ -77,15 +77,47 @@ Five of six agents on this repository burned a large fraction of their budget
 in polling loops after their work was already finished on disk. That is the
 single biggest avoidable cost here.
 
+### The measurement, so this is not an opinion
+
+One session was audited. **Eighty-nine agent wake-ups produced nothing but
+"still running" or "ending my turn"** — one agent alone did **twenty-four**.
+
+Each wake reprocesses the agent's context, which is wasteful. What it *costs*
+depends on caching and the provider, so measure usage separately rather than
+quoting a token figure per wake — but eighty-nine empty turns is a large number
+whatever the multiplier, and it is almost certainly the biggest avoidable cost
+here. The cause is always the same: **serial jobs.** Fire one, wake, fire the
+next, wake.
+
 ### Do this
 
-**Block in one command.** Exit when the condition is true, with
-`run_in_background: true`. One tool call, one notification, zero turns while
-waiting:
+**`make verify`.** One target, one turn, every fast check in parallel. There is
+deliberately no documented way to run *some* of them — the choice was removed
+because the prohibition did not work: two more empty wakes happened within five
+minutes of the rule being written down.
 
-```bash
-until [ -f rtl-sketch/build/results.json ]; do sleep 2; done
 ```
+make verify        every fast check
+make verify-full   adds the hour-long runs
+make controls      every injected defect that must turn something red
+```
+
+**For anything else, batch known-independent work** with `tools/run_all.py`.
+It reports each job's own exit status, distinguishes a timeout as `NO-VERDICT`
+from a failure, and kills the process group so a shelled-out job's children do
+not survive. It has its own tests (`tools/test_run_all.py`) because a runner's
+only failure mode that matters is a false green.
+
+**Not everything, and this matters:** generating vectors before simulating
+them, or reading a failure before choosing the next diagnostic, is legitimate
+sequential work. The objective is fewer **empty** turns, not unconditional
+parallelism. And one batched call cannot *guarantee* one turn — the platform
+may background a long call regardless. It removes the self-inflicted serial
+wakes, which are the ones we control.
+
+**If you are waiting on something external**, block in one command and chain
+the follow-up into the same call, so the result is already analysed when you
+wake.
 
 **Chain the follow-up work into the same command.** Do not return to the model
 between running a thing and reading its result:
@@ -111,6 +143,9 @@ including failures, not just the success marker.
   anything it depends on
 - report "waiting on the run" as a turn. If the work is done and only a report
   is missing, write the report
+- **wake to say you are still waiting.** That turn costs a full context pass and
+  tells the coordinator nothing it did not already know
+- **start a second job after the first finishes**, if you knew you needed both
 
 ### If you are stopping because you are blocked
 
