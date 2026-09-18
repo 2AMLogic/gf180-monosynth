@@ -23,6 +23,27 @@ Four consequences that will bite you specifically:
   12; yosys pads the bank to a power of two, so 9 through 16 cost identically,
   and the variable that mattered was `NUMS`.
 
+**And a second root cause, from the measurement apparatus rather than the
+evidence: preconditions assumed rather than asserted.** Every one of these was
+a correct instrument in a wrong state — an unlicensed Diva inserting clicks for
+hours, a Model D rendering exact silence, Surge renaming parameter 265 from
+"Unison Voices" to "High Cut" by oscillator type, Mini V3 defaulting to a
+sub-audio octave, all three plugins appearing to step at 94 Hz because that was
+the host's block rate.
+
+- **Assert your apparatus's preconditions at the point of use, and REFUSE
+  rather than report when they fail.** `REFUSED` is a first-class outcome,
+  distinct from pass and fail. A tool that answers when it cannot is worse than
+  one that is absent, because its output looks exactly like data.
+- **Run a gate against the current state before committing it.** Three
+  unsatisfiable gates were written here in one day. An unsatisfiable gate is
+  worse than no gate: it trains everyone to ignore gates, including the ones
+  that work.
+- **Publish your wrong-then-right rate** where the numbers are read. One
+  session produced five measurements that were wrong before they were right,
+  all caught by controls rather than inspection. That rate is how a reader
+  calibrates any single figure.
+
 This file is about how to work, not what to build.
 
 ## Waiting is the expensive part, not the work
