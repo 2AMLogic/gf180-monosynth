@@ -213,12 +213,14 @@ def test_sources_are_what_the_contract_says():
     staircase from 0 phases = +32766); SQPAIR is squares 4 and 5 at +-16383;
     SQ i is square i ALONE at +-16383 (src 5..10), so SQ 4 + SQ 5 is SQPAIR
     term for term and the cowbell's two gates cost no level; OFF and every
-    unassigned code are 0; envelope index 15 reads full scale (32767, so a
-    path value is the source x 32767 >> 15) and 12..14 zero."""
+    unassigned code are 0; envelope index ENV_FULL reads full scale (32767, so
+    a path value is the source x 32767 >> 15) and any other index at or above
+    N_ENV reads zero."""
     d = dx.DrumsFx()
-    srcs = ((dx.SRC_PULSE, 15), (dx.SRC_SQSUM, 15), (dx.SRC_SQPAIR, 15), (dx.SRC_OFF, 15),
-            (11, 15), (dx.SRC_PULSE, 13), (dx.SRC_PULSE, 12), (dx.SRC_NOISE, 15),
-            (dx.SRC_SQ + 4, 15), (dx.SRC_SQ + 5, 15))
+    F, Z = dx.ENV_FULL, dx.ENV_NONE
+    srcs = ((dx.SRC_PULSE, F), (dx.SRC_SQSUM, F), (dx.SRC_SQPAIR, F), (dx.SRC_OFF, F),
+            (11, F), (dx.SRC_PULSE, Z), (dx.SRC_PULSE, dx.N_ENV), (dx.SRC_NOISE, F),
+            (dx.SRC_SQ + 4, F), (dx.SRC_SQ + 5, F))
     for p, (src, e1) in enumerate(srcs):
         d.write(dx.A_PATH + p, dx.path_word(src, e1, dest=p))
     d.phase[5] = 1 << 23                                                      # square 5 low
@@ -283,7 +285,7 @@ def test_bank_headroom_zero_and_nineteen_bits_hold_the_kits_loudest_hit():
     for accent in (1.4, 2.0):
         cov = Cov()
         d = dx.DrumsFx()
-        dm, bd = d.play(dx.hit_writes([(10, s, accent) for s in range(8)], dx.kit_808()), int(0.3 * SR))
+        dm, bd = d.play(dx.hit_writes([(10, s, accent) for s in range(dx.N_STOPS)], dx.kit_808()), int(0.3 * SR))
         cov.off()
         assert cov.n == 0, accent
         assert np.abs(bd).max() < (1 << 18) and np.abs(dm).max() < 65536
@@ -308,11 +310,13 @@ def test_kit_writes_fit_their_registers():
     for a, v in dx.kit_808():
         assert 0 <= v < (1 << 32)
         if a == dx.A_STOPS: assert v < (1 << B["stops"])
-        elif dx.A_ACCENT <= a < dx.A_ACCENT + 8: assert v < (1 << B["accent"])
-        elif dx.A_OSC <= a < dx.A_OSC + 6: assert v < (1 << B["osc_inc"])
-        elif dx.A_ENV <= a < dx.A_ENV + 48: assert v < (1 << (B["env_ctl"], B["peak"], B["rate"])[(a - dx.A_ENV) % 4])
-        elif dx.A_PATH <= a < dx.A_PATH + 16: assert v < (1 << B["path"])
-        elif dx.A_MODE <= a < dx.A_MODE + 48: assert v < (1 << (B["a1"], B["a2"], B["amp"], B["num"])[(a - dx.A_MODE) % 4])
+        elif dx.A_ACCENT <= a < dx.A_ACCENT + dx.N_STOPS: assert v < (1 << B["accent"])
+        elif dx.A_OSC <= a < dx.A_OSC + dx.N_OSC: assert v < (1 << B["osc_inc"])
+        elif dx.A_ENV <= a < dx.A_ENV + dx.N_ENV * dx.ENV_STRIDE:
+            assert v < (1 << (B["env_ctl"], B["peak"], B["rate"])[(a - dx.A_ENV) % 4])
+        elif dx.A_PATH <= a < dx.A_PATH + dx.N_PATH: assert v < (1 << B["path"])
+        elif dx.A_MODE <= a < dx.A_MODE + dx.N_MODES * dx.MODE_STRIDE:
+            assert v < (1 << (B["a1"], B["a2"], B["amp"], B["num"])[(a - dx.A_MODE) % 4])
         else: raise AssertionError(a)
 
 
@@ -320,11 +324,18 @@ def test_kit_voices_sit_at_the_chart_levels():
     """Each voice alone at accent 1.0 peaks at its target on its bus:
     Roland's chart proportions with the loudest at 0.5 x full scale
     (drums_fx_render.py --balance), within 12 %."""
-    target = dict(BD=0.5, SD=0.43, LT=0.5, HT=0.5, CH=0.43, OH=0.5, CP=0.5, CB=0.5)
-    for s, name in enumerate(dx.STOP_NAMES):
-        d, dm, bd = _solo(s, 0.4)
-        pk = (np.abs(dm) if name == "CP" else np.abs(bd)).max() / 32768
-        assert abs(pk / target[name] - 1.0) < 0.12, (name, pk)
+    for name in dx.SOUND_NAMES:
+        d = dx.DrumsFx()
+        n = int(1.0 * SR)
+        dm, bd = d.play(dx.hit_writes([(10, dx.SOUND_STOP[name], 1.0)], dx.kit_with_sounds(name)), n)
+        pk = max(np.abs(dm).max(), np.abs(bd).max()) / 32768
+        # 12 % was the tolerance when every voice was a body-bus ring. The
+        # noise- and oscillator-driven ones are not repeatable to that: the
+        # peak of ONE hit depends on where the LFSR and the six free-running
+        # phases happen to be when it lands, which moves MA and CY by +-9 %
+        # between hit times on their own. 15 % covers that; it is a level
+        # check, not a decay one.
+        assert abs(pk / dx.BUS_TARGET[name] - 1.0) < 0.15, (name, pk, dx.BUS_TARGET[name])
 
 
 def test_snare_has_two_partials_and_a_snap():
@@ -393,19 +404,23 @@ def test_every_legal_register_value_runs():
     buses inside their widths, every state inside its width."""
     rng = np.random.default_rng(7)
     d = dx.DrumsFx()
-    addrs = ([dx.A_STOPS] + list(range(dx.A_ACCENT, dx.A_ACCENT + 8)) + list(range(dx.A_OSC, dx.A_OSC + 6))
-             + list(range(dx.A_ENV, dx.A_ENV + 48)) + list(range(dx.A_PATH, dx.A_PATH + 16))
-             + list(range(dx.A_MODE, dx.A_MODE + 48)))
-    writes = [(0, a, 0xFFFFFFFF) for a in addrs] + [(50, a, 0) for a in addrs] + [(51, dx.A_STOPS, 0xFF)]
+    addrs = ([dx.A_STOPS] + list(range(dx.A_ACCENT, dx.A_ACCENT + dx.N_STOPS))
+             + list(range(dx.A_OSC, dx.A_OSC + dx.N_OSC))
+             + list(range(dx.A_ENV, dx.A_ENV + dx.N_ENV * dx.ENV_STRIDE))
+             + list(range(dx.A_PATH, dx.A_PATH + dx.N_PATH))
+             + list(range(dx.A_MODE, dx.A_MODE + dx.N_MODES * dx.MODE_STRIDE)))
+    all_stops = (1 << dx.N_STOPS) - 1
+    writes = ([(0, a, 0xFFFFFFFF) for a in addrs] + [(50, a, 0) for a in addrs]
+              + [(51, dx.A_STOPS, all_stops)])
     for f in range(60, 400, 4):
         writes.append((f, int(rng.choice(addrs)), int(rng.integers(0, 1 << 32))))
         if f % 12 == 0:
-            writes += [(f, dx.A_STOPS, 0), (f + 1, dx.A_STOPS, 0xFF)]
+            writes += [(f, dx.A_STOPS, 0), (f + 1, dx.A_STOPS, all_stops)]
     writes.append((100, 0x37, 1))                                          # no register there: ignored
     writes.append((200, dx.A_RESET, 0))
     writes += [(201, a, v) for a, v in dx.kit_808()]
     dm, bd = d.play(sorted(writes, key=lambda t: t[0]), 400)
-    assert np.abs(dm).max() < (1 << 20) and np.abs(bd).max() < (1 << 18)
+    assert np.abs(dm).max() < (1 << 21) and np.abs(bd).max() < (1 << 18)
     assert all(0 <= e.level <= FULL24 and 0 <= e.t <= 2047 for e in d.envs)
     assert all(-(1 << 27) <= y < (1 << 27) for y in d.bank.y1 + d.bank.y2)
     assert np.abs(d.trace["exc"]).max() < (1 << 20)
@@ -415,7 +430,7 @@ def test_signal_path_has_no_transcendentals():
     """After the kit's writes are computed, play() must not call a float
     transcendental, and every traced array is integer."""
     d = dx.DrumsFx()
-    w = dx.hit_writes([(5, s, 1.0) for s in range(8)], dx.kit_808())
+    w = dx.hit_writes([(5, s, 1.0) for s in range(dx.N_STOPS)], dx.kit_808())
     nframes = max(300, max(f for f, _, _ in w) + 1)   # the coefficient sequences
                                                       # of 15.7 run to 60 ms after a hit
 
@@ -518,7 +533,7 @@ def test_cowbell_gates_each_oscillator_separately():
     and no path may take the pre-summed pair, because nl(a+b) != nl(a)+nl(b)."""
     kit = dict(dx.kit_808())
     paths = [kit[dx.A_PATH + p] for p in range(dx.N_PATH) if dx.A_PATH + p in kit]
-    cb = [w for w in paths if ((w >> 18) & 15) == dx.M_CBBP]
+    cb = [w for w in paths if ((w >> 20) & 31) == dx.M_CBBP]
     assert len(cb) == 2, f"expected one path per cowbell oscillator, got {len(cb)}"
     srcs = sorted(w & 31 for w in cb)
     assert srcs == [dx.SRC_SQ + dx.SQPAIR[0], dx.SRC_SQ + dx.SQPAIR[1]], srcs

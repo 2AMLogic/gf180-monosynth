@@ -67,14 +67,33 @@ end. Our own cowbell already measures **τ 26 ms against a real 98 ms**, which
 is the same failure. Worth treating as a named hazard rather than a
 coincidence.
 
-## An unresolved discrepancy
+## The discrepancy, resolved — and it turned out not to matter
 
-Two sources disagree on the circuit count. Roland's TR-08 instrument listing
-groups the sixteen sounds into five exclusive pairs (LC/LT, MC/MT, HC/HT,
-CL/RS, MA/CP), implying **eleven** circuits. Wikipedia says **twelve** timbral
-voices. The difference is plausibly whether CH and OH count as one shared
-circuit or two timbres, but **we have not established which, and it should not
-be papered over** — it changes the modal-bank arithmetic by one. Marked open.
+Roland's TR-08 instrument listing groups the sixteen sounds into five exclusive
+pairs (LC/LT, MC/MT, HC/HT, CL/RS, MA/CP), implying **eleven** circuits.
+Wikipedia says **twelve** timbral voices. This was marked open because it was
+believed to change the modal-bank arithmetic by one.
+
+**Eleven is right for circuits, and the twelfth is a counting convention.**
+The service notes group the sound generators into exactly eleven blocks — BD,
+SD, the three tom/conga circuits (SW8), RS/CL (SW11), CP/MA (SW12), CB, CY, OH,
+CH — and each of the five pairs shares a trigger, a switch and an output
+buffer, so no pair can sound together. The earlier guess that the ambiguity was
+CH versus OH is wrong: §11 of the reference has them on separate VCAs, separate
+envelopes and separate high-pass corners, and
+`drum-verification.md` §4 measured the two corners 8.5× apart on our own
+render. They are two.
+
+What can be said for **twelve** is that the RS/CL block contains **two**
+independent bridged-T networks (IC21 at 453 Hz and IC20a at 2526 Hz, §5), so
+counting *resonators* rather than *voices* gives twelve. Both numbers are
+defensible; they count different things.
+
+**And the arithmetic does not depend on which.** The implementation allocates
+modal-bank modes per *resonator*, not per voice, so the RS/CL circuit gets two
+modes whichever way it is counted. The complete machine needs **eleven trigger
+stops and sixteen modes** — built, and bit-exact against the RTL, at contract
+revision 10. The open item was real but it was never on the critical path.
 
 ## What this changes for us
 

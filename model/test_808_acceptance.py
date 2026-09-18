@@ -93,9 +93,11 @@ coefficients actually written to each mode. Assertions read the manifest rather
 than assuming what a render contains -- three hits at three levels are not
 three DECAY settings, they might be three accents.
 
-NOT COVERED, because the eight-stop section does not have them: MT, the congas
-LC/MC/HC, RS, CL, MA and CY. Reference section 12 describes them; when a stop
-appears, add its row here.
+ALL SIXTEEN SOUNDS ARE COVERED since contract revision 10. They are ELEVEN
+circuits: five carry two sounds each on a panel switch and cannot sound
+together, so the second sound of a pair is a register image on the circuit it
+shares (`drums_fx.preset_writes`) and not hardware. Tests that name a SOUND
+render `kit_with_sounds(name)`; tests that name a CIRCUIT use the stop.
 
 KNOWN SIMPLIFICATION, not asserted: the six square oscillators run at 50 %
 duty, where reference 1.5 measures the HD14584 at 47.98 %. That is a design
@@ -117,6 +119,18 @@ drum section and against a plausible-but-wrong noise one and requires it to go
 red. By hand:
 
     TR808_STUB=silent .venv/bin/python -m pytest model/test_808_acceptance.py -q
+
+THERE IS A THIRD STUB, and it is the one the sixteen-sound work was started
+red against. `TR808_STUB=rev8` renders the ELEVEN-STOP block with only
+revision 8's EIGHT voices programmed: MT, CL and CY have their stops, their
+modes, their envelopes and their paths, and nothing is written to any of them.
+That is "the right ports and no behaviour" for exactly the three new circuits,
+so every assertion below about MT/MC, RS/CL, MA and CY must fail under it
+while every assertion about the original eight still passes -- which is a
+sharper control than a silent block, because a silent block fails everything
+and therefore proves nothing about what the new tests are sensitive to.
+
+    TR808_STUB=rev8 .venv/bin/python -m pytest model/test_808_acceptance.py -q
 """
 from __future__ import annotations
 
@@ -258,6 +272,31 @@ class Render:
         return x[i0:i1]
 
 
+# The three circuits contract revision 10 added, and everything kit_808() writes
+# to them. `TR808_STUB=rev8` blanks exactly this and nothing else.
+REV9_MODES = ("M_MT", "M_RS1", "M_RS2", "M_CYBP", "M_CYHI")
+REV9_ENVS = ("E_MTX", "E_RSX", "E_RSG", "E_CYS", "E_CYD", "E_CYL")
+REV9_PATHS = ("P_MTX", "P_RS1X", "P_RS2X", "P_RS1OUT", "P_RS2OUT",
+              "P_CYBP", "P_CYS", "P_CYD", "P_CYL")
+
+
+def rev8_kit(kit):
+    """`kit` with revision 10's three circuits left unprogrammed: the block is
+    sized for eleven stops and only the original eight are written."""
+    blank = {}
+    for name in REV9_MODES:
+        m = getattr(dx, name)
+        for i in range(dx.MODE_STRIDE):
+            blank[dx.A_MODE + m * dx.MODE_STRIDE + i] = 0
+    for name in REV9_ENVS:
+        e = getattr(dx, name)
+        for i in range(dx.ENV_STRIDE):
+            blank[dx.A_ENV + e * dx.ENV_STRIDE + i] = 0
+    for name in REV9_PATHS:
+        blank[dx.A_PATH + getattr(dx, name)] = 0
+    return [(a, blank.get(a, v)) for a, v in kit]
+
+
 def _stub_buses(n: int):
     """docs/verification-rules.md rule 1: a drum section with the right
     interface and no 808 in it."""
@@ -294,7 +333,11 @@ def render(hits, seconds: float, *, kit=None, extra_writes=(), controls=None, na
               for f, s, a in sorted(hits)],
         n_writes=len(writes),
     )
-    if STUB:
+    if STUB == "rev8":
+        kit = rev8_kit(kit)
+        writes = sorted(list(dx.hit_writes(hits, kit)) + list(extra_writes), key=lambda t: t[0])
+        manifest["stub"] = STUB
+    if STUB and STUB != "rev8":
         dmix, body = _stub_buses(n)
         manifest["stub"] = STUB
         manifest["coefficients"] = {}
@@ -358,6 +401,23 @@ def mode_impulse_response(mode: int, seconds: float = 0.25) -> np.ndarray:
     }
     r = one_hit(dx.BD, 1.0, seconds, kit=kit_with(paths_off=True, keep_mode_amp=mode, regs=regs),
                 name=f"probe-mode-{mode}")
+    return r.body[r.hit_index:]
+
+
+def mode_impulse_response_on(kit, mode: int, seconds: float = 0.25) -> np.ndarray:
+    """`mode_impulse_response` against a GIVEN register image, so a filter that
+    only exists in one position of a shared circuit (the maracas high-pass) can
+    be probed with the same controlled broadband pulse as a fixed one."""
+    base = {a: v for a, v in kit}
+    for p in range(dx.N_PATH):
+        base[dx.A_PATH + p] = 0
+    for m in range(dx.N_MODES):
+        base[dx.A_MODE + m * dx.MODE_STRIDE + 2] = 65535 if m == mode else 0
+    base[dx.A_ENV + dx.E_BDX * dx.ENV_STRIDE + 0] = dx.env_ctl(dx.BD)
+    base[dx.A_ENV + dx.E_BDX * dx.ENV_STRIDE + 1] = dx.peak_reg(1.0)
+    base[dx.A_ENV + dx.E_BDX * dx.ENV_STRIDE + 2] = 65535
+    base[dx.A_PATH + 0] = dx.path_word(dx.SRC_PULSE, dx.E_BDX, dest=mode)
+    r = one_hit(dx.BD, 1.0, seconds, kit=sorted(base.items()), name=f"probe-kit-mode-{mode}")
     return r.body[r.hit_index:]
 
 
@@ -1450,6 +1510,501 @@ def test_clap_is_noise_and_not_an_oscillator_bank():
 
 
 # ===========================================================================
+# the sixteen sounds on eleven circuits -- revision 10
+# ===========================================================================
+# Every hardware figure below was measured on the SAME reference set the rest
+# of this suite uses -- Michael Fischer / Technopolis, CC0-1.0, a real TR-808
+# serial 103852, individual voice outputs, 44.1 kHz (docs/drum-verification.md
+# section 1) -- with `drum_verify.decay_fit` over -3..-30 dB for tau, the FFT
+# peak for f0, and `audio_measure.band_energy` for the splits. The recordings
+# are 12 MB and are not committed (`.gitignore` excludes `*.wav`), so the
+# numbers are transcribed here with the file each one came from, exactly as
+# section 4's figures are. Re-derive them with `model/drum_verify.py --refs`.
+HW = {
+    #  file             tau_s    f0_hz   R^2
+    "LT": ("lt8/LT50.WAV", 0.0876, 88.0, 0.997),
+    "MT": ("mt8/MT50.WAV", 0.0577, 135.0, 0.998),
+    "HT": ("ht8/HT50.WAV", 0.0417, 188.0, 0.993),
+    "LC": ("lc8/LC50.WAV", 0.0769, 200.0, 0.999),
+    "MC": ("mc8/MC50.WAV", 0.0387, 282.0, 0.999),
+    "HC": ("hc8/HC50.WAV", 0.0343, 413.0, 0.999),
+    "RS": ("rs8/RS.WAV",   0.0032, 468.0, 0.896),
+    "CL": ("cl8/CL.WAV",   0.0096, 2424.0, 0.999),
+}
+# t(-20 dB) read straight off the same envelopes, which is the quantity
+# Roland's chart column is comparable to and the one the trimmed one-shots can
+# still support (see MA below for one that cannot).
+HW_T20 = {"RS": 0.0090, "CL": 0.0226, "MT": 0.1282, "MC": 0.0877,
+          "LC": 0.1731, "HC": 0.0768}
+# The cymbal, from cy8/CY5025.WAV -- TONE 5.0 and DECAY 5.0, which is Roland's
+# own chart condition. Schroeder T20, and the band-energy split over the five
+# bands below.
+CY_BANDS = ((20.0, 2000.0), (2000.0, 5000.0), (5000.0, 9000.0),
+            (9000.0, 13000.0), (13000.0, 19000.0))
+HW_CY_SECONDS = 2.0      # the length of cy8/CY5025.WAV after its onset
+HW_CY_T20 = 0.798
+HW_CY_SHARES = (0.011, 0.103, 0.532, 0.233, 0.060)
+HW_CY_PEAK_HZ = 3153.0
+HW_CH_T20 = 0.0371          # ch8/CH.WAV, the same estimator, for the CY/CH contrast
+
+
+def preset_image(name: str) -> Render:
+    """The register image one of the sixteen sounds selects, with NO hit in it.
+    A control-path read must not be taken from a render that contains a strike:
+    the coefficient sequences of 15.7.1 are still moving the tom and conga
+    modes 60 ms after one, so a manifest sampled during the sweep reports the
+    pitch drop rather than the preset. That mistake reads LT at 98.5 Hz."""
+    return render([], 0.01, kit=dx.kit_with_sounds(name), name=f"image-{name}")
+
+
+def sound(name: str, accent: float = 1.0, seconds: float = 0.8, **kw) -> Render:
+    """One strike of one of the sixteen SOUNDS, with its circuit switched to
+    that sound's position first."""
+    at = int(PRE_ROLL_S * SR)
+    return render([(at, dx.SOUND_STOP[name], accent)], seconds + PRE_ROLL_S,
+                  kit=dx.kit_with_sounds(name), name=f"{name}@{accent}", **kw)
+
+
+# ---- (a) the control path: coefficients, with no audio at all ----------------
+TOM_ROWS = [(n, {"LT": dx.M_LT, "LC": dx.M_LT, "MT": dx.M_MT, "MC": dx.M_MT,
+                 "HT": dx.M_HT, "HC": dx.M_HT}[n]) + dx.TOM_PRESET[n][:2] for n in
+            ("LT", "LC", "MT", "MC", "HT", "HC")]
+
+
+@pytest.mark.parametrize("name,mode,f0_ref,q_ref", TOM_ROWS)
+def test_control_tom_and_conga_presets_reach_the_coefficients(name, mode, f0_ref, q_ref):
+    """[source-verified: reference 4's table and Roland's chart 1.6 -- six
+    positions of three circuits, LT/LC on one, MT/MC on one, HT/HC on one]
+    Read back from the registers and converted to (f0, tau) with NO audio, so
+    a failure here says the fault is in the control path and not downstream of
+    it. The pair sharing a circuit is the point: selecting LC must move the
+    SAME mode LT uses, not a second one.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    r = preset_image(name)
+    ef, et = coef_freq_tau(r, mode)
+    f0, tau = ef.require(f"{name} coefficient f0"), et.require(f"{name} coefficient tau")
+    assert abs(f0 / f0_ref - 1) <= 0.02, f"{name} coefficient f0 {f0:.1f} Hz, kit {f0_ref} Hz"
+    tau_ref = q_ref / (math.pi * f0_ref)
+    assert abs(tau / tau_ref - 1) <= 0.03, \
+        f"{name} coefficient tau {tau*1e3:.1f} ms, Q {q_ref} at {f0_ref} Hz implies {tau_ref*1e3:.1f} ms"
+
+
+def test_control_the_three_tom_circuits_are_three_modes_not_six():
+    """[source-verified: SN p.6, "Voices are switched by SW8"] The tom and the
+    conga of a pair are one resonator with a capacitor switched in or out. So
+    LT and LC must write the same mode, and the three pairs must be three
+    different modes -- if a conga had its own mode the machine could sound both
+    at once, and it cannot.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    modes = {n: {a for a, _ in dx.preset_writes(n)
+                 if dx.A_MODE <= a < dx.A_MODE + dx.N_MODES * dx.MODE_STRIDE}
+             for n in ("LT", "LC", "MT", "MC", "HT", "HC")}
+    for tom, conga in (("LT", "LC"), ("MT", "MC"), ("HT", "HC")):
+        assert modes[tom] == modes[conga], f"{tom} and {conga} write different modes"
+    assert len({frozenset(v) for v in modes.values()}) == 3, "the three pairs are not three modes"
+    assert len({dx.SOUND_STOP[n] for n in modes}) == 3, "the three pairs are not three stops"
+
+
+def test_control_rimshot_and_claves_are_one_circuit_at_two_tunings():
+    """[source-verified: SN p.6 "RS/CL", switch SW11; chart 1.6 gives RS "L"
+    455 Hz / "H" 1667 Hz and C 2500 Hz] Two bridged-T networks on one stop.
+    The RS position tunes the second network to 1786 Hz (the value the
+    switch wiring on SN p.9 gives, preferred to the chart's 1667 by DR 0009's
+    rule -- they are 7 % apart, inside reference 1.7's +-10 %); the CL position
+    retunes the SAME mode to 2500 Hz and wires it for high Q.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    rs, cl = preset_image("RS"), preset_image("CL")
+    assert dx.SOUND_STOP["RS"] == dx.SOUND_STOP["CL"], "RS and CL are not one circuit"
+    f_lo = coef_freq_tau(rs, dx.M_RS1)[0].require("RS low f0")
+    f_hi = coef_freq_tau(rs, dx.M_RS2)[0].require("RS high f0")
+    assert abs(f_lo / dx.RS_LO_HZ - 1) <= 0.02, f"RS low {f_lo:.0f} Hz, reference {dx.RS_LO_HZ}"
+    assert abs(f_hi / dx.RS_HI_HZ - 1) <= 0.02, f"RS high {f_hi:.0f} Hz, reference {dx.RS_HI_HZ}"
+    assert abs(f_lo / 455.0 - 1) <= 0.10 and abs(f_hi / 1667.0 - 1) <= 0.10, \
+        f"RS pair {f_lo:.0f}/{f_hi:.0f} Hz against Roland's chart 455/1667"
+    ecf, ect = coef_freq_tau(cl, dx.M_RS2)
+    f_cl, tau_cl = ecf.require("CL f0"), ect.require("CL tau")
+    assert abs(f_cl / dx.CL_HZ - 1) <= 0.02, f"CL {f_cl:.0f} Hz, chart 2500 Hz"
+    assert tau_cl > 4 * (dx.RS_HI_Q / (math.pi * dx.RS_HI_HZ)), \
+        "the claves position did not raise Q -- SN says R313 wires IC20b for high Q"
+
+
+def test_control_the_cymbal_writes_both_band_passes_and_its_post_filters():
+    """[source-verified: W14b section 4, "around 3440 Hz" and "around 7100 Hz"
+    -- the six-square sum is band-passed by TWO filters, and the 7.1 kHz one is
+    the hats' band as well] The low band-pass is the cymbal's own mode; the
+    high one is M_HATBP, already there for the hats and shared, which is what
+    the circuit does with IC3.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    r = preset_image("CY")
+    f_lo = coef_freq_tau(r, dx.M_CYBP)[0].require("CY low band-pass")
+    f_hi = coef_freq_tau(r, dx.M_HATBP)[0].require("CY high band-pass")
+    assert abs(f_lo / dx.CY_LO_HZ - 1) <= 0.02, f"CY low band-pass {f_lo:.0f} Hz, reference 3453"
+    assert abs(f_hi / 7117.0 - 1) <= 0.02, f"CY high band-pass {f_hi:.0f} Hz, reference 7117"
+    assert r.manifest["coefficients"][dx.M_CYBP]["num"] == modal_fixed.BP, \
+        "the cymbal's low band is all-pole; reference 14 says band-passes need the numerator"
+    assert r.manifest["coefficients"][dx.M_HATBP]["amp"] == 0, \
+        "the shared 7.1 kHz band-pass must be tapped, not mixed"
+
+
+def test_control_maracas_is_the_clap_circuit_retuned_to_a_high_pass():
+    """[source-verified: SN p.6, "White noise is gated by Q65 and supplied to
+    the same buffer IC19 as for the CP sound generator"; switch SW12 selects]
+    One circuit, one noise source, one buffer. The MA position retunes the
+    clap's 1071 Hz band-pass to Q68's 10.6 kHz Sallen-Key HIGH-pass and
+    replaces the three-burst envelope with one decay -- both register images on
+    the same mode and the same envelopes.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    assert dx.SOUND_STOP["CP"] == dx.SOUND_STOP["MA"], "CP and MA are not one circuit"
+    cp, ma = preset_image("CP"), preset_image("MA")
+    f_cp = coef_freq_tau(cp, dx.M_CPBP)[0].require("CP band-pass")
+    f_ma = coef_freq_tau(ma, dx.M_CPBP)[0].require("MA high-pass")
+    assert abs(f_cp / 1071.0 - 1) <= 0.02, f"CP band-pass {f_cp:.0f} Hz"
+    assert abs(f_ma / dx.MA_HP_HZ - 1) <= 0.02, f"MA high-pass {f_ma:.0f} Hz, reference 10600"
+    assert cp.manifest["coefficients"][dx.M_CPBP]["num"] == modal_fixed.BP
+    assert ma.manifest["coefficients"][dx.M_CPBP]["num"] == modal_fixed.HP
+
+
+def test_control_every_one_of_the_sixteen_selects_a_complete_image():
+    """[method] `preset_writes` must be idempotent and complete for all
+    sixteen: selecting a sound twice writes the same image, and selecting the
+    sound a pair's circuit already holds is legal rather than a special case a
+    caller has to know about. Without that a host has to track which half of
+    each pair is loaded, which is exactly the bookkeeping the panel switch
+    removes.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    assert len(dx.SOUND_NAMES) == 16 and set(dx.SOUND_NAMES) == set(dx.SOUND_STOP)
+    assert len(set(dx.SOUND_STOP.values())) == 11, "sixteen sounds are not eleven circuits"
+    for n in dx.SOUND_NAMES:
+        once = dict(dx.kit_with_sounds(n))
+        twice = dict(dx.kit_with_sounds(n, n))
+        assert once == twice, f"{n}: preset_writes is not idempotent"
+    for a, b in dx.PAIRS:
+        assert dx.SOUND_STOP[a] == dx.SOUND_STOP[b], f"{a}/{b} do not share a circuit"
+        assert dict(dx.kit_with_sounds(a)) != dict(dx.kit_with_sounds(b)), \
+            f"{a} and {b} load the same image, so the switch does nothing"
+
+
+def test_control_the_drum_page_has_no_address_that_means_two_things():
+    """[method] The register map must be disjoint, and RESET must not be
+    inside any block. At MODES = 16 with the revision-8 map this is FALSE: the
+    mode block began at 0xC0, sixteen modes span 64 bytes, and the last mode's
+    `num` register lands on 0xFF -- which is RESET. `drum_regs.v` decodes RESET
+    as a continuous assign outside the write decoder, so it is not a priority
+    question: writing that coefficient would have reset the drum section. The
+    map moved (PATH 0x80 -> 0x90, MODE 0xC0 -> 0xB0) and this test is what
+    stops it moving back.
+
+    Ground truth: test_audio_measure.test_damped_sinusoid_matches_the_coefficients_that_generated_it
+    """
+    bad = address_map_conflicts(dx.A_PATH, dx.A_MODE, dx.N_ENV, dx.N_PATH, dx.N_MODES)
+    assert not bad, "the drum page's address map is not disjoint: " + "; ".join(bad)
+
+
+def address_map_conflicts(a_path, a_mode, n_env, n_path, n_modes):
+    """Every conflict in a candidate drum page. Separate from the test so the
+    meta test below can feed it the revision-8 map and require a complaint."""
+    blocks = {"STOPS": [dx.A_STOPS],
+              "ACCENT": list(range(dx.A_ACCENT, dx.A_ACCENT + dx.N_STOPS)),
+              "OSC": list(range(dx.A_OSC, dx.A_OSC + dx.N_OSC)),
+              "ENV": list(range(dx.A_ENV, dx.A_ENV + n_env * dx.ENV_STRIDE)),
+              "PATH": list(range(a_path, a_path + n_path)),
+              "MODE": list(range(a_mode, a_mode + n_modes * dx.MODE_STRIDE)),
+              "RESET": [dx.A_RESET]}
+    out = []
+    names = sorted(blocks)
+    for i, a in enumerate(names):
+        if max(blocks[a]) > 0xFF:
+            out.append(f"{a} runs past the 8-bit address space (to {max(blocks[a]):#x})")
+        for b in names[i + 1:]:
+            both = sorted(set(blocks[a]) & set(blocks[b]))
+            if both:
+                out.append(f"{a} and {b} both claim " + ", ".join(f"{x:#04x}" for x in both))
+    return out
+
+
+# ---- (b) the audio ------------------------------------------------------------
+@pytest.mark.parametrize("name,mode,f0_ref,q_ref", TOM_ROWS)
+def test_tom_and_conga_fundamentals(name, mode, f0_ref, q_ref):
+    """[source-verified: Roland's chart 1.6 at mid tuning -- LT 90, MT 135,
+    HT 185, LC 185, MC 280, HC 400 Hz] +-10 % per reference 1.7; the TUNING pot
+    spans about that much by itself.
+
+    Ground truth: test_audio_measure.test_dominant_frequency_on_known_tones
+    """
+    r = sound(name, 1.0, 0.8)
+    f0 = am.dominant_frequency(r.after_hit(0, 0.8, "body"), 50.0, 900.0, SR).require(f"{name} f0")
+    assert abs(f0 / f0_ref - 1) <= 0.10, f"{name} fundamental {f0:.1f} Hz, chart {f0_ref} Hz"
+
+
+@pytest.mark.parametrize("name,mode,f0_ref,q_ref", TOM_ROWS)
+def test_tom_and_conga_decays(name, mode, f0_ref, q_ref):
+    """[hardware-measured: the Fischer set, `drum_verify.decay_fit` over
+    -3..-30 dB, R^2 0.997-0.999] The three TOM rows of reference 4's table land
+    on the machine to within 3 %; its three CONGA rows are long by 12-30 %, so
+    the kit takes the congas' Q from the machine and the toms' from the
+    reference. Asserted at +-25 %, which is what the residual pitch sweep of
+    15.7.1 (still running over the first 60 ms of this window) and reference
+    1.7's +-50 % on Q between them justify.
+
+    Ground truth: test_audio_measure.test_decay_tau_recovers_a_known_time_constant
+    """
+    r = sound(name, 1.0, 1.2)
+    tau = am.decay_tau(r.after_hit(0, 1.2, "body"), SR).require(f"{name} tau")
+    hw = HW[name][1]
+    assert abs(tau / hw - 1) <= 0.25, \
+        f"{name} tau {tau*1e3:.1f} ms against a real TR-808's {hw*1e3:.1f} ms ({HW[name][0]})"
+
+
+def test_mid_tom_pitch_falls_during_the_ring_like_its_two_siblings():
+    """[source-verified: SN p.6, quoted in reference 4 -- the diode pitch drop
+    is a property of the SHARED tom/conga circuit, so the mid circuit has it
+    for the same reason the low and high ones do] The coefficient sequence of
+    15.7.1 now reads the tuning out of the register image instead of assuming
+    the kit's, which is what lets it sweep a conga from the right place.
+
+    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide,
+    test_audio_measure.test_instantaneous_frequency_is_flat_for_a_steady_tone
+    """
+    first, settled = _pitch_of(sound("MT", 1.4, 1.0))
+    assert first / settled >= 1.05, \
+        f"MT starts at {first:.1f} Hz and settles at {settled:.1f} Hz: no diode pitch drop"
+
+
+def test_conga_pitch_drop_starts_from_the_congas_own_tuning():
+    """[measured-here: the conga pitch sweep starts from the conga's own f0]
+    The defect this closes: `hit_writes` used to hard-code
+    90 Hz and 185 Hz for the two tom circuits, so switching to a conga would
+    have swept the mode from a tom's frequency and left it at the conga's -- a
+    1.5x downward glide at the start of every mid conga. It now reads (f0, Q)
+    back out of the image. The check is that the conga's settled pitch and its
+    starting pitch are on the same side of its own chart value.
+
+    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide
+    """
+    first, settled = _pitch_of(sound("MC", 1.4, 1.0))
+    assert abs(settled / 280.0 - 1) <= 0.12, f"MC settles at {settled:.0f} Hz, chart 280"
+    assert 1.05 <= first / settled <= 2.0, f"MC pitch drop {first/settled:.2f}x"
+
+
+def test_rimshot_decay_matches_the_machine_and_the_chart():
+    """[hardware-measured: rs8/RS.WAV, t(-20 dB) 9.0 ms; Roland's chart 1.6
+    gives RS decay 10 ms] The rimshot is the voice io-808's author names as one
+    of his two failures, so it gets the measurement rather than the benefit of
+    the doubt. Its envelope is not one exponential -- two resonators of tau 4.7
+    and 2.4 ms under a 22 ms gate -- so the quantity is the time to -20 dB from
+    the backward-integrated energy, not a fitted tau.
+
+    Ground truth: test_audio_measure.test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
+    test_audio_measure.test_schroeder_t20_reads_a_two_exponential_decay_between_its_parts
+    """
+    r = sound("RS", 1.0, 0.5)
+    t20 = am.schroeder_t20(r.after_hit(0, 0.5, "dmix"), SR).require("RS T20")
+    assert abs(t20 / HW_T20["RS"] - 1) <= 0.45, \
+        f"RS T20 {t20*1e3:.1f} ms against a real TR-808's {HW_T20['RS']*1e3:.1f} ms and the chart's 10 ms"
+
+
+def test_rimshot_is_distorted_and_that_is_the_sound():
+    """[source-verified: SN, "VCA of this type is intended to provide many high
+    harmonics in the output signals"; reference 5, "The distortion is the sound;
+    do not skip it"] Both resonators are summed into the swing VCA Q62. The
+    check is against the SAME voice with the nonlinearity set to LIN and
+    nothing else changed: the harmonics above the 455 Hz fundamental must be
+    materially louder with the VCA than without it.
+
+    Ground truth: test_audio_measure.test_harmonic_powers_recovers_a_known_series
+    """
+    lin = dict(dx.kit_with_sounds("RS"))
+    for p in (dx.P_RS1OUT, dx.P_RS2OUT):
+        w = lin[dx.A_PATH + p]
+        lin[dx.A_PATH + p] = (w & ~(3 << 15)) | (dx.NL_LIN << 15)
+    at = int(PRE_ROLL_S * SR)
+    swung = sound("RS", 1.0, 0.4).after_hit(0, 0.4, "dmix")
+    plain = render([(at, dx.CL, 1.0)], 0.4 + PRE_ROLL_S, kit=sorted(lin.items()),
+                   name="RS-linear").after_hit(0, 0.4, "dmix")
+    def harm_db(x):
+        p = am.harmonic_powers(x, dx.RS_LO_HZ, (1, 2, 3, 4, 5), SR)
+        return 10 * math.log10(max(p[1:].sum(), 1e-30) / max(p[0], 1e-30))
+    assert harm_db(swung) - harm_db(plain) >= 6.0, (
+        f"the swing VCA added only {harm_db(swung) - harm_db(plain):.1f} dB of harmonics "
+        f"(swung {harm_db(swung):.1f} dB, linear {harm_db(plain):.1f} dB above the fundamental)")
+
+
+def test_claves_frequency_and_decay_match_the_machine():
+    """[hardware-measured: cl8/CL.WAV -- FFT peak 2424 Hz, t(-20 dB) 22.6 ms;
+    Roland's chart 1.6 gives 2500 Hz and 25 ms] The claves is a near
+    self-oscillating bridged-T stopped by Q74's 22 ms gate, so its decay is the
+    gate's and its pitch is the network's.
+
+    Ground truth: test_audio_measure.test_dominant_frequency_on_known_tones,
+    test_audio_measure.test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid
+    """
+    x = sound("CL", 1.0, 0.5).after_hit(0, 0.5, "dmix")
+    f0 = am.dominant_frequency(x, 1500.0, 4000.0, SR).require("CL f0")
+    t20 = am.schroeder_t20(x, SR).require("CL T20")
+    assert abs(f0 / HW[  "CL"][2] - 1) <= 0.10, f"CL {f0:.0f} Hz against the machine's 2424 Hz"
+    assert abs(t20 / HW_T20["CL"] - 1) <= 0.30, \
+        f"CL T20 {t20*1e3:.1f} ms against the machine's {HW_T20['CL']*1e3:.1f} ms"
+
+
+def test_maracas_is_a_high_pass_on_noise_and_decays_inside_the_chart_band():
+    """[source-inferred: reference 8's Sallen-Key on Q68, 10.6 kHz Q 2.3;
+    chart 1.6 decay 25-35 ms] The decay is asserted against the CHART's total
+    and not against the machine's tau, and that is deliberate. The machine's
+    maracas RISES for 18.2 ms and then falls with tau 2.65 ms -- about a 28 ms
+    event. This envelope generator cannot ramp up (its `hold` tops out at
+    255 frames, 5.3 ms), so ours makes the same 28 ms event with an instant
+    attack and a slower fall. Asserting the machine's tau would demand a shape
+    the block has no way to produce; asserting the chart's total is the claim
+    that can actually be met and failed.
+
+    Ground truth: test_audio_measure.test_corner_3db_of_a_highpass_matches_the_closed_form,
+    test_audio_measure.test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid
+    """
+    kit = dx.kit_with_sounds("MA")
+    ir = mode_impulse_response_on(kit, dx.M_CPBP)
+    peak = am.resonant_peak(ir, SR).require("MA high-pass peak")
+    assert abs(peak / dx.MA_HP_HZ - 1) <= 0.20, f"MA high-pass peak {peak:.0f} Hz, reference 10600 Hz"
+    x = sound("MA", 1.0, 0.5).after_hit(0, 0.5, "dmix")
+    t20 = am.schroeder_t20(x, SR).require("MA T20")
+    assert 0.020 <= t20 <= 0.045, \
+        f"MA T20 {t20*1e3:.1f} ms, Roland's chart 25-35 ms"
+
+
+def test_maracas_and_clap_cannot_sound_at_once():
+    """[source-verified: SN p.6, switch SW12 selects CP or MA into the shared
+    buffer IC19] The two are one circuit, so selecting one must silence the
+    other's behaviour rather than layering it. The clap's signature is three
+    bursts; the maracas position must have one.
+
+    Ground truth: test_audio_measure.test_envelope_bursts_finds_known_restrikes
+    """
+    for name, want in (("CP", 3), ("MA", 1)):
+        x = sound(name, 1.0, 0.30).after_hit(0, 0.20, "dmix")
+        env = am.rms_envelope(x, 1.0, SR)
+        n = len(am.envelope_bursts(env, SR, window_s=0.060, min_sep_s=0.005, level_frac=0.45))
+        assert n == want, f"{name} shows {n} bursts, expected {want}"
+
+
+def test_cymbal_decay_matches_a_real_machine():
+    """[hardware-measured: cy8/CY5025.WAV -- TONE 5.0, DECAY 5.0, Roland's own
+    chart condition -- Schroeder T20 798 ms] The cymbal is the voice every
+    independent source calls the hard one, so its headline number is the
+    machine's and not the chart's: Roland's chart says 800 ms at DECAY mid and
+    the machine measures 798, which is the one place the two agree closely.
+
+    The window is the REFERENCE FILE's own 2.0 s. The energy integral runs to
+    the end of the array, so an unmatched window is not a neutral choice -- the
+    same render reads 899 ms over 2.0 s and 904 ms over 2.6 s, and a shorter one
+    reads shorter still.
+
+    Ground truth: test_audio_measure.test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
+    test_audio_measure.test_schroeder_t20_reads_a_two_exponential_decay_between_its_parts
+    """
+    x = sound("CY", 1.0, HW_CY_SECONDS).after_hit(0, HW_CY_SECONDS, "mix")
+    t20 = am.schroeder_t20(x, SR).require("CY T20")
+    assert abs(t20 / HW_CY_T20 - 1) <= 0.20, \
+        f"CY T20 {t20*1e3:.0f} ms against a real TR-808's {HW_CY_T20*1e3:.0f} ms"
+
+
+def test_cymbal_is_not_a_long_closed_hat():
+    """[hardware-measured: cy8/CY5025.WAV against ch8/CH.WAV] The failure mode
+    this voice invites: take the hats' 7.1 kHz band, give it a long envelope,
+    call it a cymbal. The machine says no -- its cymbal's strongest line is at
+    3153 Hz, from the SECOND band-pass at 3.45 kHz that the hats do not use,
+    and 10 % of its energy is in 2-5 kHz where the closed hat has almost none.
+    So the cymbal must carry low-band energy the closed hat does not.
+
+    Ground truth: test_audio_measure.test_band_energy_splits_a_two_tone_signal,
+    test_audio_measure.test_dominant_frequency_on_known_tones
+    """
+    cy = sound("CY", 1.0, HW_CY_SECONDS).after_hit(0, HW_CY_SECONDS, "mix")
+    ch = one_hit(dx.CH, 1.0, 0.5).after_hit(0, 0.5, "mix")
+    cy_low = am.band_energy(cy, CY_BANDS, SR)[1]
+    ch_low = am.band_energy(ch, CY_BANDS, SR)[1]
+    assert cy_low >= 4.0 * max(ch_low, 1e-6), (
+        f"the cymbal has {cy_low*100:.1f} % of its energy in 2-5 kHz and the closed hat "
+        f"{ch_low*100:.1f} %: the cymbal is not using its own band-pass")
+    f0 = am.dominant_frequency(cy, 2000.0, 5000.0, SR).require("CY low line")
+    # +-20 %: reference 1.7 allows +-10 % on the filter's own centre (the
+    # machine's 3153 Hz is itself 9 % below the schematic's 3453) and the
+    # six oscillators' line structure moves the OBSERVED peak by a few per
+    # cent more, since what rings is whichever edge train the band-pass is
+    # nearest. The claim is that the line is in the second band-pass's region
+    # at all, not that it is at one frequency.
+    assert abs(f0 / HW_CY_PEAK_HZ - 1) <= 0.20, \
+        f"the cymbal's low line is at {f0:.0f} Hz; the machine's is at {HW_CY_PEAK_HZ:.0f} Hz"
+
+
+def test_cymbal_band_split_against_the_machine_and_what_is_still_missing():
+    """[hardware-measured: cy8/CY5025.WAV, `band_energy` over five bands]
+    THE HONEST ROW. The machine puts 1.1 / 10.3 / 53.2 / 23.3 / 6.0 % of its
+    energy in <2k / 2-5k / 5-9k / 9-13k / >13k. The model reaches 1.7 / 6.5 /
+    57.4 / 15.6 / 6.4: the long 3.4 kHz ring, the total decay and the top
+    octave are there, and the 9-13 kHz shoulder is about a third short with
+    the missing energy sitting in 5-9 kHz instead.
+
+    WHY, precisely: that shoulder wants a resonant filter near 10.5 kHz that
+    falls again above it, and with sixteen modes the bank has one post-filter
+    to spare for the cymbal's high band, not two. Reference 10 names three
+    high-passes; the model has two of the three and drops Hh1. The bounds below
+    are the machine's value with the residual this paragraph admits -- they are
+    NOT a claim that the cymbal matches.
+
+    Ground truth: test_audio_measure.test_band_energy_splits_a_two_tone_signal,
+    test_audio_measure.test_band_energy_disagrees_with_a_windowed_fft_on_a_decaying_signal
+    """
+    x = sound("CY", 1.0, HW_CY_SECONDS).after_hit(0, HW_CY_SECONDS, "mix")
+    got = am.band_energy(x, CY_BANDS, SR)
+    tol = (0.020, 0.060, 0.120, 0.120, 0.035)      # absolute, per band
+    bad = [f"{lo/1000:g}-{hi/1000:g}k {g*100:.1f} % vs the machine's {r*100:.1f} %"
+           for (lo, hi), g, r, t in zip(CY_BANDS, got, HW_CY_SHARES, tol) if abs(g - r) > t]
+    assert not bad, "the cymbal's band split moved: " + "; ".join(bad)
+    assert got[1] > got[0], "the cymbal has more energy below 2 kHz than in its own 2-5 kHz band"
+
+
+def test_cymbal_and_hats_share_one_oscillator_bank_and_one_band_pass():
+    """[source-verified: reference 1.5, "they all share a common bank of six of
+    these oscillators"; W14b section 4, the 7.1 kHz band feeds CY, OH and CH]
+    The cymbal must be built from the SAME six squares, not from noise: its
+    spectral lines have to sit still from window to window, as the hats' do and
+    as noise does not.
+
+    Ground truth: test_audio_measure.test_line_stability_separates_oscillators_from_noise
+    """
+    x = sound("CY", 1.0, 1.2).after_hit(0, 1.0, "mix")
+    stab = am.line_stability(x, (2000.0, 9000.0), SR, windows=4, tol_hz=40.0,
+                             threshold=2.0).require("CY line stability")
+    assert stab >= 0.60, f"the cymbal's lines were only {stab:.2f} stable; it is not oscillator-based"
+
+
+def test_the_whole_kit_still_fits_its_buses():
+    """[method] Eleven stops at accent 2.0 in one frame is the loudest thing
+    the register map allows. Neither bus may saturate and no mode's state may
+    rail: a kit that clips when everything lands together is not a kit, and the
+    three new circuits add excitation to two modes (M_CHHP) that already had
+    some.
+
+    Ground truth: test_audio_measure.test_decay_tau_reports_a_clipped_decay_as_not_exponential
+    """
+    at = int(PRE_ROLL_S * SR)
+    r = render([(at, s, 2.0) for s in range(dx.N_STOPS)], 1.0, name="all-eleven")
+    assert am.clipped_fraction(r.dmix, 1 << 21) == 0.0, "the mix bus saturated"
+    assert am.clipped_fraction(r.body, 1 << (dx.BODY_BITS - 1)) == 0.0, "the body bus saturated"
+
+
+# ===========================================================================
 # meta -- this suite must be able to fail, and must say what it claims
 # ===========================================================================
 def test_meta_every_test_declares_status_and_ground_truth():
@@ -1632,6 +2187,128 @@ def test_meta_bd_tau_column_rejects_the_chart_s_f0():
                 for _, q, tau_ref in BD_TAU_TABLE)
     assert worst > 0.04, \
         f"at the chart's {dx.BD_HZ_CHART} Hz the table still closes to {worst*100:.1f} %"
+
+
+def test_meta_pair_tests_reject_the_other_half_of_the_pair():
+    """[meta] The injected control for the four sounds that are presets on
+    circuits revision 8 already had -- LC, MC, HC and MA. Those cost no
+    hardware, which is the good news and also the risk: a test that renders
+    "LC" and measures 185 Hz proves nothing unless it would have REJECTED the
+    tom sitting in the same mode. So here each pair's test is run against the
+    OTHER half's image and required to fail.
+
+    (The rev8 stub cannot do this job: it blanks whole circuits, and these four
+    sounds ride on circuits it leaves alone -- under it they pass, correctly.)"""
+    for want, other in (("LC", "LT"), ("MC", "MT"), ("HC", "HT"),
+                        ("LT", "LC"), ("MT", "MC"), ("HT", "HC")):
+        f0_ref = dx.TOM_PRESET[want][0]
+        r = sound(other, 1.0, 0.8)
+        f0 = am.dominant_frequency(r.after_hit(0, 0.8, "body"), 50.0, 900.0, SR).require(f"{other} f0")
+        assert abs(f0 / f0_ref - 1) > 0.10, (
+            f"the {want} test would have accepted {other}: {other} measures {f0:.0f} Hz and "
+            f"{want}'s bound is {f0_ref} Hz +-10 %, so the two are not separated")
+    ir = mode_impulse_response_on(dx.kit_with_sounds("CP"), dx.M_CPBP)
+    peak = am.resonant_peak(ir, SR).require("CP band-pass peak")
+    assert abs(peak / dx.MA_HP_HZ - 1) > 0.20, (
+        f"the maracas high-pass test would have accepted the clap's band-pass ({peak:.0f} Hz)")
+
+
+def test_meta_address_map_check_rejects_the_revision_eight_map_at_sixteen_modes():
+    """[meta] The injected control for
+    `test_control_the_drum_page_has_no_address_that_means_two_things`. Feed the
+    checker revision 8's map (PATH 0x80, MODE 0xC0) with revision 10's sizes and
+    it must complain about 0xFF specifically -- and about the envelope block
+    running into the path block, which is the second collision the same change
+    causes. A checker that passes everything is not a checker."""
+    bad = address_map_conflicts(0x80, 0xC0, dx.N_ENV, dx.N_PATH, dx.N_MODES)
+    assert bad, "the revision-8 map was accepted at MODES = 16"
+    assert any("RESET" in b and "0xff" in b.lower() for b in bad), \
+        f"the checker missed the RESET collision: {bad}"
+    assert any("ENV" in b and "PATH" in b for b in bad), \
+        f"the checker missed the envelope/path collision: {bad}"
+    # ... and it must still pass the map actually shipped, or it is just noisy.
+    assert not address_map_conflicts(dx.A_PATH, dx.A_MODE, dx.N_ENV, dx.N_PATH, dx.N_MODES)
+
+
+# Node-id fragments of every assertion that is ABOUT revision 10's three new
+# circuits, and the subset that must be red when they are not programmed.
+# Split by NODE ID rather than by a `-k` expression on purpose: `-k "hat_"`
+# also matches "w[hat_]is" and "t[hat_]is", which quietly pulled the cymbal and
+# the rimshot into the "must stay green" group and made this meta test fail for
+# a reason that had nothing to do with the stub.
+REV9_ALLOWED_RED = (
+    "test_control_tom_and_conga_presets_reach_the_coefficients",
+    "test_control_the_three_tom_circuits_are_three_modes_not_six",
+    "test_control_rimshot_and_claves_are_one_circuit_at_two_tunings",
+    "test_control_the_cymbal_writes_both_band_passes_and_its_post_filters",
+    "test_control_maracas_is_the_clap_circuit_retuned_to_a_high_pass",
+    "test_control_every_one_of_the_sixteen_selects_a_complete_image",
+    "test_control_the_drum_page_has_no_address_that_means_two_things",
+    "test_tom_and_conga_fundamentals",
+    "test_tom_and_conga_decays",
+    "test_mid_tom_pitch_falls_during_the_ring_like_its_two_siblings",
+    "test_conga_pitch_drop_starts_from_the_congas_own_tuning",
+    "test_rimshot_decay_matches_the_machine_and_the_chart",
+    "test_rimshot_is_distorted_and_that_is_the_sound",
+    "test_claves_frequency_and_decay_match_the_machine",
+    "test_maracas_is_a_high_pass_on_noise_and_decays_inside_the_chart_band",
+    "test_maracas_and_clap_cannot_sound_at_once",
+    "test_cymbal_decay_matches_a_real_machine",
+    "test_cymbal_is_not_a_long_closed_hat",
+    "test_cymbal_band_split_against_the_machine_and_what_is_still_missing",
+    "test_cymbal_and_hats_share_one_oscillator_bank_and_one_band_pass",
+    "test_the_whole_kit_still_fits_its_buses",
+)
+# These name a circuit revision 8 did not have, so blanking it MUST break them.
+# The LC and HC rows are deliberately NOT here: they ride on circuits revision 8
+# already had, the stub leaves those alone and they pass under it -- which is
+# exactly why they get a different control,
+# `test_meta_pair_tests_reject_the_other_half_of_the_pair`.
+REV9_MUST_BE_RED = (
+    "test_control_rimshot_and_claves_are_one_circuit_at_two_tunings",
+    "test_control_the_cymbal_writes_both_band_passes_and_its_post_filters",
+    "test_tom_and_conga_fundamentals[MT", "test_tom_and_conga_fundamentals[MC",
+    "test_tom_and_conga_decays[MT", "test_tom_and_conga_decays[MC",
+    "test_mid_tom_pitch_falls_during_the_ring_like_its_two_siblings",
+    "test_conga_pitch_drop_starts_from_the_congas_own_tuning",
+    "test_rimshot_decay_matches_the_machine_and_the_chart",
+    "test_rimshot_is_distorted_and_that_is_the_sound",
+    "test_claves_frequency_and_decay_match_the_machine",
+    "test_cymbal_decay_matches_a_real_machine",
+    "test_cymbal_is_not_a_long_closed_hat",
+    "test_cymbal_band_split_against_the_machine_and_what_is_still_missing",
+    "test_cymbal_and_hats_share_one_oscillator_bank_and_one_band_pass",
+)
+
+
+def test_meta_rev8_stub_is_red_on_the_new_circuits_and_green_on_the_old_ones():
+    """[meta] docs/verification-rules.md rule 1, sharpened. A silent block
+    fails every test, which proves only that the suite runs. `TR808_STUB=rev8`
+    leaves the original eight voices EXACTLY as they are and blanks only MT,
+    CL and CY -- so it separates "this assertion is about the new circuits"
+    from "this assertion is about anything at all". Two things must hold:
+    every test that names a circuit revision 8 did not have goes RED, and
+    nothing else does.
+
+    This is the run the sixteen-sound work was started from, kept as a test so
+    it cannot rot."""
+    if STUB:
+        pytest.skip("already running against a stub")
+    env = dict(os.environ, TR808_STUB="rev8")
+    env.pop("TR808_STRICT", None)
+    r = subprocess.run([sys.executable, "-m", "pytest", __file__, "-q", "--no-header",
+                        "--tb=no", "-p", "no:cacheprovider", "-k", "not test_meta_"],
+                       capture_output=True, text=True, env=env, cwd=HERE)
+    failed = [ln.split(" ", 1)[1].split(" ")[0].split("::", 1)[1]
+              for ln in r.stdout.splitlines() if ln.startswith("FAILED ")]
+    assert failed, ("nothing failed against a block that never programs MT, CL or CY:\n"
+                    + r.stdout[-3000:])
+    missing = [w for w in REV9_MUST_BE_RED if not any(f.startswith(w) for f in failed)]
+    assert not missing, ("these PASSED against a block that never programs their circuit, so "
+                         f"they are not measuring it: {missing}")
+    stray = [f for f in failed if not any(f.startswith(w) for w in REV9_ALLOWED_RED)]
+    assert not stray, ("blanking MT/CL/CY broke a test that is not about them, so the three new "
+                       f"circuits are not independent of the original eight: {stray}")
 
 
 @pytest.mark.parametrize("stub", ["silent", "noise"])

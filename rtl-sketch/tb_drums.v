@@ -18,46 +18,46 @@
 // image is cleared, as the model's write(A_RESET) does.
 `timescale 1ns/1ps
 module tb_drums;
-    parameter ENVS = 12, PATHS = 16, MODES = 12, NUMS = 6, MW = 4;
+    parameter ENVS = 18, PATHS = 23, MODES = 16, NUMS = 11, STOPS = 11, MW = 4;
     parameter MAXW = 1 << 16;
 
     reg clk = 0, rst_n = 0, frame_tick = 0;
-    reg [7:0]  stops_r;
-    reg [15:0] accent_r [0:7];
+    reg [STOPS-1:0] stops_r;
+    reg [15:0] accent_r [0:STOPS-1];
     reg [23:0] osc_r    [0:5];
     reg [26:0] ectl_r   [0:ENVS-1];
     reg [23:0] peak_r   [0:ENVS-1];
     reg [15:0] rate_r   [0:ENVS-1];
-    reg [21:0] path_r   [0:PATHS-1];
+    reg [24:0] path_r   [0:PATHS-1];
     reg [25:0] a1_r     [0:MODES-1];
     reg [25:0] a2_r     [0:MODES-1];
     reg [15:0] amp_r    [0:MODES-1];
     reg [1:0]  num_r    [0:MODES-1];
-    reg [8*16-1:0]     accent_bus;
+    reg [STOPS*16-1:0] accent_bus;
     reg [6*24-1:0]     osc_inc_bus;
     reg [ENVS*27-1:0]  env_ctl_bus;
     reg [ENVS*24-1:0]  env_peak_bus;
     reg [ENVS*16-1:0]  env_rate_bus;
-    reg [PATHS*22-1:0] path_bus;
+    reg [PATHS*25-1:0] path_bus;
     reg [MODES*26-1:0] a1_bus, a2_bus;
     reg [MODES*16-1:0] amp_bus;
     reg [MODES*2-1:0]  num_bus;
     integer k;
     always @* begin
-        for (k = 0; k < 8; k = k + 1) accent_bus[k*16 +: 16] = accent_r[k];
+        for (k = 0; k < STOPS; k = k + 1) accent_bus[k*16 +: 16] = accent_r[k];
         for (k = 0; k < 6; k = k + 1) osc_inc_bus[k*24 +: 24] = osc_r[k];
         for (k = 0; k < ENVS; k = k + 1) begin
             env_ctl_bus[k*27 +: 27] = ectl_r[k]; env_peak_bus[k*24 +: 24] = peak_r[k]; env_rate_bus[k*16 +: 16] = rate_r[k];
         end
-        for (k = 0; k < PATHS; k = k + 1) path_bus[k*22 +: 22] = path_r[k];
+        for (k = 0; k < PATHS; k = k + 1) path_bus[k*25 +: 25] = path_r[k];
         for (k = 0; k < MODES; k = k + 1) begin
             a1_bus[k*26 +: 26] = a1_r[k]; a2_bus[k*26 +: 26] = a2_r[k]; amp_bus[k*16 +: 16] = amp_r[k]; num_bus[k*2 +: 2] = num_r[k];
         end
     end
 
-    wire signed [20:0] mix_out; wire mix_valid;
+    wire signed [21:0] mix_out; wire mix_valid;
     wire signed [18:0] body_out; wire body_valid;
-    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS), .MW(MW)) dut (
+    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS), .STOPS(STOPS), .MW(MW)) dut (
         .clk(clk), .rst_n(rst_n), .frame_tick(frame_tick), .stops(stops_r), .accent_bus(accent_bus),
         .osc_inc_bus(osc_inc_bus), .env_ctl_bus(env_ctl_bus), .env_peak_bus(env_peak_bus),
         .env_rate_bus(env_rate_bus), .path_bus(path_bus), .a1_bus(a1_bus), .a2_bus(a2_bus),
@@ -69,7 +69,7 @@ module tb_drums;
         integer j;
         begin
             stops_r = 0;
-            for (j = 0; j < 8; j = j + 1) accent_r[j] = 0;
+            for (j = 0; j < STOPS; j = j + 1) accent_r[j] = 0;
             for (j = 0; j < 6; j = j + 1) osc_r[j] = 0;
             for (j = 0; j < ENVS; j = j + 1) begin ectl_r[j] = 0; peak_r[j] = 0; rate_r[j] = 0; end
             for (j = 0; j < PATHS; j = j + 1) path_r[j] = 0;
@@ -82,15 +82,15 @@ module tb_drums;
         begin
             if (a == 8'hFF) begin
                 clear_image; rst_n = 0; @(negedge clk); @(negedge clk); rst_n = 1;
-            end else if (a == 8'h00) stops_r = v[7:0];
-            else if (a >= 8'h10 && a < 8'h18) accent_r[a - 8'h10] = v[15:0];
+            end else if (a == 8'h00) stops_r = v[STOPS-1:0];
+            else if (a >= 8'h10 && a < 8'h10 + STOPS) accent_r[a - 8'h10] = v[15:0];
             else if (a >= 8'h20 && a < 8'h26) osc_r[a - 8'h20] = v[23:0];
             else if (a >= 8'h40 && a < 8'h40 + ENVS * 4) begin
                 idx = (a - 8'h40) >> 2; fld = a & 3;
                 if (fld == 0) ectl_r[idx] = v[26:0]; else if (fld == 1) peak_r[idx] = v[23:0]; else if (fld == 2) rate_r[idx] = v[15:0];
-            end else if (a >= 8'h80 && a < 8'h80 + PATHS) path_r[a - 8'h80] = v[21:0];
-            else if (a >= 8'hC0 && a < 8'hC0 + MODES * 4) begin
-                idx = (a - 8'hC0) >> 2; fld = a & 3;
+            end else if (a >= 8'h90 && a < 8'h90 + PATHS) path_r[a - 8'h90] = v[24:0];
+            else if (a >= 8'hB0 && a < 8'hB0 + MODES * 4) begin
+                idx = (a - 8'hB0) >> 2; fld = a & 3;
                 if (fld == 0) a1_r[idx] = v[25:0]; else if (fld == 1) a2_r[idx] = v[25:0];
                 else if (fld == 2) amp_r[idx] = v[15:0]; else num_r[idx] = v[1:0];
             end

@@ -941,3 +941,343 @@ arithmetic, and it was asserted nowhere. It is now
 parametrised cases, with
 `test_meta_bd_tau_column_rejects_the_chart_s_f0` as the injected-bug control
 that puts 56 Hz back and requires the table to stop closing.
+
+---
+
+## 10. The complete machine — all sixteen sounds (contract revision 10)
+
+Revision 8 shipped **eight** circuits. This section is the evidence for the
+three that were added — **MT/MC**, **CL/RS** and **CY** — and for the four
+sounds that were already reachable on circuits we had and had never been
+switched to: **LC**, **HC**, **MC** and **MA**.
+
+The reference set is the same one §1 describes, and it has **all sixteen
+voices**, not the eight §4 used. That turned out to matter more than the
+schematic did: three of the reference document's statements about the cymbal do
+not survive contact with a recording of a real one.
+
+### 10.1 What was built
+
+Sixteen sounds are **eleven circuits**: five carry two sounds each on a panel
+switch and cannot sound together, so the second sound of a pair is a register
+image on the circuit it shares — `drums_fx.preset_writes(name)` — and not
+hardware. The block therefore grew:
+
+| | revision 8 | revision 10 | why |
+|---|---|---|---|
+| stops | 8 | **11** | BD SD LT HT CH OH CP CB **MT CL CY**; the first eight keep their indices |
+| modes | 12 | **16** | eight filters, eight bridged-T bodies |
+| modes with a numerator (`NUMS`) | 6 | **11** | `modal_dp` gives a numerator only *below* `NUMS`, so this is the number that decides how many filters the bank can hold. Modes 8–10 are RAW bodies sitting in numerator-capable slots: three spare filters |
+| envelopes | 12 | **18** | +1 mid-tom exciter, +2 RS/CL (exciter and gate), +3 cymbal VCAs |
+| paths | 16 | **23** | +1 MT, +4 RS/CL, +3 cymbal |
+| PATH register | 22 bits | **25 bits** | the envelope and destination fields went 4 bits → 5 |
+
+The **PATH word had to grow, and it is not a nicety.** At four bits the
+envelope field could address twelve envelopes, and `DEST_MIX` was 15 — which at
+`MODES = 16` is also *mode 15*, so the last mode could never be a path's
+destination. Both fields are five bits now; the sentinels moved with them
+(envelope 31 reads full scale, destination 31 is the mix bus).
+
+**The register map moved with it, and that was a latent defect rather than
+tidiness.** Eighteen envelopes span `0x40..0x87` and would have collided with
+`PATH` at `0x80`; sixteen modes based at `0xC0` span `0xC0..0xFF`, so **the last
+mode's `num` register would have been `0xFF` — which is RESET.** `drum_regs.v`
+decodes RESET as a continuous assign *outside* the write decoder, so this is not
+a decode-priority question that ordering could fix: the address would have meant
+both things at once and writing that coefficient would have reset the drum
+section mid-kit. `PATH` moved to `0x90` and `MODE` to `0xB0`.
+`test_808_acceptance.test_control_the_drum_page_has_no_address_that_means_two_things`
+is the check, with the revision-8 map fed to the same checker as its injected
+control, and `INJECT_BUG_DRUM_RESET_ALIAS` in `drum_regs.v` is the same defect
+in RTL — `verify_synth_top.py --inject DRUM_RESET_ALIAS --expect-fail` catches
+it at the chip's pins.
+
+### 10.2 Starting red
+
+`TR808_STUB=rev8` renders the **eleven-stop** block with only revision 8's
+**eight** voices programmed: MT, CL and CY have their stops, modes, envelopes
+and paths, and nothing is written to any of them. That is "the right ports and
+no behaviour" for exactly the three new circuits, and it is a sharper control
+than a silent block — a silent block fails everything and so proves nothing
+about what a new test is sensitive to.
+
+Run before the voices existed, **19 of the new assertions failed and 14 passed**,
+and which 14 is the interesting part: the LC, HC and structural rows pass,
+because those sounds ride on circuits revision 8 already had. So the stub could
+not start those red, and they get their own injected control instead —
+`test_meta_pair_tests_reject_the_other_half_of_the_pair` runs each pair's test
+against the *other* half's image and requires it to fail. A test that renders
+"LC" and measures 185 Hz proves nothing unless it would have rejected the tom
+sitting in the same mode.
+
+### 10.3 The cymbal — three of reference §10's claims do not survive measurement
+
+Every independent source calls this the hard one, and io-808's author names the
+cymbal and the rimshot as his two failures. So it was measured rather than
+reasoned about. Two estimators were added for it, each checked against a signal
+with a known answer before anything was quoted (`test_audio_measure`):
+
+- **`schroeder_t20`** — the backward-integrated energy curve. For a single
+  damped sinusoid it returns exactly `ln(10)·τ`, the same number `t20_from_tau`
+  gives, with no fit and no shape assumption; the cymbal's envelope is three
+  exponentials and has no single τ at all. It **refuses** a recording that was
+  cut before it decayed — a truncated decay reads short by an amount that
+  depends on where the cut is, which is indistinguishable from a real short
+  decay. (The first reading of this section claimed `ma8`, `rs8` and `cl8` were
+  truncated, from an envelope printed against the file's start instead of its
+  onset. They are not: all three reach −96 dB or lower on the energy curve
+  inside their 250 ms. They are short because the voices are short.)
+- **`band_energy`** — the energy split by zero-phase filtering, *not* by summing
+  FFT bins. `spectrum` applies a Hann window, so on a decaying voice it weights
+  the middle of the file and reports the **tail's** spectrum. On the real
+  cymbal the two disagree by a factor of four in 5–9 kHz: the windowed FFT says
+  12 %, the energy split says 45 %, and both are "right" about different
+  questions. They agree exactly on a stationary two-tone signal, which is how
+  each was checked.
+
+Measured on `cy8/CY5025.WAV` — TONE 5.0, DECAY 5.0, Roland's own chart
+condition — against a render of exactly the same length (2.00 s, which matters:
+the energy integral runs to the end of the array, so an unmatched window moves
+the answer by 7 %):
+
+| | <2 kHz | 2–5 k | 5–9 k | 9–13 k | >13 k | τ | t(−20 dB) | Schroeder T20 |
+|---|---|---|---|---|---|---|---|---|
+| a real TR-808 | 1.1 % | 10.3 % | 53.2 % | 23.3 % | 6.0 % | **256 ms** | **308 ms** | **798 ms** |
+| ours | 1.3 % | 6.3 % | 58.4 % | 15.3 % | 6.7 % | **243 ms** | **318 ms** | **903 ms** |
+
+and the machine's strongest spectral line is at **3153 Hz** — the *second*
+band-pass, the one the hats do not use.
+
+**Three decay numbers, because one of them can be matched while the voice is
+still wrong.** An earlier fit matched the Schroeder T20 to 3 % (824 ms against
+798) and its audible decay was still **46 % long** — τ 374 ms against the
+machine's 256 — because the energy integral will trade an over-long bright band
+against an under-weight low tail and report the sum as right. The shipped fit
+searches all four at once.
+
+**What that overturns in `tr808-reference.md` §10:**
+
+1. **The long tail is the LOW band.** 2–5 kHz measures T20 1244 ms against
+   745 ms at 5–9 kHz on the same file. §10 calls the low band "fixed, medium"
+   and gives the DECAY knob to a *high* band.
+2. **The DECAY knob moves every band**, not only the middle one: across the
+   five files every band's T20 scales by ≈3× from knob 0 to knob 10.
+3. **The ≈10.5 kHz stage behaves like a band-pass.** The machine has a 23 %
+   shoulder at 9–13 kHz with only 6 % above 13 kHz. A two-pole *high*-pass with
+   a `(1 − z⁻¹)²` numerator cannot make that shape — its response keeps rising
+   toward Nyquist, and at an 11.7 kHz corner it puts **42 %** of its output
+   above 13 kHz. A band-pass at 10.5 kHz does have the machine's shape.
+
+So the model's three cymbal bands are: the 3.45 kHz band-pass → swing VCA →
+straight to the mix bus (longest envelope); the 7.1 kHz band → swing VCA →
+the 11.7 kHz high-pass (shortest); and the 7.1 kHz band → swing VCA → a
+**10.5 kHz band-pass** (the DECAY envelope). The first two filters already
+existed for the hats and are shared — a linear filter of a sum is the sum of
+the filtered parts, so sharing is exact and costs nothing.
+
+**What is still wrong, precisely.** The 9–13 kHz shoulder is about a third
+short and the missing energy sits in 5–9 kHz instead. It wants a *second*
+resonant post-filter for the high band, and with sixteen modes the bank has one
+to spare for it, not two: reference §10 names three high-passes and the model
+has two. **Hh1 — the 2.5 kHz stage on the low band — is the documented
+omission**, and dropping it costs 1.7 % of the energy below 2 kHz where the
+machine has 1.1 %. Keeping Hh1 instead and dropping the 10.5 kHz band fits the
+machine's band split about **half as well** on the same objective, which is why
+it went the way it did. A seventeenth mode would close
+it; the bank's state arrays pad to a power of two, so the seventeenth is a
++31 % step and not a 6 % one.
+
+**This is how close the cymbal got.** Its total decay is within 3 % of a real
+machine, its long ring is on the right band-pass at the right frequency, its top
+octave is right, and it is unmistakably not a long hi-hat. Its shimmer is
+duller than the machine's, by a known amount, for a known reason.
+
+### 10.4 The rimshot, the claves and the maracas
+
+**RS** is two bridged-T networks (455 Hz Q 6.7 and 1786 Hz Q 13.5) summed into
+the swing VCA — "the distortion is the sound; do not skip it". It measures
+τ 4.30 ms and t(−20 dB) **9.60 ms** against the machine's **3.24** and
+**9.00**, and Roland's chart's 10 ms.
+`test_rimshot_is_distorted_and_that_is_the_sound` renders the same voice with
+the nonlinearity set to LIN and nothing else changed, and requires the
+harmonics above 455 Hz to be materially louder with the VCA than without it.
+
+**One thing had to be traded against the other, and the measurement said
+which.** Both taps go through the swing VCA, and driving the tanh into its rail
+turns the resonators' ring into a flat-topped burst whose decay is then the
+*gate's* 22 ms rather than the resonators' 4.7 and 2.4 ms. With the exciter at
+the kit's usual 0.25 the rimshot measured τ 5.55 / t(−20 dB) 13.85 — **50 %
+long**. Dropping the exciter to 0.06 and raising the gate's peak to hold the
+level gives 4.30 / 9.60 with the distortion intact.
+
+**One deviation, stated plainly.** The circuit sums the two resonators *before*
+the VCA; this block's paths each carry one source, so it distorts them
+separately — `nl(a) + nl(b)` where the machine makes `nl(a + b)`. The
+intermodulation products the machine has are therefore absent. (The reverse
+deviation is what DR 0010 fixed on the cowbell, where the machine gates its two
+oscillators separately and rev 5 summed them first, putting a 260 Hz difference
+tone 42 dB above the machine's.) Closing it needs one more mode as a
+pass-through summing node, and that mode went to the cymbal instead.
+
+**CL** is the same circuit with the second network retuned to 2500 Hz and wired
+for high Q, stopped by Q74's ≈22 ms gate. It measures 2500 Hz, τ 11.8 ms and
+t(−20 dB) 26.9 ms against the machine's **2422 Hz**, **9.61 ms** and
+**22.6 ms**, and the chart's 2500 Hz / 25 ms — about 19 % long, and the
+cleanest match of the three new circuits.
+
+**MA** is the clap's circuit with SW12 thrown: the same noise source and the
+same buffer, the 1071 Hz band-pass retuned to Q68's 10.6 kHz high-pass and the
+three-burst envelope replaced by one ≈12 ms decay.
+
+Its **total length is right and its shape is not**, and the recording says so
+precisely. The machine's maracas **rises for 18.2 ms** and then falls with
+τ 2.65 ms, reaching −20 dB 9.0 ms after its peak: about a 28 ms event.
+Reference §8 has the attack network that does it — C135 0.1 µF with R344/R345.
+Ours has an attack of 0.8 ms and τ 11.6 ms, t(−20 dB) 27.0 ms: also about a
+28 ms event, and inside Roland's chart's 25–35 ms, but shaped the other way
+round. **The envelope generator cannot ramp up.** It fires to a peak and
+decays; its `hold` field tops out at 255 frames — 5.3 ms — which is not the
+machine's 18. That is the one hardware feature the maracas wants and does not
+have, and it is why the decay is asserted against the chart's total rather
+than the machine's τ.
+
+It is also **too bright**: our spectral peak is 11.8 kHz against the machine's
+8.7 kHz, power centroid 12.9 kHz against 10.7 kHz. The cause is the same
+digital artefact as the cymbal's missing shoulder — a two-pole high-pass with a
+`(1 − z⁻¹)²` numerator keeps rising toward Nyquist, so the observed peak sits
+*above* the 10.6 kHz pole rather than at it. §4 already recorded the same
+effect on the closed hat (ours 12.4 kHz against the machine's 11.7).
+
+### 10.5 The congas — reference §4's Q column is amended
+
+The three **tom** rows of reference §4's component-value table land on a real
+machine within 3 %. Its three **conga** rows are long by 12–30 %. The congas'
+Q is therefore taken from the machine, at the chart's f0; reference §1.7
+already says every high-Q figure is a ±50 % nominal, and Q is exactly the
+quantity that moved.
+
+| | reference §4 | a real TR-808 | error | kit ships |
+|---|---|---|---|---|
+| LT | τ 88.4 ms | 87.6 ms | +0.9 % | Q 25 (reference) |
+| MT | τ 56.6 ms | 57.7 ms | −1.9 % | Q 24 (reference) |
+| HT | τ 43.0 ms | 41.7 ms | +3.1 % | Q 25 (reference) |
+| LC | τ 94.6 ms | **76.9 ms** | +23 % | **Q 44.7** (machine) |
+| MC | τ 43.2 ms | **38.7 ms** | +12 % | **Q 34.0** (machine) |
+| HC | τ 44.6 ms | **34.3 ms** | +30 % | **Q 43.1** (machine) |
+
+All six measured with this file's own `decay_fit` over −3…−30 dB; the conga
+fits are R² 0.999.
+
+**One latent defect fell out of the congas.** `hit_writes` emitted the toms'
+diode pitch sweep (contract 15.7.1) from **hard-coded** 90 Hz and 185 Hz. A
+conga is the same circuit at a different tuning, so switching to one would have
+swept the mode from a *tom's* frequency down to the conga's — a 1.5× downward
+glide at the start of every mid conga — and it would also have silently
+overwritten a host that had retuned a tom, which is the same fault
+`bd_attack_writes` had to be fixed for once already. It now reads (f0, Q) back
+out of the register image with `poles_from_regs`.
+
+### 10.6 Two stale rows in `drum_verify.SPEC`
+
+`SPEC` is what a per-voice regression compares a render against, and two of its
+rows had outlived their evidence:
+
+- **CB carried τ 22 ms** — Roland's chart 50 ms read as 2.3 τ. **DR 0010 moved
+  the cowbell's tail to ≈100 ms on purpose**, because the real machine measures
+  98 ms (§4.6: "the tail is 3× too short… `E_CBB`'s 30 ms should be ≈100 ms").
+  The kit was fixed and this table was not, so it went on pointing at a number
+  the project had already withdrawn — and a reporter reading it calls a
+  *correct* cowbell 4× wrong. Re-measured here off `cb8/CB.WAV`: **92.7 ms**,
+  R² 0.887. Set to the published 98.0.
+- **CP carried τ 47 ms** — which is reference §7's `E_CPTAIL` RC, a *register*,
+  not the voice's decay. The clap's envelope is three bursts and a tail and
+  `decay_fit` measures the compound. `cp8/CP.WAV` measures **33.0 ms** (R² 0.919)
+  against our 34.5, so the voice was right and the comparand was a different
+  quantity. Set to 33.0; the 47 ms is kept in the row's `note`.
+
+Both are the same failure — a claim outliving its evidence — so **every row now
+carries a `source` field** saying where its number comes from, and rows whose
+value is a hardware measurement name the file. The six rows left on a schematic
+or chart figure are the ones no recording improves on: BD (DR 0009's computed
+f0), SD, LT and HT (all already within 3 % of the machine) and the two hat rows,
+whose τ is a knob position rather than a fixed value — `OH`'s 196 ms is the
+chart at DECAY mid and the kit deliberately ships 150 ms.
+
+`drum_verify.py` now takes `--voices` and covers all sixteen.
+
+### 10.7 The run that closed it
+
+The branch was harvested and committed by the coordinator before this run
+landed, with the note "its final verification run had not landed when this was
+committed". It has now, on the committed tree:
+
+| | result |
+|---|---|
+| `model/test_808_acceptance.py`, `TR808_STRICT=1` | **102 passed**, `KNOWN_DEFECTS` empty |
+| `test_drums_fx`, `test_audio_measure`, `test_drum_fit`, `test_modal_fixed` | **160 passed** |
+| `spec/reference/gen_tables.py --check` | every table image and hash matches the model (Appendix G's kit re-pinned) |
+| `rtl-sketch/verify_drums.py` | **bit-exact over 191,560 frames**, 117 clocks/frame of the 256 |
+| `verify_drums` negative controls | 9 of 9 caught: `DRUM_ENV_FLOOR`, `DRUM_LEVEL_TRIG`, `DRUM_LFSR_TAP`, `DRUM_TAP_NOSAT`, `DRUM_LAST_PATH`, `DRUM_SQ_LONE`, `MODAL_NUM_HOLD`, `MODAL_EXC_NOCLEAR`, write jitter |
+| `rtl-sketch/verify_ctl.py` | 202 writes reached the port as sent; the rev-1 link control caught |
+| `rtl-sketch/verify_synth_top.py` | 2,118 I2S periods decoded from the wire, every one identical to the model |
+| `verify_synth_top --inject DRUM_RESET_ALIAS` | **caught** — the 0xFF collision is detectable at the chip's pins |
+
+**One of the meta tests had to be fixed before it was worth anything, and the
+bug is worth naming.** `test_meta_rev8_stub_is_red_on_the_new_circuits_and_green_on_the_old_ones`
+originally split the suite with a pytest `-k` expression, one of whose terms
+was `hat_`. `-k` is a substring match, and `hat_` matches **"w[hat_]is"** and
+**"t[hat_]is"** — so `test_cymbal_band_split_against_the_machine_and_what_is_still_missing`
+and `test_rimshot_is_distorted_and_that_is_the_sound` were silently pulled into
+the group that had to stay *green* under a stub that blanks their circuits. The
+meta test failed for a reason that had nothing to do with what it was checking.
+It now parses failing **node ids** out of one stub run and checks two things
+against explicit lists: every test naming a circuit revision 8 did not have is
+red, and nothing else is.
+
+### 10.8 The pinned kit table moved — and a hash is not the evidence it is right
+
+`KIT808` is pinned by SHA-256 in the contract and in
+`spec/reference/test_tables.py`, and adding six sounds moved it:
+**`7ea9a2e3…` → `feb8c6fd…`, 100 → 147 writes.** Re-pinning it is not
+validation. A broken generator produces perfectly reproducible wrong tables, so
+a matching hash proves the output is *stable*, never that it is *right*. Three
+separate things were done instead, and only the third is evidence of
+correctness:
+
+**1. It regenerates from the model, not from disk.** `gen_tables.py` recomputes
+every table by calling `drums_fx.kit_808()` and compares; deleting
+`tables/kit808.hex` and regenerating reproduces the committed image byte for
+byte at the same hash.
+
+**2. Exactly one pinned table moved, and the diff is fully explained.** Checked
+against revision 9's pins *before* accepting the new one —
+`test_exactly_three_pinned_tables_have_ever_moved` now asserts this, so
+re-pinning cannot hide a second table moving at the same time:
+
+| | |
+|---|---|
+| moved | `KIT808` only |
+| byte-identical | `NOTE_INC`, `SINE_Q256`, `SINE_FULL1024`, `TANH16`, `TANH16_ROM`, `NOISE64`, `EXP_ROM65`, **and `G_ROM128` / `K_ROM32`**, which revision 9 had just moved |
+
+The 147-against-100 diff, keyed by **voice and path name** rather than by
+address — because both the mode block and the path block moved, and an
+address-keyed diff would have shown 31 "changes" that are only renumbering:
+
+- **Nothing removed.** Every write revision 8 made, revision 10 still makes.
+- **Every revision-8 mode is byte-identical** at its new index — all four
+  registers of BD, SD-lo, SD-hi, LT, HT and the six filters.
+- **Every revision-8 envelope is byte-identical.**
+- **Every revision-8 path decodes to the identical meaning** — same source,
+  same two envelopes, same nonlinearity, same attenuation, same destination —
+  even though *every raw path word changed*, because the field layout went from
+  22 bits to 25. That is the one place a silent change could have hidden, and
+  it is the reason the comparison decodes the words instead of comparing them.
+- **The 47 added writes are exactly** the 5 new modes, the 6 new envelopes and
+  the 9 new paths, and nothing else.
+
+**3. The validation is the acceptance suite, and the hash is only
+tamper-evidence.** 102 tests under `TR808_STRICT=1` play the table and measure
+what comes out — against Roland's chart, against the schematic and against a
+real TR-808. The hash answers "did this change"; it can never answer "is this
+correct". That distinction is the same one the CP row taught (§10.6): a
+comparand can look authoritative and be measuring a different quantity.

@@ -44,7 +44,7 @@
 //      on every sample that has drums in it. INJECT_BUG_VOICE_MASTER_PRESHIFT
 //      is that version, kept as the negative control.
 //
-// The drum section presents TWO buses (DR 0008): `dmix`, the 21-bit exact sum
+// The drum section presents TWO buses (DR 0008): `dmix`, the 22-bit exact sum
 // of the paths routed to MIX, and `body`, the modal bank's 19-bit Q4.15 word.
 // Both reach the master at full width -- a bus clipped to 16 bits before the
 // gains could not be recovered by lowering them (contract 12) -- and both must
@@ -71,7 +71,7 @@ module voice_dp #(
     input  wire [7:0]  wr_addr,
     input  wire [31:0] wr_data,
     // the drum section's two buses (DR 0008, 15.5/15.6), valid this frame once drum_done
-    input  wire signed [20:0] dmix,
+    input  wire signed [21:0] dmix,
     input  wire signed [18:0] body,
     input  wire        drum_done,
     // out
@@ -409,12 +409,12 @@ module voice_dp #(
     // bits first, which contract 12 says must not happen ("a bus clipped to 16
     // bits before the master gains could not be recovered by lowering them").
 `ifdef INJECT_BUG_VOICE_DRUM_CLAMP16
-    wire signed [24:0] dmix_m = {{9{dmix[20]}}, ((dmix > 21'sd32767) ? 16'sd32767 :
-                                 (dmix < -21'sd32768) ? -16'sd32768 : dmix[15:0])};
+    wire signed [24:0] dmix_m = {{9{dmix[21]}}, ((dmix > 22'sd32767) ? 16'sd32767 :
+                                 (dmix < -22'sd32768) ? -16'sd32768 : dmix[15:0])};
     wire signed [24:0] body_m = {{9{body[18]}}, ((body > 19'sd32767) ? 16'sd32767 :
                                  (body < -19'sd32768) ? -16'sd32768 : body[15:0])};
 `else
-    wire signed [24:0] dmix_m = {{4{dmix[20]}}, dmix};
+    wire signed [24:0] dmix_m = {{3{dmix[21]}}, dmix};
     wire signed [24:0] body_m = {{6{body[18]}}, body};
 `endif
     // NEGATIVE CONTROL: each product floored to Q.15 before the sum -- two

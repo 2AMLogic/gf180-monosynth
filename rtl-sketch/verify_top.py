@@ -51,7 +51,7 @@ def patch_writes(regs: dict, note: int, dvol: int = 8192) -> list:
             (0, SEC_V, A["DCUT"], 1200), (0, SEC_V, A["DK"], regs["k"]),
             (0, SEC_V, A["DGAIN"], regs["gain"]), (0, SEC_V, A["DOGAIN"], regs["ogain"])]
     out += [(0, SEC_D, a, v) for a, v in dx.kit_808()]             # the real drum engine's image
-    out += [(0, SEC_D, dx.A_ACCENT + s, dx.accent_reg(1.0)) for s in range(8)]
+    out += [(0, SEC_D, dx.A_ACCENT + s, dx.accent_reg(1.0)) for s in range(dx.N_STOPS)]
     for k, v in enumerate(vf.VoiceFx.note_incs(note, regs["detune"])):
         out.append((1, SEC_V, A["INC"] + k, v))                            # jump
     out.append((0, SEC_V, A["TRACK"], vf.VoiceFx.note_track(note, regs["track"])))

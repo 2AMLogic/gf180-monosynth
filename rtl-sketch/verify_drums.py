@@ -43,17 +43,18 @@ def stimulus(short: bool = False):
     kit = dx.kit_808()
     hits, writes = [], []
     f = 10
-    # 1. every stop soloed at accent 1.0 -- the last stop drives the last used paths (CB, 12 and 13,
-    #    one per oscillator since DR 0010), and the BD and toms carry the coefficient sequences of 15.7
-    for s in range(8):
+    # 1. every stop soloed at accent 1.0 -- eleven of them since revision 10, so the cymbal's three
+    #    VCA paths and the RS/CL pair's four are all driven, and the BD and the THREE tom circuits
+    #    carry the coefficient sequences of 15.7
+    for s in range(dx.N_STOPS):
         hits.append((f, s, 1.0)); f += int(0.12 * S * SR) + 1
     # 2. the same stop hit in consecutive frames fires once; 1-0-1 fires twice; a rewrite of 1 does not
     writes += [(f, dx.A_STOPS, 1 << dx.CH), (f + 1, dx.A_STOPS, 1 << dx.CH), (f + 2, dx.A_STOPS, 0),
                (f + 3, dx.A_STOPS, 1 << dx.CH), (f + 4, dx.A_STOPS, 0), (f + 5, dx.A_STOPS, 1 << dx.CH),
                (f + 6, dx.A_STOPS, 1 << dx.CH), (f + 7, dx.A_STOPS, 0)]
     f += int(0.05 * SR)
-    # 3. all eight in one frame at accent 2.0: the loudest hit the kit's registers allow
-    hits += [(f, s, 2.0) for s in range(8)]
+    # 3. all eleven in one frame at accent 2.0: the loudest hit the kit's registers allow
+    hits += [(f, s, 2.0) for s in range(dx.N_STOPS)]
     f += int(0.15 * S * SR)
     # 4. a bar of the groove with accents, the OH -> CH choke, and the BD retuned while it rings
     bpm = 140.0 if not short else 400.0
@@ -68,31 +69,43 @@ def stimulus(short: bool = False):
     #    a tap of the ringing BD into an unstable mode (the state rails, the body word saturates),
     #    two full envelopes on one path (envsum 65534), att 7, nl = TANH on a raw source, the last
     #    path index in use, and EVERY lone-square source index 0..5 (15.4) so no SQ decode is unreached
-    ext = [(dx.A_PATH + 13, dx.path_word(dx.SRC_TAP + dx.M_BD, dx.ENV_FULL, dx.ENV_FULL, dx.NL_LIN, 0, dx.M_SPARE)),
-           (dx.A_PATH + 14, dx.path_word(dx.SRC_SQSUM, dx.ENV_FULL, dx.ENV_FULL, dx.NL_TANH, 7, dx.DEST_MIX)),
-           (dx.A_PATH + 15, dx.path_word(dx.SRC_NOISE, dx.E_OH, dx.E_CH, dx.NL_SWING, 0, dx.DEST_MIX)),
-           (dx.A_MODE + dx.M_SPARE * 4, (1 << 25) - 1), (dx.A_MODE + dx.M_SPARE * 4 + 1, (1 << 26) - (1 << 25)),
-           (dx.A_MODE + dx.M_SPARE * 4 + 2, 65535), (dx.A_MODE + dx.M_SPARE * 4 + 3, 3)]
+    # The mode used for the unstable-coefficient corner is the LAST one (15), which is ABOVE NUMS
+    # and therefore always RAW -- the same corner the revision-8 stimulus reached through M_SPARE.
+    # A second unstable mode is loaded at index 7, which is BELOW NUMS = 11, so the numerator
+    # datapath is exercised at the state rail too; that combination did not exist before.
+    UNST_HI, UNST_NUM = dx.N_MODES - 1, 7
+    ext = [(dx.A_PATH + dx.N_PATH - 3,
+            dx.path_word(dx.SRC_TAP + dx.M_BD, dx.ENV_FULL, dx.ENV_FULL, dx.NL_LIN, 0, UNST_HI)),
+           (dx.A_PATH + dx.N_PATH - 2,
+            dx.path_word(dx.SRC_SQSUM, dx.ENV_FULL, dx.ENV_FULL, dx.NL_TANH, 7, dx.DEST_MIX)),
+           (dx.A_PATH + dx.N_PATH - 1,
+            dx.path_word(dx.SRC_NOISE, dx.E_OH, dx.E_CH, dx.NL_SWING, 0, dx.DEST_MIX)),
+           (dx.A_PATH + dx.N_PATH - 4,
+            dx.path_word(dx.SRC_TAP + dx.M_BD, dx.ENV_FULL, dx.ENV_FULL, dx.NL_LIN, 0, UNST_NUM))]
+    for m in (UNST_HI, UNST_NUM):
+        ext += [(dx.A_MODE + m * 4, (1 << 25) - 1), (dx.A_MODE + m * 4 + 1, (1 << 26) - (1 << 25)),
+                (dx.A_MODE + m * 4 + 2, 65535), (dx.A_MODE + m * 4 + 3, 3)]
     writes += [(f, a, v) for a, v in ext]
-    hits += [(f + 2, s, 2.0) for s in range(8)]
+    hits += [(f + 2, s, 2.0) for s in range(dx.N_STOPS)]
     f += int(0.08 * S * SR)
     # 5b. every lone-square index in turn on path 15, each through the swing VCA into the mix:
     #     src 5..10 must each decode to its own oscillator, which INJECT_BUG_DRUM_SQ_LONE breaks
     for i in range(6):
-        writes.append((f, dx.A_PATH + 15,
+        writes.append((f, dx.A_PATH + dx.N_PATH - 1,
                        dx.path_word(dx.SRC_SQ + i, dx.ENV_FULL, nl=dx.NL_SWING, dest=dx.DEST_MIX)))
         f += int(0.006 * S * SR) + 1
-    writes.append((f, dx.A_PATH + 15, dx.path_word(dx.SRC_OFF, dx.ENV_FULL)))
+    writes.append((f, dx.A_PATH + dx.N_PATH - 1, dx.path_word(dx.SRC_OFF, dx.ENV_FULL)))
     f += int(0.01 * S * SR)
     # 6. every envelope at its extremes: rate 0 (one LSB per frame), rate 65535, hold 255, 3 bursts at
     #    period 511, peak 0 and FULL, choke by its own stop; then hits
     for e in range(dx.N_ENV):
-        writes += [(f, dx.A_ENV + e * 4, dx.env_ctl(e % 8, choke=(e + 1) % 8 if e % 3 == 0 else 15,
+        writes += [(f, dx.A_ENV + e * 4, dx.env_ctl(e % dx.N_STOPS,
+                                                    choke=(e + 1) % dx.N_STOPS if e % 3 == 0 else 15,
                                                     hold=255 if e % 4 == 1 else 0, bursts=3 if e % 4 == 2 else 0,
                                                     period=511 if e % 4 == 2 else 0)),
                    (f, dx.A_ENV + e * 4 + 1, 0 if e % 5 == 0 else dx.FULL24),
                    (f, dx.A_ENV + e * 4 + 2, 0 if e % 4 == 3 else (65535 if e % 4 == 1 else 3))]
-    hits += [(f + 3, s, 2.0) for s in range(8)]
+    hits += [(f + 3, s, 2.0) for s in range(dx.N_STOPS)]
     f += int(0.08 * S * SR)
     # 7. RESET mid-run, the kit again, one hit of each of BD and OH, then silence: decay to nothing
     writes.append((f, dx.A_RESET, 0))
@@ -133,13 +146,13 @@ def generate(outdir: str, short: bool = False, verbose: bool = True):
     with open(os.path.join(outdir, "drum_expected.txt"), "w") as fh:
         fh.writelines(f"{dmix[i]} {body[i]}\n" for i in range(n))
     if verbose:
-        fires = [int(np.sum((d.trace["fire"] >> s) & 1)) for s in range(8)]
+        fires = [int(np.sum((d.trace["fire"] >> s) & 1)) for s in range(dx.N_STOPS)]
         env = d.envs
         print(f"  {n} frames, {len(writes)} writes; fires per stop {fires}; "
               f"envelope fires {sum(e.n_fire for e in env)}, chokes {sum(e.n_choke for e in env)}, "
               f"re-strikes {sum(e.n_restrike for e in env)}, floor steps (dec = 0, level > 0) {sum(e.n_floor for e in env)}")
         print(f"  model corners reached: bank state saturated {cov.y_sat}x, body word saturated {cov.out_sat}x, "
-              f"taps at the rail {d.n_tapsat}x; |dmix| max {np.abs(dmix).max()} of 2^20, "
+              f"taps at the rail {d.n_tapsat}x; |dmix| max {np.abs(dmix).max()} of 2^21, "
               f"|exc| max {np.abs(d.trace['exc']).max()} of 2^20; "
               f"tail: last 100 frames |dmix| {np.abs(dmix[-100:]).max()}, |body| {np.abs(body[-100:]).max()}")
     return expected, n, d

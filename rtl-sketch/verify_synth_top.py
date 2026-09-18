@@ -99,7 +99,7 @@ def script(short: bool = False):
 
     # ---- 2. the drum image: the reference kit, plus an accent of 1.0 per stop ----
     for a, v in dx.kit_808():               put(0, 0, SEC_D, a, v)
-    for s in range(8):                      put(0, 0, SEC_D, dx.A_ACCENT + s, dx.accent_reg(1.0))
+    for s in range(dx.N_STOPS):             put(0, 0, SEC_D, dx.A_ACCENT + s, dx.accent_reg(1.0))
 
     # ---- 3. play. The voice first alone, then with drums, then through the filter ----
     gap = max(2, int(14 * S))

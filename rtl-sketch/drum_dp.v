@@ -19,8 +19,16 @@
 //             added to the mix bus or pushed to the bank's exc register of
 //             its destination mode (15.5)
 //   drain     the last path's value; then bank_start, mix_out, mix_valid
-// 1 + ENVS + 1 + 2*PATHS + 2 = 48 clocks for 12 envelopes and 16 paths
-// (tb_drums.v measures it), before the bank's 38.
+// 1 + ENVS + 1 + 2*PATHS + 2 = 68 clocks for 18 envelopes and 23 paths
+// (tb_drums.v measures it), before the bank's 3*MODES+2 = 50. 118 of the
+// frame's 256 (ARCHITECTURE 5), and synth_top's `overrun` flag watches it.
+//
+// REVISION 10 widened the PATH word from 22 bits to 25: the envelope fields
+// and the destination field are 5 bits each. At 4 bits the block could
+// address twelve envelopes and fifteen modes, and DEST_MIX was 15 -- which
+// is also mode 15, so at MODES = 16 the last mode could never be a
+// destination. The sentinels moved with the fields: envelope index 31 reads
+// full scale, destination 31 is the mix bus.
 //
 // Formats, all the model's: level 24-bit unsigned; rate Q0.16; accent Q0.15;
 // sources Q1.15 signed; envsum 16-bit unsigned (up to 65534); v 17-bit
@@ -34,9 +42,10 @@
 // from frame_tick until body_valid. frame_tick is ignored while busy.
 `default_nettype none
 module drum_dp #(
-    parameter ENVS     = 12,
-    parameter PATHS    = 16,
-    parameter MODES    = 12,
+    parameter ENVS     = 18,
+    parameter PATHS    = 23,
+    parameter MODES    = 16,
+    parameter STOPS    = 11,
     parameter SB       = 28,             // the bank's state width, for the tap
     parameter EW       = 21,             // the bank's excitation width
     parameter MW       = 4,              // mode index width
@@ -45,24 +54,26 @@ module drum_dp #(
     input  wire                  clk,
     input  wire                  rst_n,
     input  wire                  frame_tick,
-    input  wire [7:0]            stops,
-    input  wire [8*16-1:0]       accent_bus,
+    input  wire [STOPS-1:0]      stops,
+    input  wire [STOPS*16-1:0]   accent_bus,
     input  wire [6*24-1:0]       osc_inc_bus,
     input  wire [ENVS*27-1:0]    env_ctl_bus,
     input  wire [ENVS*24-1:0]    env_peak_bus,
     input  wire [ENVS*16-1:0]    env_rate_bus,
-    input  wire [PATHS*22-1:0]   path_bus,
+    input  wire [PATHS*25-1:0]   path_bus,
     output wire [MW-1:0]         tap_sel,
     input  wire signed [SB-1:0]  tap_y1,
     output reg                   exc_we,
     output reg  [MW-1:0]         exc_mode,
     output reg  signed [EW-1:0]  exc_val,
     output reg                   bank_start,
-    output reg  signed [20:0]    mix_out,
+    output reg  signed [21:0]    mix_out,
     output reg                   mix_valid
 );
-    localparam EI = 4;                              // envelope index width (<= 16 envelopes)
-    localparam PI = 4;                              // path index width (<= 16 paths)
+    localparam EI = 5;                              // envelope index width (<= 31 envelopes)
+    localparam PI = 5;                              // path index width (<= 32 paths)
+    localparam [4:0] ENV_FULL = 5'd31;              // the envelope index that reads full scale
+    localparam [4:0] DEST_MIX = 5'd31;              // the destination that is the mix bus
     localparam T_MAX = 11'd2047;
     localparam [15:0] BURST_C = 16'd53248;          // 13/16 in Q0.16
 
@@ -71,7 +82,7 @@ module drum_dp #(
     initial $readmemh(ROM_FILE, rom);
 
     // ---- state ----------------------------------------------------------------
-    reg [7:0]  stops_q, fire_q;
+    reg [STOPS-1:0] stops_q, fire_q;
     reg [30:0] lfsr;
     reg signed [15:0] noise_r, sq_r, sqpair_r;
     reg [5:0]         sqmsb_r;
@@ -79,7 +90,7 @@ module drum_dp #(
     reg [23:0] level  [0:ENVS-1];
     reg [23:0] strike [0:ENVS-1];
     reg [10:0] tcnt   [0:ENVS-1];
-    reg signed [20:0] dmix;
+    reg signed [21:0] dmix;
     reg [1:0]  st;                                  // 0 idle, 1 envelopes, 2 paths, 3 drain
     reg [EI:0] e;                                   // envelope slot (one extra for the pipeline)
     reg [PI:0] p;                                   // path slot
@@ -127,12 +138,16 @@ module drum_dp #(
     wire [23:0] e_peak = env_peak_bus[ei*24 +: 24];
     wire [15:0] e_rate = env_rate_bus[ei*16 +: 16];
 `ifdef INJECT_BUG_DRUM_LEVEL_TRIG
-    wire [7:0]  fire_src = stops_q;                 // NEGATIVE CONTROL: level, not edge
+    wire [STOPS-1:0] fire_src = stops_q;            // NEGATIVE CONTROL: level, not edge
 `else
-    wire [7:0]  fire_src = fire_q;
+    wire [STOPS-1:0] fire_src = fire_q;
 `endif
-    wire        e_fired = (e_stop < 4'd8) && fire_src[e_stop[2:0]];
-    wire        e_chok  = (e_chk  < 4'd8) && fire_src[e_chk[2:0]];
+    // Padded to sixteen so a 4-bit stop index never selects past the end of
+    // the vector: an index of STOPS..15 means "never" (contract 15.3) and must
+    // read 0, not X.
+    wire [15:0] fire_x = {{(16-STOPS){1'b0}}, fire_src};
+    wire        e_fired = (e_stop < STOPS) && fire_x[e_stop];
+    wire        e_chok  = (e_chk  < STOPS) && fire_x[e_chk];
     wire [10:0] t_cur   = tcnt[ei];
     wire [10:0] t_nx    = (t_cur == T_MAX) ? T_MAX : t_cur + 11'd1;
     wire [10:0] per2    = {e_per, 1'b0};
@@ -143,7 +158,8 @@ module drum_dp #(
                            (e_bur >= 2'd2 && t_nx == per2) ||
                            (e_bur == 2'd3 && t_nx == per3));
     wire [1:0]  e_op    = e_fired ? 2'd0 : e_holdp ? 2'd1 : e_rs ? 2'd2 : 2'd3;   // FIRE HOLD RESTRIKE DECAY
-    wire [15:0] e_acc   = accent_bus[e_stop[2:0]*16 +: 16];
+    wire [16*16-1:0] accent_x = {{((16-STOPS)*16){1'b0}}, accent_bus};
+    wire [15:0] e_acc   = accent_x[e_stop*16 +: 16];
     reg  [1:0]  op_q;  reg [EI-1:0] e_q;  reg chok_q;  reg [10:0] t_q;
 
     // ---- envelope slot e-1: apply the product --------------------------------------
@@ -161,13 +177,13 @@ module drum_dp #(
 
     // ---- path slot p: decode ------------------------------------------------------------
     wire [PI-1:0] pi = p[PI-1:0];
-    wire [21:0] pw     = path_bus[pi*22 +: 22];
+    wire [24:0] pw     = path_bus[pi*25 +: 25];
     wire [4:0]  p_src  = pw[4:0];
-    wire [3:0]  p_e1   = pw[8:5];
-    wire [3:0]  p_e2   = pw[12:9];
-    wire [1:0]  p_nl   = pw[14:13];
-    wire [2:0]  p_att  = pw[17:15];
-    wire [3:0]  p_dest = pw[21:18];
+    wire [4:0]  p_e1   = pw[9:5];
+    wire [4:0]  p_e2   = pw[14:10];
+    wire [1:0]  p_nl   = pw[16:15];
+    wire [2:0]  p_att  = pw[19:17];
+    wire [4:0]  p_dest = pw[24:20];
     assign tap_sel = p_src[MW-1:0];
     wire signed [SB-1:0] tap_sh = tap_y1 >>> 3;
 `ifdef INJECT_BUG_DRUM_TAP_NOSAT
@@ -186,7 +202,9 @@ module drum_dp #(
     wire signed [15:0] s_raw = (p_src == 5'd1) ? noise_r : (p_src == 5'd2) ? sq_r :
                                (p_src == 5'd3) ? 16'sd32767 : (p_src == 5'd4) ? sqpair_r :
                                (p_src >= 5'd5 && p_src < 5'd5 + 6) ? sq_lone :
-                               (p_src >= 5'd16 && p_src < 5'd16 + MODES) ? tap16 : 16'sd0;
+                               // six bits: at MODES = 16 the tap range is 16..31 and
+                               // `5'd16 + MODES` would wrap to 0 in five
+                               ({1'b0, p_src} >= 6'd16 && {1'b0, p_src} < 6'd16 + MODES) ? tap16 : 16'sd0;
     // the swing VCA: x4 on the positive half, /8 on the negative (15.5)
     wire signed [17:0] u = (p_nl == 2'd1) ? (s_raw[15] ? {{5{s_raw[15]}}, s_raw[15:3]} : {s_raw, 2'b00})
                                           : {{2{s_raw[15]}}, s_raw};
@@ -199,11 +217,11 @@ module drum_dp #(
     wire signed [15:0] t0 = rom[tidx];
     wire signed [15:0] t1 = rom[tidx1];
     wire [15:0] tdelta = t1 - t0;
-    wire [14:0] env1 = (p_e1 < ENVS) ? level[p_e1[EI-1:0]][23:9] : (p_e1 == 4'd15) ? 15'd32767 : 15'd0;
-    wire [14:0] env2 = (p_e2 < ENVS) ? level[p_e2[EI-1:0]][23:9] : (p_e2 == 4'd15) ? 15'd32767 : 15'd0;
+    wire [14:0] env1 = (p_e1 < ENVS) ? level[p_e1[EI-1:0]][23:9] : (p_e1 == ENV_FULL) ? 15'd32767 : 15'd0;
+    wire [14:0] env2 = (p_e2 < ENVS) ? level[p_e2[EI-1:0]][23:9] : (p_e2 == ENV_FULL) ? 15'd32767 : 15'd0;
     wire [15:0] envsum = {1'b0, env1} + {1'b0, env2};
     reg  signed [15:0] t0_q;  reg tneg_q, tsat_q;  reg [1:0] nl_q;  reg signed [15:0] slin_q;
-    reg  [15:0] envsum_q;  reg [2:0] att_q, att_c;  reg [3:0] dest_q, dest_c;
+    reg  [15:0] envsum_q;  reg [2:0] att_q, att_c;  reg [4:0] dest_q, dest_c;
     // path cycle B: the nonlinearity's value
     wire [15:0] tr_mag = tsat_q ? 16'd32767 : (t0_q + mul_r[13 +: 16]);
     wire signed [15:0] tr = tneg_q ? -tr_mag : tr_mag;
@@ -258,7 +276,7 @@ module drum_dp #(
             2'd2: begin                                          // paths (15.5), two cycles each
                 if (!half) begin                                 // A: consume p-1, request tanh(p)
                     if (p != 0) begin
-                        if (dest_c == 4'd15) dmix <= dmix + {{4{v[16]}}, v};
+                        if (dest_c == DEST_MIX) dmix <= dmix + {{5{v[16]}}, v};
                         else if (dest_c < MODES) begin
                             exc_we <= 1'b1; exc_mode <= dest_c[MW-1:0]; exc_val <= {{(EW-17){v[16]}}, v};
                         end
@@ -277,7 +295,7 @@ module drum_dp #(
             end
             default: begin                                       // drain: the last path, then launch
 `ifndef INJECT_BUG_DRUM_LAST_PATH
-                if (dest_c == 4'd15) mix_out <= dmix + {{4{v[16]}}, v};
+                if (dest_c == DEST_MIX) mix_out <= dmix + {{5{v[16]}}, v};
                 else begin
                     mix_out <= dmix;
                     if (dest_c < MODES) begin

@@ -173,15 +173,23 @@ no use to the cymbal, which needs a filter. Completing the 808 means raising
 
 **The 808's sixteen sounds are eleven or twelve circuits, in five exclusive
 pairs.** (Roland's TR-08 pairing implies eleven; Wikipedia says twelve timbral
-voices, plausibly over whether CH/OH is one shared circuit or two. Unresolved,
-and it moves the arithmetic by one — see `docs/reduced-808-precedent.md`.) The
+voices. **Resolved 2026-09-18: eleven circuits.** The service notes group the
+sound generators into exactly eleven blocks and every pair shares a trigger, a
+switch and an output buffer. The guess that the ambiguity was CH versus OH is
+wrong — they are two, on separate VCAs, envelopes and high-pass corners, which
+`drum-verification.md` §4 measured 8.5× apart. Twelve is defensible only if you
+count *resonators*, since the RS/CL block holds two. **And it does not move the
+arithmetic**, because the bank allocates modes per resonator either way — see
+`docs/reduced-808-precedent.md`.) The
 paired voices are the *same circuit retuned* and cannot sound simultaneously —
 verified from Roland's own TR-08 instrument listing, which still groups them in
 exactly those pairs thirty-five years later, and consistent with the original's
 panel. This matters enormously for a shared modal bank, which needs a mode per
 *concurrent* voice rather than per named sound.
 
-**We have 8 of 11 circuits, so a complete 808 is +3 circuits, not +8 voices.
+**We have 11 of 11 circuits as of contract revision 10** (this paragraph is kept
+as written because the reasoning in it is what the build followed). **We had
+8 of 11, so a complete 808 was +3 circuits, not +8 voices.
 But +3 circuits is NOT +3 modes** — the eight-stop kit we already ship uses
 **eleven active modes** (six filters, five bodies), because a single named
 instrument can consume a band-pass, a high-pass and a body. Instrument names do
@@ -208,6 +216,38 @@ and `drum_kit` on gf180. Three corrections to what this section used to say:
    is free; seventeen doubles the state and costs +189 k µm² (+31 %). The only
    marginal cost inside the bracket is configuration storage, ≈ 6,400 µm² per
    mode — **and none of that storage exists in RTL**, on any branch.
+
+> **Built, 2026-09-18 — contract revision 10.** All three predictions above
+> were close, and the one that was wrong was wrong in a useful direction.
+>
+> * **Modes: 16, `NUMS` 11** — inside the predicted 15–18 / 8–11. Eight
+>   filters and eight bodies; three of the eleven numerator-capable slots hold
+>   RAW bodies, so there are three spare *filters* rather than none.
+> * **The cymbal did not need 2 band-passes + 3 high-passes.** It shares the
+>   hats' 7.1 kHz band-pass and two of their post-filters, so it cost **3**
+>   modes, not 4–5: one band-pass of its own (3.45 kHz) and one 10.5 kHz
+>   resonant band-pass. Sharing is exact — a linear filter of a sum is the sum
+>   of the filtered parts — and the third high-pass reference §10 names is the
+>   documented omission (`drum-verification.md` §10.3).
+> * **The configuration storage now exists in RTL and it is the biggest term,
+>   exactly as the note warned.** `drum_regs` goes **2,276 → 3,232 flip-flops**
+>   (+42 %), which agrees with the register declarations to the bit. The whole
+>   drum section is **5,293 → 7,418 flip-flops (+40 %)** and **27,082 → 35,726
+>   yosys generic cells (+32 %)**.
+> * **`MODES` was the cheap half and the note's "12 to 16 is free" is right
+>   about the bank and misleading about the block.** Inside `drum_kit`,
+>   MODES 12→16 with NUMS 6→11 costs **+6.2 % cells / +6.9 % flip-flops**;
+>   the envelopes (12→18), paths (16→23) and stops (8→11) that the three new
+>   circuits actually need cost **+21 % / +29.5 %**. `modal_dp` at 12 modes /
+>   6 nums measures **1,656 flip-flops** — the figure this section quotes — and
+>   at 16/11 it is **1,866**, the extra 210 being `h1`/`h2` for the five modes
+>   that gained a numerator. So it is `NUMS`, not `MODES`, that moves the bank's
+>   state at all.
+>
+> These are **yosys generic `synth` with no liberty**, old RTL and new in the
+> same flow. The gf180 figure this section quotes (≈605 k µm²) could not be
+> reproduced: the PDK is not installed on the machine this was built on, and a
+> cell count is not an area.
 
 **Voice count is not our risk — the snare is.** No source in the survey
 (`docs/reduced-808-precedent.md`) reports a reduced 808 rejected for having too
