@@ -1062,3 +1062,216 @@ def event_slices(gate) -> list:
         return []
     d = np.diff(np.concatenate([[0], g, [0]]))
     return list(zip(np.nonzero(d == 1)[0].tolist(), np.nonzero(d == -1)[0].tolist()))
+
+
+# ---------------------------------------------------------------------------
+# measured RESPONSE CURVES and harmonic signatures
+#
+# Added for `model/reference_compare.py`, which puts our ladder beside three
+# independent software emulations. Everything here takes a curve that was
+# MEASURED -- a stepped tone and a coherent projection, per device, per
+# frequency -- and never a spectrum of a finished sound. Ground truth for all
+# four is in `model/test_reference_compare.py`, against closed-form signals
+# whose answers are known exactly.
+# ---------------------------------------------------------------------------
+def slope_db_oct(freqs, gain_db, band, *, max_residual_db: float = 1.5) -> Estimate:
+    """Slope of a measured response in dB per octave over `band` = (lo, hi) Hz.
+
+    A straight-line fit in (log2 f, dB), which is what "24 dB per octave"
+    means. Refuses when the fit's RMS residual exceeds `max_residual_db`,
+    because a curve that is not a straight line over the band has no slope and
+    quoting one is the same error as quoting a centroid for a cutoff: the
+    band is probably still on the resonant skirt, or already in the noise."""
+    f = _as_float(freqs)
+    g = _as_float(gain_db)
+    sel = (f >= band[0]) & (f <= band[1]) & np.isfinite(g)
+    if sel.sum() < 4:
+        return _fail("fewer than 4 measured points in the band", n=int(sel.sum()))
+    lf = np.log2(f[sel])
+    a, b = np.polyfit(lf, g[sel], 1)
+    resid = float(np.sqrt(np.mean((g[sel] - (a * lf + b)) ** 2)))
+    if resid > max_residual_db:
+        return _fail("response is not a straight line over this band",
+                     slope_db_oct=float(a), residual_db=resid, n=int(sel.sum()))
+    return Estimate(float(a), True, "", dict(residual_db=resid, n=int(sel.sum()),
+                                             band_hz=tuple(band)))
+
+
+def plateau_db(freqs, gain_db, band) -> float:
+    """The passband level a corner and a peak are measured against: the median
+    of the curve over `band`. A median, not a mean, so one bad point does not
+    move the reference every later number is relative to."""
+    f, g = _as_float(freqs), _as_float(gain_db)
+    sel = (f >= band[0]) & (f <= band[1]) & np.isfinite(g)
+    if not sel.any():
+        raise InsufficientEvidence("plateau_db: no measured points in the reference band")
+    return float(np.median(g[sel]))
+
+
+def corner_from_curve(freqs, gain_db, *, ref_band=None, kind: str = "lowpass") -> Estimate:
+    """-3 dB corner of a MEASURED low-pass response, against its own passband
+    plateau, by linear interpolation between the two measured points that
+    straddle it.
+
+    For a resonant filter this is NOT the resonant peak, and it is not the
+    argmax of anything; `peak_from_curve` answers that separately. Refuses
+    when the curve never crosses -3 dB inside the measured range, rather than
+    returning its last point."""
+    f, g = _as_float(freqs), _as_float(gain_db)
+    o = np.argsort(f)
+    f, g = f[o], g[o]
+    if kind != "lowpass":
+        raise ValueError("only 'lowpass' is implemented")
+    ref = plateau_db(f, g, ref_band or (f[0], f[0] * 2.0))
+    tgt = ref - 3.0
+    below = np.where(g < tgt)[0]
+    below = below[below > 0]
+    if not len(below):
+        return _fail("response never falls 3 dB below its passband inside the measured range",
+                     plateau_db=ref, min_db=float(g.min()))
+    i = int(below[0])
+    g1, g0 = g[i], g[i - 1]
+    if g0 <= tgt:
+        return _fail("the passband reference band is already below -3 dB", plateau_db=ref)
+    t = (g0 - tgt) / (g0 - g1)
+    hz = float(2.0 ** (math.log2(f[i - 1]) + t * (math.log2(f[i]) - math.log2(f[i - 1]))))
+    return Estimate(hz, True, "", dict(plateau_db=ref))
+
+
+def peak_from_curve(freqs, gain_db, *, ref_band=None, min_peak_db: float = 0.5) -> Estimate:
+    """Height of a measured resonant peak over the passband plateau, in dB.
+    `detail['f_peak']` is its frequency (parabolic on the measured points) and
+    `detail['q']` its f_peak / -3 dB bandwidth, reported only when the curve
+    actually falls 3 dB below the peak on BOTH sides inside the measured
+    range. Refuses when there is no peak, instead of calling the argmax of a
+    monotonic curve a resonance."""
+    f, g = _as_float(freqs), _as_float(gain_db)
+    o = np.argsort(f)
+    f, g = f[o], g[o]
+    ref = plateau_db(f, g, ref_band or (f[0], f[0] * 2.0))
+    i = int(np.argmax(g))
+    if i in (0, len(f) - 1):
+        return _fail("maximum at the edge of the measured range", f=float(f[i]))
+    height = float(g[i] - ref)
+    if height < min_peak_db:
+        return _fail("no resonant peak over the passband", peak_db=height)
+    lf = np.log2(f)
+    a, b, c = g[i - 1], g[i], g[i + 1]
+    den = a - 2 * b + c
+    d = max(-0.5, min(0.5, 0.5 * (a - c) / den)) if den else 0.0
+    fpk = float(2.0 ** (lf[i] + d * (lf[i + 1] - lf[i])))
+    half = g[i] - 3.0
+    q = float("nan")
+    lo = np.where(g[:i] < half)[0]
+    hi = np.where(g[i:] < half)[0]
+    if len(lo) and len(hi):
+        j = int(lo[-1])
+        tl = (half - g[j]) / (g[j + 1] - g[j])
+        flo = 2.0 ** (lf[j] + tl * (lf[j + 1] - lf[j]))
+        j = int(i + hi[0]) - 1
+        th = (g[j] - half) / (g[j] - g[j + 1])
+        fhi = 2.0 ** (lf[j] + th * (lf[j + 1] - lf[j]))
+        if fhi > flo:
+            q = float(fpk / (fhi - flo))
+    return Estimate(height, True, "", dict(f_peak=fpk, q=q, plateau_db=ref))
+
+
+def _bh4(n: int) -> np.ndarray:
+    """4-term Blackman-Harris. Sidelobes are 92 dB down and fall off fast,
+    which is what a harmonic 60 dB under its own fundamental needs: a
+    RECTANGULAR projection leaks the fundamental into every other frequency at
+    about 1/(pi * delta_bins), which is -55 to -75 dB at the 3rd and 5th
+    harmonics of a half-second record -- exactly the range this repository's
+    ladder harmonics live in. Measured with a rectangular projection they are
+    the window, not the filter."""
+    k = 2 * math.pi * np.arange(n) / n
+    return (0.35875 - 0.48829 * np.cos(k) + 0.14128 * np.cos(2 * k)
+            - 0.01168 * np.cos(3 * k))
+
+
+def windowed_tone_amplitude(x, hz: float, sr: int = SR_DEFAULT, *,
+                            min_periods: float = 12.0) -> Estimate:
+    """Amplitude of a sinusoid at exactly `hz` by a WINDOWED coherent
+    projection. `tone_amplitude` is the one to use for a stepped-tone transfer
+    measurement, where the record is an integer number of periods by
+    construction and a rectangular projection is exact. This one is for a free
+    ring, whose frequency is not known in advance and therefore never lands on
+    a whole number of periods.
+
+    The window's coherent gain is divided out, so the returned amplitude is
+    the sinusoid's, and RATIOS of two of these are exact for a stationary
+    signal whose partials are further apart than the window's 8-bin main
+    lobe."""
+    x = _as_float(x)
+    if is_silent(x):
+        return _fail("silent")
+    n = len(x)
+    if hz <= 0 or hz >= sr / 2:
+        return _fail("frequency outside (0, Nyquist)", hz=hz)
+    periods = n / (sr / hz)
+    if periods < min_periods:
+        return _fail("too few periods for a coherent projection", periods=periods)
+    w = _bh4(n)
+    e = np.exp(-2j * math.pi * hz * np.arange(n) / sr)
+    return Estimate(float(2.0 * np.abs((w * x * e).sum()) / w.sum()), True, "",
+                    dict(periods=periods))
+
+
+def harmonic_signature(x, sr: int = SR_DEFAULT, *, f_lo: float = 25.0, f_hi: float = 12000.0,
+                       kmax: int = 9, floor_margin_db: float = 6.0) -> dict:
+    """h2..hk of a steady tone relative to its fundamental, in dB, by coherent
+    projection (`tone_amplitude`) at each k*f0 -- with a MEASURED floor.
+
+    Three things this does that an FFT-band sum does not:
+
+      * the fundamental is found by interpolated zero crossings, which for a
+        steady self-oscillation is exact to a small fraction of a bin, and
+        cross-checked against `dominant_frequency`; a 0.5 % error in f0 loses
+        the 7th harmonic out of any fixed analysis band
+      * the projection is WINDOWED (Blackman-Harris), so the floor below is
+        the record's own noise and not the fundamental leaking sideways: with
+        a rectangular projection the leak sits at -55 to -75 dB, which is
+        where these harmonics are
+      * every harmonic is reported against a FLOOR measured at four
+        off-harmonic offsets around it, (k +- 0.3) and (k +- 0.5) times f0 --
+        the same projection, the same window, frequencies where nothing should
+        be. The floor is the LARGEST of the four, because one draw of a noise
+        level is itself noisy and a floor that reads low by chance turns noise
+        into a harmonic. A harmonic within `floor_margin_db` of that floor is
+        reported as `None` with the floor, not as a number
+      * harmonics at or above Nyquist are `None`, never 0
+
+    Returns {'f0', 'h2'..'hk', 'floor2'..'floork', 'n_valid'}.
+    """
+    x = _as_float(x)
+    if is_silent(x):
+        raise InsufficientEvidence("harmonic_signature: silent")
+    zc = zero_crossing_frequency(x, sr)
+    dom = dominant_frequency(x, f_lo, f_hi, sr)
+    if not dom.ok:
+        raise InsufficientEvidence(f"harmonic_signature: no fundamental ({dom.why})")
+    f0 = zc.value if (zc.ok and abs(zc.value - dom.value) / dom.value < 0.02) else dom.value
+    a1 = windowed_tone_amplitude(x, f0, sr).require("harmonic_signature: the fundamental")
+    h = len(x) // 2
+    out = {"f0": float(f0), "h1": 0.0, "f0_zc_ok": bool(zc.ok),
+           "drift_db": db(rms(x[h:]), rms(x[:h]))}
+    n_valid = 0
+    for k in range(2, kmax + 1):
+        fk = k * f0
+        if fk >= sr / 2:
+            out[f"h{k}"], out[f"floor{k}"] = None, None
+            continue
+        ak = windowed_tone_amplitude(x, fk, sr)
+        probes = [(k + d) * f0 for d in (-0.5, -0.3, 0.3, 0.5)]
+        fls = [windowed_tone_amplitude(x, p, sr) for p in probes if 0 < p < sr / 2]
+        fls = [e.value for e in fls if e.ok]
+        hk = db(ak.value, a1) if ak.ok else None
+        fdb = db(max(fls), a1) if fls else None
+        out[f"floor{k}"] = fdb
+        if hk is None or (fdb is not None and hk < fdb + floor_margin_db):
+            out[f"h{k}"] = None
+        else:
+            out[f"h{k}"] = hk
+            n_valid += 1
+    out["n_valid"] = n_valid
+    return out
