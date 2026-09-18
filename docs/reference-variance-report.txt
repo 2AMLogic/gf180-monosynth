@@ -1,0 +1,24 @@
+-- ours: 5 repeats, fresh instance each
+     cutoff  mean err %  spread pp    sd pp
+        100      -8.301     0.0000   0.0000
+        400      -7.453     0.0000   0.0000
+       1600      -5.650     0.0000   0.0000
+       6400      -0.380     0.0000   0.0000
+   DRIFT ACROSS THE RANGE (the quoted statistic): 7.92 pp, run-to-run spread 0.000 pp
+
+-- surge-rk: 5 repeats, fresh instance each
+     cutoff  mean err %  spread pp    sd pp
+        100      -2.178     0.0000   0.0000
+        400      -2.240     0.0000   0.0000
+       1600      -2.488     0.0000   0.0000
+       6400      -3.457     0.0000   0.0000
+   DRIFT ACROSS THE RANGE (the quoted statistic): 1.28 pp, run-to-run spread 0.000 pp
+
+-- miniv3: 5 repeats, fresh instance each
+     cutoff  mean err %  spread pp    sd pp
+        100      +0.043     0.0097   0.0039
+        400      +0.543     0.0065   0.0026
+       1600      -0.470     0.0091   0.0036
+       6400      -0.250     0.0060   0.0024
+   DRIFT ACROSS THE RANGE (the quoted statistic): 1.01 pp, run-to-run spread 0.003 pp
+##### DONEVAR #####

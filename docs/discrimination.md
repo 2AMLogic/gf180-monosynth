@@ -324,6 +324,20 @@ Those fixes are necessary and not sufficient; they do not touch the attack.
 
 ## 8. Minimoog: what our ladder measures against three independent emulations
 
+> ### ⚠️ WITHDRAWN 2026-09-18: every u-he Diva number below
+>
+> Diva was running **unlicensed**. It prints `ERROR: Could not read lic from
+> file.` on every instantiation and inserts periodic broadband clicks — 20 in
+> a 360 s render, none in the first 167 s, then clusters every ~33 s, each a
+> ~0.1 ms burst that raises the 6–20 kHz band by **32–43 dB** while leaving
+> the note's own band unchanged. Surge XT over the same test: **zero**.
+> `docs/reference-integrity.md` §1 has the evidence.
+>
+> **Every Diva figure in this section is withdrawn**, including
+> **h5 − h3 = −41.2 dB at matched h3**, which has been quoted elsewhere.
+> Surge XT and Arturia Mini V3 are unaffected — both showed zero events.
+> Read this section as a two-reference study until Diva is licensed.
+
 **Revision 2026-09-18. Revision 1 of this section concluded that no Minimoog
 validation was possible and produced none. That conclusion was wrong, and one
 of the numbers it rested on was a measurement artefact. Both are corrected
