@@ -388,3 +388,120 @@ def audit(report=print) -> tuple[bool, dict]:
     ev["monotone_group_count"] = dict(mono)
     ev["groups_total"] = len(ev["groups"])
     return False, ev
+
+
+# ===========================================================================
+# 4. The estimator, before the machine
+#
+# "If an estimator is itself noisy, you will measure the estimator rather than
+# the machine." Three controls, in increasing severity.
+# ===========================================================================
+def synthetic_bd(sr: int = 44100, f0: float = 50.0, tau: float = 0.120,
+                 seconds: float = 3.0, click: float = 0.25,
+                 seed: int | None = None) -> np.ndarray:
+    """A bass drum with a closed-form answer: one damped sinusoid at `f0` with
+    amplitude time constant `tau`, plus a short click so the band split and the
+    attack have something to measure.
+
+    T20 of a single exponential is ln(10)*tau exactly, and that identity is
+    `audio_measure`'s own ground truth for `schroeder_t20`, so an estimator
+    that is STABLE but WRONG is still caught here."""
+    n = int(seconds * sr)
+    t = np.arange(n) / sr
+    y = np.exp(-t / tau) * np.sin(2 * np.pi * f0 * t)
+    k = int(0.002 * sr)
+    y[:k] += click * np.exp(-np.arange(k) / (0.0004 * sr))
+    if seed is not None:
+        y = y + np.random.default_rng(seed).normal(0.0, 1e-5, n)
+    return y / np.abs(y).max()
+
+
+def self_test(report=print) -> tuple[bool, dict]:
+    """Estimator noise, so the machine numbers have something to be a ratio to."""
+    plan = metrics()
+    sr = 44100
+    ev: dict = {}
+    ok = True
+
+    # --- 1. determinism -----------------------------------------------------
+    x = synthetic_bd(sr)
+    runs = [measure_all(rc.prepare(x.copy(), sr), sr, plan) for _ in range(6)]
+    nondet = [k for k in plan
+              if len({None if r[k] is None else round(r[k], 12) for r in runs}) > 1]
+    ev["determinism"] = {"identical": not nondet, "nondeterministic": nondet}
+    report(f"  determinism      six runs of one array: "
+           f"{'identical' if not nondet else 'DIFFER: ' + str(nondet)}")
+    ok &= not nondet
+
+    # --- 2. ground truth ----------------------------------------------------
+    f0, tau = 50.0, 0.120
+    y = rc.prepare(synthetic_bd(sr, f0=f0, tau=tau), sr)
+    got_f0 = plan["Pitch trajectory"][1](y, sr)
+    got_t20 = plan["decay"][1](y, sr)
+    want_t20 = am.t20_from_tau(tau) * 1e3
+    e_f0 = abs(got_f0.value - f0) / f0 * 100 if got_f0.ok else None
+    e_t20 = abs(got_t20.value - want_t20) / want_t20 * 100 if got_t20.ok else None
+    ev["ground_truth"] = {"f0_hz": f0, "f0_measured": got_f0.value, "f0_error_pct": e_f0,
+                          "t20_ms": want_t20, "t20_measured": got_t20.value,
+                          "t20_error_pct": e_t20}
+    report(f"  ground truth     f0 {got_f0.value:.4f} Hz vs {f0} ({e_f0:+.3f} %)   "
+           f"T20 {got_t20.value:.3f} ms vs ln(10)*tau = {want_t20:.3f} ({e_t20:+.3f} %)")
+    ok &= (e_f0 is not None and e_f0 < 1.0) and (e_t20 is not None and e_t20 < 1.0)
+
+    # --- 3. editing noise ---------------------------------------------------
+    # The floor that matters. One REAL recording, six copies differing only by
+    # what the vendor's editor did and the machine did not: where the file was
+    # cut at the head and at the tail. Both jitters are taken from the corpus
+    # itself rather than invented -- the onset lands on sample 5 to 9 across the
+    # bass drums, and file lengths at one decay position spread by up to 0.8 %.
+    g = current_grid("A", "Digital")
+    x, sr = load(g[("C", 3)])
+    copies = []
+    for head in (0, 2, 4):
+        for tail in (0, -0.004):
+            z = x[head:]
+            if tail:
+                z = z[: int(len(z) * (1.0 + tail))]
+            copies.append(measure_all(rc.prepare(z, sr), sr, plan))
+    floor = {}
+    for k in plan:
+        v = [c[k] for c in copies if c[k] is not None]
+        floor[k] = {"n": len(v), "span": (max(v) - min(v)) if len(v) > 1 else None,
+                    "sd": float(np.std(v, ddof=1)) if len(v) > 1 else None}
+    ev["editing_noise"] = floor
+    report("  editing noise    one recording, six editor-trim variants:")
+    for k, v in floor.items():
+        if v["span"] is not None:
+            report(f"      {k:26s} span {v['span']:9.4f} {plan[k][0]}   sd {v['sd']:.4f}")
+
+    # --- truncation, #118 ---------------------------------------------------
+    ts = {}
+    for decay in "ABCDEF":
+        xx, sr2 = load(g[(decay, 3)])
+        ts[f"Decay {decay}"] = truncation_sensitivity(rc.prepare(xx, sr2), sr2)
+    ev["t20_truncation_sensitivity_pct"] = ts
+    report("  truncation (#118) T20 move when 10 % more of the record is cut:")
+    report("      " + "  ".join(f"{k.split()[-1]} {v:+.2f} %" if v is not None
+                                else f"{k.split()[-1]} n/a" for k, v in ts.items()))
+
+    # START RED. A probe that answers 0.00 % on every file it is shown has not
+    # been observed to fail, and this repository has shipped four harnesses in
+    # that state. Cut a record while it is still sounding and the probe must
+    # say so -- and `schroeder_t20`'s own tail_db guard must NOT, which is the
+    # whole of #118.
+    xx, sr2 = load(g[("E", 3)])
+    yy = rc.prepare(xx, sr2)
+    cut = yy[: int(0.40 * sr2)]
+    red = truncation_sensitivity(cut, sr2)
+    guard = am.schroeder_t20(rc.window(cut, sr2, 0.005, None), sr2)
+    ev["truncation_red_test"] = {
+        "cut_to_s": 0.40, "full_t20_ms": am.schroeder_t20(rc.window(yy, sr2, 0.005, None), sr2).value * 1e3,
+        "cut_t20_ms": None if not guard.ok else guard.value * 1e3,
+        "cut_tail_db": guard.detail.get("tail_db"),
+        "probe_pct": red, "probe_fires": red is None or abs(red) > 5.0}
+    t = ev["truncation_red_test"]
+    said = "REFUSED" if not guard.ok else f"{t['cut_t20_ms']:.0f} ms, tail_db {t['cut_tail_db']:.0f}"
+    report(f"  red test         a 400 ms cut of a {t['full_t20_ms']:.0f} ms T20: "
+           f"length probe {red:+.1f} %; schroeder_t20 says {said}")
+    ok &= bool(ev["truncation_red_test"]["probe_fires"])
+    return ok, ev
