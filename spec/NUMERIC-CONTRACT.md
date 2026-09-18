@@ -309,15 +309,19 @@ and `seg` per envelope (section 8.1), the ladder's `y[0..3]`, `w[0..3]`,
 | GATE_OFF | `gate ← 0`. Both envelopes take the release branch of 8.3 from wherever their level is. |
 | RESET | every register of section 14 ← its reset value. |
 
-Each of these is one 32-bit SPI transaction (5.4): a flag bit, a 7-bit
-address and 24 data bits, `{F, A[6:0], D[23:0]}` MSB first. The addresses
+Each of these is one 48-bit SPI transaction (5.4): a flag bit, six reserved
+bits, a page bit, an 8-bit address and 32 data bits,
+`{F, 6'b0, SEC, A[7:0], D[31:0]}` MSB first (DR 0007 **revision 2**; revision
+1's 32-bit frame could not address the drum image of 15.1 at all, and the
+measurement is in that record). `SEC` = 0 is this page. The addresses
 (DR 0007 section 3): `INC_TGT[k]` 0x00–0x02 with `F` = jump; `WAVE[k]`
 0x04–0x06; `W[k]` 0x08–0x0A; `GLIDE` 0x0C; `VOL` 0x0D; amp envelope
 `a_inc, d_dec, sus, rate` 0x10–0x13 and filter envelope 0x14–0x17;
 `CUT_LO, CUT_HI, TRACK_HZ` 0x18–0x1A; `K, GAIN, OGAIN` 0x1C–0x1E; `GATE_ON`
 0x20, `GATE_OFF` 0x21, `TRIG` 0x22, `RESET` 0x23 (data ignored); `NOP` 0x3F.
-A register narrower than 24 bits takes the low bits of `D`; the rest MUST be
-zero. **`wave[k]`: 0 saw, 1 square, 2 pulse25, 3 tri, 4 sine, and 5–7 also
+`BVOL` is 0x2C and `DVOL` 0x0E (12). A register narrower than 32 bits takes
+the low bits of `D`; the rest MUST be zero. `SEC` = 1 selects the drum
+section's page, whose map is 15.1's unchanged. **`wave[k]`: 0 saw, 1 square, 2 pulse25, 3 tri, 4 sine, and 5–7 also
 sine** (bit 2 set selects sine, so every 3-bit value is defined). The chip
 adds registers outside this voice — the drum bus level, the drum routing
 and the drum filter, 0x0E, 0x0F, 0x28–0x2B, and the drum section's 0x40–0x7F
@@ -352,24 +356,27 @@ normative content:
   falling edge), MSB first; pins `SCK`, `MOSI`, `CS_N`, `MISO`. The receiver
   samples the pins in the core clock domain, so SCK MUST be ≤ 2.0 MHz, and
   `CS_N` MUST be high for ≥ 4 core cycles between transactions.
-- One transaction is **exactly 32 bits** between a falling and a rising edge
+- One transaction is **exactly 48 bits** between a falling and a rising edge
   of `CS_N` and is one write of 5.2; a transaction of any other length is
-  discarded and applies nothing.
+  discarded and applies nothing. The word is
+  `{F, 6'b0, SEC, A[7:0], D[31:0]}`: `SEC` selects the page (0 the voice and
+  master of 5.1, 1 the drum section of 15.1) and `A` the register in it.
 - **The unit of 4.3 is the transaction, and its acceptance cycle is the core
   cycle in which the synchronised rising edge of `CS_N` is registered with a
-  bit count of 32.** Accepted writes enter a queue of depth 4 in acceptance
+  bit count of 48.** Accepted writes enter a queue of depth 4 in acceptance
   order; at each tick the queue's occupancy is snapshotted and that many
   writes are applied, one per cycle, before any datapath block reads a
-  control register. At the specified SCK at most two writes can complete in
+  control register. At the specified SCK at most one write can complete in
   a frame, so the queue cannot overflow; a host outside the specification
   that overflows it loses the write and sets a sticky status flag.
 - During every transaction the chip returns a 32-bit status word on `MISO`:
-  `{0x4D, version 0x1, flags[3:0], frame[15:0]}`, loaded at the falling edge
+  `{0x4D, version 0x2, flags[3:0], frame[15:0]}`, loaded at the falling edge
   of `CS_N` — the flags are `overrun`, `queue non-empty`, `overflow` and
   `fresh` (no write since hardware reset); `frame` is the 16-bit frame
   counter of 4.1, wrapping.
-- RESET (0x23) resets the registers of section 14 and leaves the link and
-  the queue alone, so writes queued behind it in the same frame still apply,
+- RESET is per page: `SEC` = 0 address 0x23 resets the registers of section
+  14, `SEC` = 1 address 0xFF resets the drum section's (15.8). Both leave the
+  link and the queue alone, so writes queued behind either still apply,
   in order, after it.
 
 *Informative:* pin to acceptance is three core cycles; a `CS_N` edge within
@@ -1199,7 +1206,12 @@ register values (15.7, Appendix G), not a circuit.
 ### 15.1 Registers
 
 The drum section's control image, host-written like the voice's (5.1);
-addresses are 8 bits, values up to 32 (`drums_fx.write`). Every value is
+addresses are 8 bits, values up to 32 (`drums_fx.write`). On the wire this
+page is reached with `SEC` = 1 in the 48-bit control frame (5.4, DR 0007
+revision 2); `rtl-sketch/drum_regs.v` holds the image (2 276 flops, DR 0007
+section 9) and drives the engine's buses. Every register the engine reads is
+stable from the frame's `go` to `body_valid`, because the write drain runs at
+cycles 2..5 and `go` is at cycle 8. Every value is
 legal; nothing is rejected for range. Writes apply at frame boundaries by
 4.3. An address that names no register is ignored.
 
@@ -1598,8 +1610,11 @@ record that extends this document; none may be resolved by picking a reading.
    (5.6).
 2. **Glide** (6.7) — **closed in rev 3 by DR 0004**: on the chip, constant rate,
    geometric in the increment (linear in pitch), the `glide` register.
-3. **Physical control layer** (5.4) — **closed in rev 4 by DR 0007**: SPI
-   register writes, one 32-bit transaction per write of 5.2, accepted at the
+3. **Physical control layer** (5.4) — **closed in rev 4 by DR 0007, widened
+   in DR 0007 revision 2**: SPI register writes, one 48-bit transaction per
+   write of 5.2 carrying a page bit, an 8-bit address and a 32-bit datum
+   (revision 1's 32-bit frame could carry 37 of the 155 writes the models
+   perform; `rtl-sketch/verify_ctl.py` measures it), accepted at the
    synchronised `CS_N` rising edge and applied at the next tick; the
    encodings of every address and of `wave[k]` (saw 0, square 1, pulse25 2,
    tri 3, sine 4–7) are in 5.2 and DR 0007.

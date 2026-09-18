@@ -97,15 +97,37 @@ class Coverage:
 OUT_BITS = 19       # the voice's ladder output word, Q4.15 (contract 11.2, DR 0005)
 
 
-def generate(tanh_n: int, outdir: str, verbose=True, out_bits: int = OUT_BITS):
-    """Run the model; write vectors + expected. Returns (expected list, coverage)."""
-    f = fixed.LadderFx(state_bits=24, state_q=20, tanh_entries=tanh_n, interp=True, out_bits=out_bits)
-    cov = Coverage(f)
+def generate(tanh_n: int, outdir: str, verbose=True, out_bits: int = OUT_BITS, nch: int = 1):
+    """Run the model; write vectors + expected. Returns (expected list, coverage).
+
+    `nch` > 1 builds NCH INDEPENDENT LadderFx instances and sends row j to
+    channel j % nch -- the bench's assignment. Each channel therefore runs its
+    own signal, its own cutoff sweep and its own resonance, which is the whole
+    point: with every channel fed the identical sequence (what this script and
+    tb_ladder_n.v did before) their states are identical, and a design that
+    leaks state between channels still gives the right answer on every sample.
+    """
+    cfg = dict(state_bits=24, state_q=20, tanh_entries=tanh_n, interp=True, out_bits=out_bits)
+    f = fixed.LadderFx(**cfg)
+    chans = [f] if nch <= 1 else [fixed.LadderFx(**cfg) for _ in range(nch)]
+    cov = Coverage(chans[0])
     lines, expected = [], []
     g_hi = k_hi = 0
+    row0 = 0
     for name, xq, fc, res, drive in stimulus():
         g_tab, k, gain, ogain = f.coefficients(fc, res, drive)
-        y = f.process(xq, fc, res, drive)
+        if nch <= 1:
+            y = f.process(xq, fc, res, drive)
+        else:
+            y = np.empty(len(xq), dtype=np.int64)
+            idx_all = np.arange(len(xq))
+            for c in range(nch):
+                idx = idx_all[(row0 + idx_all) % nch == c]
+                if len(idx) == 0:
+                    continue
+                y[idx] = chans[c].process(xq[idx], None, res, drive, g_q16=g_tab[idx],
+                                          k=k, gain=gain, ogain=ogain)
+        row0 += len(xq)
         g_hi += int(np.sum(g_tab >= 32768)); k_hi += (k >= 65536) * len(xq)
         assert 0 < k < (1 << 17) and 0 < gain < (1 << 20) and 0 < ogain < (1 << 20)
         for i in range(len(xq)):
@@ -228,6 +250,9 @@ def main(argv=None) -> int:
     ap.add_argument("--nch", type=int, default=0,
                     help="verify ladder_dp_n.v with this many channels (tb_ladder_n.v): every sample "
                          "is driven to each channel in turn and every channel must match the model")
+    ap.add_argument("--legacy-stimulus", action="store_true",
+                    help="drive every row to every channel, as this bench did before: the control "
+                         "that shows that stimulus cannot detect cross-channel state bleeding")
     ap.add_argument("--out-bits", type=int, default=OUT_BITS, choices=(16, 19),
                     help="ladder output width: 19 (Q4.15, the voice's) or 16 (Q1.15, rev 1)")
     a = ap.parse_args(argv)
@@ -235,14 +260,19 @@ def main(argv=None) -> int:
     rom = {16: "tanh16.hex", 256: "tanh256.hex"}[a.tanh_n]
     print(f"verify_ladder: model LadderFx(24-bit state, 20 fraction, {a.tanh_n}-entry interpolated tanh, "
           f"{a.out_bits}-bit output)")
-    expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
-    if a.nch:                                    # ladder_dp_n: every sample to every channel, in turn
+    if a.nch and not a.legacy_stimulus:          # ladder_dp_n: row j to channel j % NCH
+        expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits, nch=a.nch)
+    else:
+        expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
+    if a.nch:
         a.rtl = os.path.join(HERE, "ladder_dp_n.v"); a.tb = os.path.join(HERE, "tb_ladder_n.v")
-        expected = [e for e in expected for _ in range(a.nch)]
+        if a.legacy_stimulus:                    # THE OLD BENCH, kept as the control that it is blind
+            expected = [e for e in expected for _ in range(a.nch)]
     if a.compare_only:
         status = compare(expected, a.compare_only)
     else:
         defines = [f"INJECT_BUG_LADDER_{a.inject}"] if a.inject else []
+        if a.legacy_stimulus: defines.append("LEGACY_STIMULUS")
         print(f"verify_ladder: simulating {os.path.relpath(a.rtl, HERE)} "
               f"(TANH_LOG2N={log2n}, {rom}{', ' + defines[0] if defines else ''}"
               f"{', NCH=%d' % a.nch if a.nch else ''})")
