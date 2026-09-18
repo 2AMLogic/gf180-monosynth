@@ -100,12 +100,16 @@ class LadderFx:
                 r = self.tbl[idx]
         return -r if neg else r
 
-    def process(self, x_q15: np.ndarray, cutoff_hz: np.ndarray, res: float,
-                drive: float = 1.0):
-        """x_q15: int16 samples. Returns int16. Everything between is integer."""
-        os_, SQ, SB = self.os, self.SQ, self.SB
-        fs = SR * os_
-        n = len(x_q15)
+    def coefficients(self, cutoff_hz: np.ndarray, res: float, drive: float = 1.0):
+        """The four integers the loop actually runs on, from the float controls.
+        Split out so a testbench can hand the RTL exactly what the model used.
+
+        Widths, since the RTL has to carry them: g is Q0.16 and reaches 61,659
+        at the 0.45*fs cutoff clamp (bit 15 set above ~10.6 kHz, so it is NOT
+        a signed 16-bit quantity); k is 4*res in Q.14 and needs 17 bits from
+        res = 1.0; gain = drive*vpu/2Vt is 2.6*drive in Q.16 (19 bits at drive
+        3); ogain = 2Vt/vpu*(1+2*res) in Q.16 is 17 bits to res 1.5."""
+        fs = SR * self.os
         # coefficient per sample, Q0.16 -- a real design would ROM this
         g_tab = np.clip(
             np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
@@ -115,6 +119,14 @@ class LadderFx:
         gain = int(round(drive * self.vpu / VT2 * (1 << COEF_Q)))
         # state units -> Q1.15 audio on the way out, with resonance gain comp
         ogain = int(round(VT2 / self.vpu * (1.0 + 0.5 * res * 4.0) * (1 << COEF_Q)))
+        return g_tab, k, gain, ogain
+
+    def process(self, x_q15: np.ndarray, cutoff_hz: np.ndarray, res: float,
+                drive: float = 1.0):
+        """x_q15: int16 samples. Returns int16. Everything between is integer."""
+        os_, SQ, SB = self.os, self.SQ, self.SB
+        n = len(x_q15)
+        g_tab, k, gain, ogain = self.coefficients(cutoff_hz, res, drive)
         out = np.empty(n, dtype=np.int16)
         y, w = self.y, self.w
         d1, d2 = self.d1, self.d2
