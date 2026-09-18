@@ -5,3 +5,4 @@ __pycache__/
 audio/
 *.wav
 *.vvp
+rtl-sketch/build/

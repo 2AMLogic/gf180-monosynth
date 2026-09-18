@@ -12,13 +12,15 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer. Float remains only where the host computes note-on register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **not started** — `rtl-sketch/` is an area sketch only, never simulated |
+| 3 | RTL, bit-exact against (2) | **ladder and modal: done, in simulation** — each is identical to its model over 28,800 / 48,000 samples, and each bench is shown to fail on injected defects. `touch_dp.v`: unverified |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
 
 Nothing here has been synthesized to a PDK, so there is **no area in mm², no
 timing and no power number**. The cell counts below are PDK-neutral yosys
-output from a datapath sketch that has never been simulated for correctness.
+output. The ladder's and the modal bank's are from RTL that is bit-exact
+against their models; the touch sketch's is from a datapath that has never
+been simulated for correctness.
 
 ## Why this block exists
 
@@ -88,15 +90,98 @@ in silicon; **not implemented**, and the filter's first open work item.
 | PolyBLEP reciprocal | increment normalised at note-on to a 16-bit mantissa; 16-bit reciprocal; one 16×16 multiply per sample | width is set by tracking the float waveform inside Q1.15, **not** by aliasing — 8 bits already reach the float's suppression |
 | envelope | 24-bit level, Q0.16 rate; release is `L −= max(1, (L·rate) >> 16)` | 20 is the floor for attack-time accuracy; 24 keeps the release floor below −62 dBFS for releases up to 1 s. The `max(1, ·)` is what makes a note end |
 | cutoff → `g` | 128 entries × Q0.16, edge-sampled, interpolated — 2 kbit | −0.6 % at 120 Hz, −0.05 % at 1 kHz; 256 entries halve that for 2 kbit more |
+| cutoff `g` | Q0.16, unsigned | reaches 61,659 at the 0.45·fs clamp: bit 15 is data, not sign |
+| resonance `k` | Q3.14, 17 bits | 4·res; res = 1.0 is exactly 65,536 |
+| `gain`, `ogain` | Q4.16, 20 bits | drive·vpu/2Vt = 2.6·drive; 2Vt/vpu·(1+2·res). Not Q0.16, whatever the model's older comment said |
 
-Area follows the table directly. The same sketch synthesises to **6,165 cells
-with a 256-entry table and 1,917 with a 16-entry one**. Against
-`gf180-polysynth`'s 19,049-cell core, the filter is roughly **+10 %**, not the
-+32 % a bigger table implies.
+The interpolation is a multiply, and it goes through the one shared multiplier
+(two clocks per `tanh`), so the table costs no second multiplier. The RTL that
+is bit-exact against this model synthesises to **5,725 cells with the 16-entry
+table and 7,058 with 256**, 24 clocks per sample. The multiplier is 24 × 20 —
+it has to carry `k·fb` at full state precision and the two 20-bit gains — and
+is 3,299 of those cells, 58 %. Against `gf180-polysynth`'s 19,049-cell core
+the filter is about **+30 %**.
 
-An earlier guess that `tanh`'s odd symmetry would halve the cost was wrong — it
-saved 4 %. ABC already compresses a large table's redundancy; the win is
-needing *fewer entries*, not exploiting symmetry in more of them.
+The figures this README quoted before — *1,917 cells with a 16-entry table,
+6,165 with 256* — were wrong, and not by a rounding error. They were the area
+of a sketch that computed nothing: its 16-entry variant read the `tanh` ROM
+out of range on every lookup (so every output was X, and yosys was free to
+optimise most of the datapath away), and both variants had no interpolation,
+no input or output gain, a 16 × 16 multiplier, an integrator shift 8× too
+large, a wrapping 16-bit stage difference, and a second oversample pass that
+reused the first pass's feedback. See `rtl-sketch/verify_ladder.py` and the
+history of `ladder_dp.v`. The claim that odd symmetry "saved 4 %" was measured
+on that sketch and is withdrawn with it.
+
+### Verifying the RTL
+
+The model is the specification and the RTL is compared against it sample for
+sample with no tolerance. `rtl-sketch/verify_ladder.py` runs `LadderFx` on
+five patches (the saw above with a 60 Hz → 12 kHz sweep; near-silence at
+resonance 1.08; a full-scale square at 15 kHz and drive 3; LFSR noise; a
+silent limit-cycle tail — 28,800 samples that reach the input clamp 61 times,
+the output clamp 4,835 times, the `tanh` clamp 2,148 times, `g ≥ 2¹⁵` on
+5,084 samples and `k ≥ 2¹⁶` on 9,600), drives `ladder_dp.v` with the same
+integers under iverilog, and reports the first mismatch and the worst error.
+
+```bash
+export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
+.venv/bin/python rtl-sketch/verify_ladder.py                     # 16-entry table
+.venv/bin/python rtl-sketch/verify_ladder.py --tanh-n 256
+.venv/bin/python rtl-sketch/verify_ladder.py --inject FB --expect-fail   # negative control
+.venv/bin/python rtl-sketch/verify_modal.py                      # the modal bank, same contract
+.venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
+rtl-sketch/synth_count.sh                                        # the cell counts
+```
+
+A bench that cannot fail proves nothing, so three defects are compiled in
+behind `INJECT_BUG_LADDER_FB` (unit delay instead of the half-sample average),
+`INJECT_BUG_LADDER_SAT` (wrap instead of clamp) and
+`INJECT_BUG_LADDER_TANH_CLAMP` (the old sketch's index wrap past 4.0). Each
+is caught — 23,377, 3,155 and 18,389 mismatching samples respectively — and
+`test_negative_control_is_caught` requires it.
+
+One thing the bench cannot reach: the model's ±8.0 state clamp fired **zero**
+times, and cannot. Once |y| ≥ 4.0 the stage's own `tanh` is pinned at 32767,
+the difference driving the integrator changes sign, and the state turns back;
+it peaks at 4.0 + 2g ≈ 5.9. The 24th state bit is still required — 5.9 needs
+three integer bits and a sign — but it is not "6 dB of headroom before the
+clamp"; the clamp is dead logic in both model and RTL, kept for bit-exactness.
+
+### The modal bank, and the coefficient width it needs
+
+`rtl-sketch/modal_dp.v` — the "something you can hit" engine: four two-pole
+resonators, `y[n] = x[n] + a1·y[n−1] + a2·y[n−2]`, no RAM — was an unverified
+sketch too, and it had its own version of the same failure. Its 18-bit Q2.16
+coefficient ports **cannot tune a low bar**: at MIDI 28 (41 Hz) the pole sits
+at `a1 = 1.99992`, its pitch lives in the difference between `a1` and 2, and
+rounding that to Q2.16 puts mode 0 **2.4 % (41 cents) off pitch** and leaves
+the output at **−1.9 dB SNR against the float** — a different signal, not an
+approximation. The float model in `audition/physical.py` cannot show this
+because it never quantises a coefficient, and it normalises its output
+afterwards, so it fixes neither the precision nor the scale.
+
+`model/modal_fixed.py` is the integer reference the RTL is now bit-exact
+against, sized by its own sweep (`python3 model/modal_fixed.py`, locked by
+`model/test_modal_fixed.py`): Q2.24 coefficients (0.005 % pitch, 0.04 % decay
+at note 28), a 28-bit state with 15 fraction bits, and 10 bits of output
+headroom because the bank rings up to **657× the strike** at note 28 — the
+chip cannot normalise that away. Rounding in the recursion was measured and
+buys nothing, so there is none. **That sizing is proposed, not ratified.**
+Beyond the width, the sketch had the accumulator shift two bits too deep
+(coefficients effectively ÷ 4), took the level tap before the excitation was
+added, and wrapped instead of saturating.
+
+`rtl-sketch/verify_modal.py`: 48,000 samples — six hits from note 28 to 100
+(the top mode above 0.45·fs, so its coefficients are zero) and a full-scale
+square at f₀ that drives the state to the rail 2,960 times — **0 differ**.
+Three negative controls, each caught: `INJECT_BUG_MODAL_SHIFT` (the sketch's
+shift, 47,991 mismatches), `_SAT` (wrap, 7,920) and `_PREEXC` (the sketch's
+level tap, 552). **7,017 cells, 15 clocks per sample** — the sketch was
+4,683 and 18. The 28 × 26 multiplier is most of it; the parallel coefficient
+ports are muxed rather than read from a ROM, which overstates a real
+implementation by those muxes, as the sketch already said. The modal bank is
+not the cheap option it looked like.
 
 ### Two things fixed point caught that float hid
 
@@ -223,4 +308,8 @@ device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
 afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
 afplay model/audio/voice_fx/00-aliasing-naive-vs-blep.wav
+.venv/bin/python -m pytest model/ rtl-sketch/ -q
 ```
+
+The `rtl-sketch/` tests need `iverilog`; without it they skip, and a skip is
+not a pass.
