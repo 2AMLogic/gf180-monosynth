@@ -17,12 +17,18 @@ a 700 ms attack, a 39.5 ms decay and a 41 %-high centroid all got reported.
 Call `.require()` when a test needs a number and should fail loudly without
 one; read `.ok` and `.reason` when "no answer" is itself the result.
 
-FOUR RULES LEARNED THE EXPENSIVE WAY
+FIVE RULES LEARNED THE EXPENSIVE WAY
 
-1.  **Envelope: use the analytic signal, not a moving average.** A 5 ms moving
-    average spans 0.28 of a cycle at 56 Hz and leaves about 76 % ripple, which
-    read every bass-drum decay roughly 3x too fast. `moving_average_envelope`
-    exists only so `test_audio_measure.py` can demonstrate that error.
+1.  **Envelope: pick the right one, and never a moving average of |x|.** A 5 ms
+    moving average spans 0.28 of a cycle at 56 Hz and leaves about 76 % ripple,
+    which read every bass-drum decay roughly 3x too fast;
+    `moving_average_envelope` exists only so `test_audio_measure.py` can
+    demonstrate that error. Of the two real choices, `analytic_envelope` is
+    right for a SINGLE damped sinusoid and `rms_envelope` for a BROADBAND
+    signal. A hi-hat is a dense inharmonic comb whose instantaneous amplitude
+    genuinely beats by tens of dB, so its analytic envelope is not monotone at
+    all: the open hat's appears to GROW for 50 ms after the strike and its
+    maximum lands on a beat. Choosing wrongly is not a small error.
 
 2.  **tau and "decay time" are different quantities.** For A0*exp(-t/tau) the
     time to -20 dB is ln(10)*tau = 2.303*tau. tau = 39.5 ms is a T20 of 91 ms,
@@ -41,6 +47,16 @@ FOUR RULES LEARNED THE EXPENSIVE WAY
     `spectral_lines` counts; `line_stability` asks whether the same lines are
     there in every window, which is what separates oscillators from noise. Both
     want a matched negative control that must fail the same test.
+
+5.  **Know which estimator stops working where.** Three limits are enforced
+    rather than documented and forgotten: `decay_tau` refuses a signal with
+    fewer than one carrier cycle per tau (there is no envelope to fit);
+    `damped_sinusoid` refuses TAU when the fit residual is comparable with the
+    per-sample decay, because a least-squares fit of the two-pole recursion is
+    biased towards a faster decay and on a quantised high-Q ring that bias is
+    the whole answer -- it reported 63 ms for a 127 ms bass drum; and `onsets`
+    positions are good to about 10 ms and no better, because the Hilbert
+    transform is not causal and puts a precursor ahead of every strike.
 
 Also: never normalise two signals before comparing them (that hides gain
 errors). `compare` reports waveform similarity and level difference
@@ -166,6 +182,28 @@ def analytic_envelope(x) -> np.ndarray:
     return np.abs(analytic_signal(x))
 
 
+def rms_envelope(x, ms: float = 5.0, sr: int = SR_DEFAULT) -> np.ndarray:
+    """Short-time RMS envelope, scaled so a sinusoid of amplitude A reads A.
+
+    THE right envelope for a BROADBAND signal -- a hi-hat is a dense
+    inharmonic comb and a clap is noise, and the instantaneous amplitude of
+    either genuinely swings by 20 dB from sample to sample as its components
+    beat. `analytic_envelope` reports that swing faithfully and is therefore
+    useless for reading the decay of such a voice; on the open hat its maximum
+    lands on a beat 2 ms after the strike and the "envelope" then rises again.
+
+    Use `analytic_envelope` for a single damped sinusoid (a bridged-T drum
+    voice, a filter ringing at one frequency), `rms_envelope` for anything
+    broadband. The window must span several cycles of the lowest component
+    present and must be short against the decay being measured -- at 56 Hz
+    there is no window that does both, which is why a low-frequency single
+    sinusoid gets the analytic envelope and nothing else."""
+    x = _as_float(x)
+    k = max(1, int(round(ms * 1e-3 * sr)))
+    e = np.sqrt(np.convolve(x * x, np.ones(k) / k, mode="same"))
+    return e * math.sqrt(2.0)
+
+
 def moving_average_envelope(x, ms: float, sr: int = SR_DEFAULT) -> np.ndarray:
     """DEPRECATED, kept only as the counter-example in
     `test_moving_average_envelope_is_biased_and_analytic_is_not`. Do not use it
@@ -205,8 +243,15 @@ def decay_tau(x, sr: int = SR_DEFAULT, *, start_s: float | None = None,
               end_s: float | None = None, skip_ms: float = 1.0,
               floor_db: float = -35.0, min_range_db: float = 12.0,
               max_residual_db: float = 4.0, min_samples: int = 64,
-              is_envelope: bool = False) -> Estimate:
+              is_envelope: bool = False, envelope: str = "analytic",
+              rms_window_ms: float = 5.0) -> Estimate:
     """Amplitude time constant to 1/e, in seconds, of a decaying signal.
+
+    `envelope` selects how the envelope is formed: "analytic" (default, right
+    for a single damped sinusoid) or "rms" with `rms_window_ms` (right for a
+    broadband voice -- hats, cymbal, clap -- whose instantaneous amplitude
+    beats). Choosing wrongly is not a small error: the analytic envelope of the
+    open hat is not monotone at all.
 
     Pass `is_envelope=True` when `x` is ALREADY an envelope (for example from
     `average_envelope`): taking the analytic envelope of an envelope measures
@@ -231,7 +276,14 @@ def decay_tau(x, sr: int = SR_DEFAULT, *, start_s: float | None = None,
     x = _as_float(x)
     if is_silent(x):
         return _fail("silent", peak=peak(x))
-    env = np.abs(_as_float(x)) if is_envelope else analytic_envelope(x)
+    if is_envelope:
+        env = np.abs(_as_float(x))
+    elif envelope == "rms":
+        env = rms_envelope(x, rms_window_ms, sr)
+    elif envelope == "analytic":
+        env = analytic_envelope(x)
+    else:
+        raise ValueError("envelope must be 'analytic' or 'rms'")
     i0 = 0 if start_s is None else int(start_s * sr)
     i1 = len(env) if end_s is None else min(len(env), int(end_s * sr))
     if i1 - i0 < min_samples:
@@ -271,7 +323,7 @@ def decay_tau(x, sr: int = SR_DEFAULT, *, start_s: float | None = None,
     # positive and negative frequency halves overlap and the "envelope" ripples
     # at twice the carrier -- so refuse and send the caller to
     # `damped_sinusoid`, which is exact there.
-    fe = _fail("skipped") if is_envelope else \
+    fe = _fail("skipped") if (is_envelope or envelope == "rms") else \
         dominant_frequency(x[i0:i1], 10.0, 0.45 * sr, sr, min_prominence_db=6.0)
     if fe.ok:
         cycles = fe.value * tau
@@ -338,6 +390,21 @@ def damped_sinusoid(x, sr: int = SR_DEFAULT, *, max_residual: float = 0.25,
     fe = Estimate(f, True, "", d)
     if r >= 1.0:
         return Damped(fe, Estimate(None, False, "not decaying (r >= 1)", d), a1, a2, resid)
+    # The frequency survives a noisy signal; the decay does not. A least
+    # squares fit of the recursion is biased towards a faster decay by its own
+    # residual, and for a high-Q pole (1 - r of a few times 1e-4, which is any
+    # long 808 ring or any resonant filter near self-oscillation) that bias is
+    # the whole answer: on the integer bass drum at tau = 127 ms it reported
+    # 63 ms, with a residual that looked excellent. So refuse tau when the
+    # per-sample fit error is comparable with the per-sample decay, and send
+    # the caller to `decay_tau`, whose envelope fit is unaffected. The 0.2
+    # factor is where the ground-truth sweep over quantised rings stops being
+    # accurate.
+    d = dict(d, one_minus_r=1 - r)
+    if resid > 0.2 * (1 - r):
+        return Damped(fe, Estimate(None, False,
+                                   "fit residual comparable with the per-sample decay: "
+                                   "tau unresolvable here, use decay_tau", d), a1, a2, resid)
     return Damped(fe, Estimate(-1.0 / (sr * math.log(r)), True, "", d), a1, a2, resid)
 
 
@@ -361,39 +428,59 @@ def poles_to_freq_tau(a1: float, a2: float, sr: int = SR_DEFAULT):
 # onsets
 # ---------------------------------------------------------------------------
 def onsets(x, sr: int = SR_DEFAULT, *, min_gap_s: float = 0.020,
-           rise_db: float = 12.0, rise_window_s: float = 0.003,
-           floor_db: float = -50.0) -> list[int]:
+           rise_db: float = 12.0, rise_window_s: float = 0.008,
+           floor_db: float = -50.0, smooth_ms: float = 5.0,
+           locate_db: float = 6.0) -> list[int]:
     """Sample indices where a new hit starts.
 
-    An onset is a RISE, so that is what is detected: the log envelope's gain
-    over `rise_window_s`, peak-picked where it exceeds `rise_db`, with accepted
-    onsets at least `min_gap_s` apart. Nothing about absolute level enters, so
-    a quiet hit after a loud one is found -- a solo render holds the same voice
-    at accent 1.4 and then 0.6, and "first onset to global peak" measured
+    An onset is a RISE, so that is what is detected: the log analytic envelope's
+    gain over `rise_window_s`, wherever it exceeds `rise_db` and arrives
+    somewhere above `floor_db` of the loudest point, with accepted onsets at
+    least `min_gap_s` apart. Positions are good to about 10 ms, which is set by
+    the precursor below and is plenty for telling one hit from another and
+    nowhere near enough to measure an attack time with -- do not use it for
+    that. Nothing about absolute level enters the detection,
+    so a quiet hit after a loud one is found -- a solo render holds the same
+    voice at accent 1.4 and then 0.6, and "first onset to global peak" measured
     across such a render is what invented a 700 ms attack on seven of eight
     voices. Analyse each hit separately, between consecutive onsets.
 
-    Peak-picking the ENVELOPE instead does not work: on a decaying voice every
-    masked maximum lands further down the same decay, and the answer is a list
-    of points along one hit."""
+    Two traps, both of which produced wrong answers here:
+
+    * peak-picking the envelope instead of its rise: on a decaying voice every
+      masked maximum lands further down the same decay, and the answer is a
+      list of points along one hit.
+    * the Hilbert transform is not causal, so a sharp strike puts a precursor
+      tens of ms AHEAD of itself and flattens the rise being looked for. The
+      window is therefore 8 ms rather than 3.
+      A short-time RMS envelope has no precursor but ripples hopelessly on a
+      56 Hz carrier, so it is not the answer either. The onset is then LOCATED
+      as the first point within `locate_db` of the peak the rise leads to --
+      locating it where the rise began puts it in the precursor, tens of ms
+      early, and that peak must be looked for PAST the end of the rise or the
+      same thing happens by a different route.
+
+    The analytic envelope is then smoothed over `smooth_ms` -- not to remove
+    carrier ripple, which it does not have, but to remove BEATS: a snare is two
+    partials a fifth apart and its instantaneous amplitude swings by 12 dB
+    every 6 ms, which reads as a second hit 150 ms after the first."""
     x = _as_float(x)
     if is_silent(x):
         return []
     env = analytic_envelope(x)
+    if smooth_ms > 0:
+        k = max(1, int(round(smooth_ms * 1e-3 * sr)))
+        env = np.convolve(env, np.ones(k) / k, mode="same")
     e = 20 * np.log10(np.maximum(env, peak(env) * 1e-7))
     w = max(1, int(rise_window_s * sr))
     if len(e) <= w + 2:
         return []
     rise = e[w:] - e[:-w]
-    gap = max(1, int(min_gap_s * sr))
-    # A rise only counts if it arrives somewhere audible: down at -60 dB the
-    # numerical floor and the analytic transform's own ringing rise by tens of
-    # dB, and every one of those would be reported as a hit.
     level = e[w:]
+    gap = max(1, int(min_gap_s * sr))
     hot = (rise > rise_db) & (level > e.max() + floor_db)
     out: list[int] = []
-    i = 0
-    n = len(rise)
+    i, n = 0, len(rise)
     while i < n:
         if not hot[i]:
             i += 1
@@ -401,11 +488,15 @@ def onsets(x, sr: int = SR_DEFAULT, *, min_gap_s: float = 0.020,
         j = i
         while j < n and hot[j]:
             j += 1
-        k = int(i + np.argmax(rise[i:j]))
+        lo = i
+        hi = min(len(e), j + w + max(w, gap // 2))
+        if hi - lo < 2:
+            i = j
+            continue
+        top = float(np.max(e[lo:hi]))
+        k = int(lo + np.argmax(e[lo:hi] >= top - locate_db))
         if not out or k - out[-1] >= gap:
             out.append(k)
-        elif rise[k] > rise[out[-1]]:
-            out[-1] = k
         i = j
     return out
 
@@ -716,12 +807,33 @@ def envelope_bursts(env, sr: int = SR_DEFAULT, *, window_s: float | None = None,
     return [(i / sr, float(env[i] / pk)) for i in keep]
 
 
-def average_envelope(signals) -> np.ndarray:
-    """Mean analytic envelope of several renders of the same event whose noise
-    is differently aligned. Deterministic envelope structure survives; the
-    noise averages down. Without this the clap's three bursts are not
-    measurable at all."""
-    envs = [analytic_envelope(s) for s in signals]
+def natural_frequency_from_peak(f_peak: float, q: float) -> float:
+    """A resonant two-pole filter's natural frequency f0 from where its
+    magnitude response peaks: f_peak = f0 / sqrt(1 - 1/(2 Q^2)).
+
+    The -3 dB corner, the resonant peak and f0 are three different numbers for
+    a resonant filter -- at Q 2.5 the -3 dB point sits about 28 % BELOW f0
+    while the peak sits 4 % above it. Reference tables usually quote f0, so
+    convert rather than comparing whichever one the measurement produced;
+    comparing a measured -3 dB corner with a table's f0 made a hi-hat
+    high-pass look 22 % wrong when it was 2 % right."""
+    k = 1 - 1 / (2 * q * q)
+    if k <= 0:
+        raise InsufficientEvidence(f"Q {q} is too low for a resonant peak")
+    return f_peak * math.sqrt(k)
+
+
+def average_envelope(signals, method: str = "rms", window_ms: float = 2.0,
+                     sr: int = SR_DEFAULT) -> np.ndarray:
+    """Mean envelope of several renders of the same event whose noise is
+    differently aligned. Deterministic envelope structure survives; the noise
+    averages down. Without this the clap's three bursts are not measurable at
+    all. `method` is "rms" (default -- these signals are broadband) or
+    "analytic"."""
+    if method == "rms":
+        envs = [rms_envelope(s, window_ms, sr) for s in signals]
+    else:
+        envs = [analytic_envelope(s) for s in signals]
     n = min(len(e) for e in envs)
     return np.mean([e[:n] for e in envs], axis=0)
 

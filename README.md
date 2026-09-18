@@ -144,8 +144,28 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python rtl-sketch/verify_voice.py --set quick --only default --rtl rtl-sketch/stubs/voice_dp_stub.v   # the red run: must exit 1
 .venv/bin/python rtl-sketch/verify_top.py                        # the chip through its SPI and I2S pins
 .venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
+.venv/bin/python -m pytest model/test_audio_measure.py -q        # the measurement library's own ground truth
+.venv/bin/python -m pytest model/test_moog_acceptance.py -q      # "is this really a Minimoog?"
+.venv/bin/python -m pytest model/test_808_acceptance.py -q       # "is this really an 808?"
+TR808_STUB=silent .venv/bin/python -m pytest model/test_808_acceptance.py -q   # the red run: must exit 1
 rtl-sketch/synth_count.sh                                        # the cell counts
 ```
+
+Two acceptance suites ask whether the instrument is the instrument it claims to
+be, one property at a time, each assertion citing the section of
+`docs/DESIGN.md` or `docs/tr808-reference.md` it comes from and tagged by
+whether that number is verified in a source, inferred from a schematic, or
+measured off real hardware. Both render from the model in this process, never
+from a committed WAV, so they test the design and not an artefact.
+
+Both sit on `model/audio_measure.py`, the shared measurement library — decay
+times, frequencies, filter transfer responses, harmonic and alias structure,
+line stability, onsets. Every estimator in it can return *insufficient
+evidence* instead of a plausible number, and every one is checked against a
+closed-form signal in `model/test_audio_measure.py`. That file exists because
+on 2026-09-18 five "defects" in this repository turned out to be measurement
+errors; each of them is now a regression test there, holding the wrong method
+to the wrong number it produced.
 
 A bench that cannot fail proves nothing, so three defects are compiled in
 behind `INJECT_BUG_LADDER_FB` (unit delay instead of the half-sample average),
