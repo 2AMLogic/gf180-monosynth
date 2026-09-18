@@ -1,0 +1,52 @@
+OpenROAD 26Q3-1260-g06a5a02279 
+Features included (+) or not (-): +GPU +GUI +Python
+This program is licensed under the BSD-3 license. See the LICENSE file for details.
+Components of this program may be licensed under more restrictive licenses which must be honored.
+[INFO ORD-0030] Using 8 thread(s).
+read_liberty /OpenROAD-flow-scripts/flow/platforms/gf180/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib.gz
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_1_fill.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_1_fill.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.odb
+Took 5 seconds: write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.odb
+write_sdc -no_timestamp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/6_final.sdc
+Deleted 0 routing obstructions
+[INFO RCX-0431] Defined process_corner X with ext_model_index 0
+[INFO RCX-0029] Defined extraction corner X
+[WARNING RCX-0514] The ext_model_file option is deprecated. Use set_extraction_rules_file command instead.
+[INFO RCX-0435] Reading extraction model file /OpenROAD-flow-scripts/flow/platforms/gf180/openROAD/rcx/gf180mcu_1p5m_1tm_9k_sp_smim_OPTB_typ.rules ...
+[INFO RCX-0436] RC segment generation synth_top (max_merge_res 50.0) ...
+[INFO RCX-0040] Final 214011 rc segments
+[INFO RCX-0439] Coupling Cap extraction synth_top ...
+[INFO RCX-0440] Coupling threshhold is 0.1000 fF, coupling capacitance less than 0.1000 fF will be grounded.
+[INFO RCX-0442] 14% of 506182 wires extracted
+[INFO RCX-0442] 30% of 506182 wires extracted
+[INFO RCX-0442] 49% of 506182 wires extracted
+[INFO RCX-0442] 63% of 506182 wires extracted
+[INFO RCX-0442] 80% of 506182 wires extracted
+[INFO RCX-0442] 100% of 506182 wires extracted
+[INFO RCX-0045] Extract 60448 nets, 274313 rsegs, 274313 caps, 632448 ccs
+[INFO RCX-0443] 60448 nets finished
+IR drop analysis for power nets is skipped because PWR_NETS_VOLTAGES is undefined
+IR drop analysis for ground nets is skipped because GND_NETS_VOLTAGES is undefined
+Cell type report:                       Count       Area
+  Endcap cell                             938    4118.20
+  Fill cell                             92248 1348959.18
+  Tap cell                               4239   18610.91
+  Clock buffer                            689   78034.97
+  Timing Repair Buffer                    609   16064.47
+  Inverter                               8617  114664.08
+  Clock inverter                          189    4728.46
+  Sequential cell                        8298  564974.23
+  Multi-Input combinational cell        38419 1231913.31
+  Total                                154246 3382067.81
+Report metrics stage 6, finish...
+
+==========================================================================
+finish report_design_area
+--------------------------------------------------------------------------
+Design area 2033109 um^2 60% utilization.
+[WARNING GUI-0076] QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-root'
+Elapsed time: 2:21.56[h:]min:sec. CPU time: user 106.89 sys 2.82 (77%). Peak memory: 1240340KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+6_report                                141           1211                  N/A
