@@ -30,26 +30,26 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 ```mermaid
 graph LR
   subgraph foundation["Foundation"]
-    F1["✓ Ladder bit-exact"]
-    F2["✓ Modal bank bit-exact"]
-    F3["· Measurement ground truth"]
+    F1["○ Ladder bit-exact"]
+    F2["○ Modal bank bit-exact"]
+    F3["✗ Measurement ground truth"]
   end
   subgraph minimoog["Minimoog voice"]
-    M1["✓ One Moog voice bit-exact"]
+    M1["○ One Moog voice bit-exact"]
     M2["✓ Matches our own spec"]
     M3["· Matches software references"]
     M4["✗ Matches real hardware"]
     M5["○ Noise, osc-3 modulation, full waveform set"]
   end
   subgraph drums["TR-808 drums"]
-    D1["✓ Drum kit bit-exact"]
+    D1["○ Drum kit bit-exact"]
     D2["· Is an 808, per the reference"]
-    D3["· Per-voice measured against targets"]
+    D3["✗ Per-voice measured against targets"]
     D4["○ Complete 808 -- all 16 sounds"]
   end
   subgraph integration["Integration"]
-    I1["· Control link carries every write"]
-    I2["· Whole chip at its pins"]
+    I1["○ Control link carries every write"]
+    I2["○ Whole chip at its pins"]
   end
   subgraph silicon["Silicon"]
     S1["· Routed on gf180, DRC clean"]
@@ -73,20 +73,20 @@ graph LR
   I2 --> S1
   S1 --> S2
   I2 --> S3
-  style F1 fill:#0E6B5E,color:#fff
-  style F2 fill:#0E6B5E,color:#fff
-  style F3 fill:#3f8f5f,color:#fff
-  style M1 fill:#0E6B5E,color:#fff
+  style F1 fill:#5a6468,color:#fff
+  style F2 fill:#5a6468,color:#fff
+  style F3 fill:#8E2438,color:#fff
+  style M1 fill:#5a6468,color:#fff
   style M2 fill:#0E6B5E,color:#fff
   style M3 fill:#3f8f5f,color:#fff
   style M4 fill:#8E2438,color:#fff
   style M5 fill:#5a6468,color:#fff
-  style D1 fill:#0E6B5E,color:#fff
+  style D1 fill:#5a6468,color:#fff
   style D2 fill:#3f8f5f,color:#fff
-  style D3 fill:#3f8f5f,color:#fff
+  style D3 fill:#8E2438,color:#fff
   style D4 fill:#5a6468,color:#fff
-  style I1 fill:#3f8f5f,color:#fff
-  style I2 fill:#3f8f5f,color:#fff
+  style I1 fill:#5a6468,color:#fff
+  style I2 fill:#5a6468,color:#fff
   style S1 fill:#3f8f5f,color:#fff
   style S2 fill:#8E2438,color:#fff
   style S3 fill:#3f8f5f,color:#fff
@@ -94,25 +94,25 @@ graph LR
 
 | | node | status | evidence |
 |---|---|---|---|
-| `F1` | Ladder bit-exact | **STAMPED** | node/F1-ladder |
-| `F2` | Modal bank bit-exact | **STAMPED** | node/F2-modal |
-| `F3` | Measurement ground truth | **GREEN** | model/test_audio_measure.py |
-| `M1` | One Moog voice bit-exact | **STAMPED** | node/M1-voice |
+| `F1` | Ladder bit-exact | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `F2` | Modal bank bit-exact | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `F3` | Measurement ground truth | **RED** | 1 failed, 90 passed in 1.31s |
+| `M1` | One Moog voice bit-exact | **TODO** | never run -- `tools/compile_dag.py --run` |
 | `M2` | Matches our own spec | **STAMPED** | node/M2-minimoog |
-| `M3` | Matches software references **fidelity** | **GREEN** | model/test_reference_compare.py |
+| `M3` | Matches software references **fidelity** | **GREEN** | 17 passed in 15.44s |
 | `M4` | Matches real hardware **fidelity** | **BLOCKED** | 0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip |
 | `M5` | Noise, osc-3 modulation, full waveform set | **TODO** | issue #48 |
-| `D1` | Drum kit bit-exact | **STAMPED** | node/D-drums-bitexact |
-| `D2` | Is an 808, per the reference **fidelity** | **GREEN** | model/test_808_acceptance.py |
-| `D3` | Per-voice measured against targets **fidelity** | **GREEN** | model/sound_report.py |
+| `D1` | Drum kit bit-exact | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `D2` | Is an 808, per the reference **fidelity** | **GREEN** | 63 passed in 88.84s (0:01:28) |
+| `D3` | Per-voice measured against targets **fidelity** | **RED** | model/sound_report.py exit 1 |
 | `D4` | Complete 808 -- all 16 sounds | **TODO** | issue #22 |
-| `I1` | Control link carries every write | **GREEN** | rtl-sketch/verify_ctl.py |
-| `I2` | Whole chip at its pins | **GREEN** | rtl-sketch/verify_synth_top.py |
+| `I1` | Control link carries every write | **TODO** | never run -- `tools/compile_dag.py --run` |
+| `I2` | Whole chip at its pins | **TODO** | never run -- `tools/compile_dag.py --run` |
 | `S1` | Routed on gf180, DRC clean | **GREEN** | pnr/orfs/evidence/synth_top/joined-d1e5068/6_report.json |
 | `S2` | Fits a real shuttle padframe | **BLOCKED** | routed die has padcells: 0 -- LibreLane half-slot in progress |
 | `S3` | FPGA build of the real engine | **GREEN** | fpga/reports/ecp5_25f.txt |
 
-<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py` at `5ce1190`. Status is derived from evidence, not asserted.</sub>
+<sub>Compiled from `docs/dag.json` by `tools/compile_dag.py` at `b8937f0`. Status is derived from evidence, not asserted.</sub>
 <!-- DAG:END -->
 
 ## Why this block exists

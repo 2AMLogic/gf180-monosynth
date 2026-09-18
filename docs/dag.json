@@ -11,47 +11,223 @@
     "",
     "class: 'implementation' = tested against OUR model. 'fidelity' = tested",
     "against an EXTERNAL reference. A subsystem with no fidelity evidence is",
-    "UNVALIDATED however many implementation tests pass -- see issue #45."
+    "UNVALIDATED however many implementation tests pass -- see issue #45.",
+    "covers: files whose change invalidates this node's evidence -> STALE. slow: too slow for a push; status is read from docs/dag-results.json, which the nightly job writes. GREEN means the evidence RAN AND PASSED at a commit, never merely that a file exists."
   ],
   "nodes": {
-    "F1": {"name": "Ladder bit-exact", "group": "foundation", "class": "implementation",
-           "tag": "node/F1-ladder", "verifier": "rtl-sketch/verify_ladder.py", "deps": []},
-    "F2": {"name": "Modal bank bit-exact", "group": "foundation", "class": "implementation",
-           "tag": "node/F2-modal", "verifier": "rtl-sketch/verify_modal.py", "deps": []},
-    "F3": {"name": "Measurement ground truth", "group": "foundation", "class": "implementation",
-           "suite": "model/test_audio_measure.py", "deps": []},
-
-    "M1": {"name": "One Moog voice bit-exact", "group": "minimoog", "class": "implementation",
-           "tag": "node/M1-voice", "verifier": "rtl-sketch/verify_voice.py", "deps": ["F1"]},
-    "M2": {"name": "Matches our own spec", "group": "minimoog", "class": "implementation",
-           "tag": "node/M2-minimoog", "suite": "model/test_moog_acceptance.py", "deps": ["M1", "F3"]},
-    "M3": {"name": "Matches software references", "group": "minimoog", "class": "fidelity",
-           "suite": "model/test_reference_compare.py", "deps": ["M2"]},
-    "M4": {"name": "Matches real hardware", "group": "minimoog", "class": "fidelity",
-           "blocked": "0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip",
-           "deps": ["M3"]},
-    "M5": {"name": "Noise, osc-3 modulation, full waveform set", "group": "minimoog",
-           "class": "implementation", "issue": 48, "deps": ["M2"]},
-
-    "D1": {"name": "Drum kit bit-exact", "group": "drums", "class": "implementation",
-           "tag": "node/D-drums-bitexact", "verifier": "rtl-sketch/verify_drums.py", "deps": ["F2"]},
-    "D2": {"name": "Is an 808, per the reference", "group": "drums", "class": "fidelity",
-           "suite": "model/test_808_acceptance.py", "deps": ["D1", "F3"]},
-    "D3": {"name": "Per-voice measured against targets", "group": "drums", "class": "fidelity",
-           "tool": "model/sound_report.py", "deps": ["D2"]},
-    "D4": {"name": "Complete 808 -- all 16 sounds", "group": "drums", "class": "implementation",
-           "issue": 22, "deps": ["D2"]},
-
-    "I1": {"name": "Control link carries every write", "group": "integration", "class": "implementation",
-           "verifier": "rtl-sketch/verify_ctl.py", "deps": ["M1", "D1"]},
-    "I2": {"name": "Whole chip at its pins", "group": "integration", "class": "implementation",
-           "verifier": "rtl-sketch/verify_synth_top.py", "deps": ["I1"]},
-
-    "S1": {"name": "Routed on gf180, DRC clean", "group": "silicon", "class": "implementation",
-           "evidence_file": "pnr/orfs/evidence/synth_top/joined-d1e5068/6_report.json", "deps": ["I2"]},
-    "S2": {"name": "Fits a real shuttle padframe", "group": "silicon", "class": "implementation",
-           "blocked": "routed die has padcells: 0 -- LibreLane half-slot in progress", "deps": ["S1"]},
-    "S3": {"name": "FPGA build of the real engine", "group": "silicon", "class": "implementation",
-           "evidence_file": "fpga/reports/ecp5_25f.txt", "deps": ["I2"]}
+    "F1": {
+      "name": "Ladder bit-exact",
+      "group": "foundation",
+      "class": "implementation",
+      "tag": "node/F1-ladder",
+      "verifier": "rtl-sketch/verify_ladder.py",
+      "deps": [],
+      "covers": [
+        "rtl-sketch/ladder_dp.v",
+        "rtl-sketch/ladder_dp_n.v",
+        "model/fixed.py"
+      ],
+      "slow": true
+    },
+    "F2": {
+      "name": "Modal bank bit-exact",
+      "group": "foundation",
+      "class": "implementation",
+      "tag": "node/F2-modal",
+      "verifier": "rtl-sketch/verify_modal.py",
+      "deps": [],
+      "covers": [
+        "rtl-sketch/modal_dp.v",
+        "model/modal_fixed.py"
+      ],
+      "slow": true
+    },
+    "F3": {
+      "name": "Measurement ground truth",
+      "group": "foundation",
+      "class": "implementation",
+      "suite": "model/test_audio_measure.py",
+      "deps": [],
+      "covers": [
+        "model/audio_measure.py"
+      ]
+    },
+    "M1": {
+      "name": "One Moog voice bit-exact",
+      "group": "minimoog",
+      "class": "implementation",
+      "tag": "node/M1-voice",
+      "verifier": "rtl-sketch/verify_voice.py",
+      "deps": [
+        "F1"
+      ],
+      "covers": [
+        "rtl-sketch/voice_dp.v",
+        "model/voice_fx.py",
+        "model/fixed.py"
+      ],
+      "slow": true
+    },
+    "M2": {
+      "name": "Matches our own spec",
+      "group": "minimoog",
+      "class": "implementation",
+      "tag": "node/M2-minimoog",
+      "suite": "model/test_moog_acceptance.py",
+      "deps": [
+        "M1",
+        "F3"
+      ],
+      "covers": [
+        "model/voice_fx.py",
+        "model/fixed.py"
+      ]
+    },
+    "M3": {
+      "name": "Matches software references",
+      "group": "minimoog",
+      "class": "fidelity",
+      "suite": "model/test_reference_compare.py",
+      "deps": [
+        "M2"
+      ],
+      "covers": [
+        "model/voice_fx.py",
+        "model/fixed.py",
+        "model/reference_compare.py"
+      ]
+    },
+    "M4": {
+      "name": "Matches real hardware",
+      "group": "minimoog",
+      "class": "fidelity",
+      "blocked": "0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip",
+      "deps": [
+        "M3"
+      ]
+    },
+    "M5": {
+      "name": "Noise, osc-3 modulation, full waveform set",
+      "group": "minimoog",
+      "class": "implementation",
+      "issue": 48,
+      "deps": [
+        "M2"
+      ]
+    },
+    "D1": {
+      "name": "Drum kit bit-exact",
+      "group": "drums",
+      "class": "implementation",
+      "tag": "node/D-drums-bitexact",
+      "verifier": "rtl-sketch/verify_drums.py",
+      "deps": [
+        "F2"
+      ],
+      "covers": [
+        "rtl-sketch/drum_kit.v",
+        "rtl-sketch/drum_dp.v",
+        "model/drums_fx.py"
+      ],
+      "slow": true
+    },
+    "D2": {
+      "name": "Is an 808, per the reference",
+      "group": "drums",
+      "class": "fidelity",
+      "suite": "model/test_808_acceptance.py",
+      "deps": [
+        "D1",
+        "F3"
+      ],
+      "covers": [
+        "model/drums_fx.py"
+      ]
+    },
+    "D3": {
+      "name": "Per-voice measured against targets",
+      "group": "drums",
+      "class": "fidelity",
+      "tool": "model/sound_report.py",
+      "deps": [
+        "D2"
+      ],
+      "covers": [
+        "model/drums_fx.py",
+        "model/voice_fx.py"
+      ]
+    },
+    "D4": {
+      "name": "Complete 808 -- all 16 sounds",
+      "group": "drums",
+      "class": "implementation",
+      "issue": 22,
+      "deps": [
+        "D2"
+      ]
+    },
+    "I1": {
+      "name": "Control link carries every write",
+      "group": "integration",
+      "class": "implementation",
+      "verifier": "rtl-sketch/verify_ctl.py",
+      "deps": [
+        "M1",
+        "D1"
+      ],
+      "covers": [
+        "rtl-sketch/spi_ctl.v",
+        "rtl-sketch/drum_regs.v"
+      ],
+      "slow": true
+    },
+    "I2": {
+      "name": "Whole chip at its pins",
+      "group": "integration",
+      "class": "implementation",
+      "verifier": "rtl-sketch/verify_synth_top.py",
+      "deps": [
+        "I1"
+      ],
+      "covers": [
+        "rtl-sketch/synth_top.v",
+        "model/synth_top_model.py"
+      ],
+      "slow": true
+    },
+    "S1": {
+      "name": "Routed on gf180, DRC clean",
+      "group": "silicon",
+      "class": "implementation",
+      "evidence_file": "pnr/orfs/evidence/synth_top/joined-d1e5068/6_report.json",
+      "deps": [
+        "I2"
+      ],
+      "covers": [
+        "rtl-sketch/synth_top.v"
+      ]
+    },
+    "S2": {
+      "name": "Fits a real shuttle padframe",
+      "group": "silicon",
+      "class": "implementation",
+      "blocked": "routed die has padcells: 0 -- LibreLane half-slot in progress",
+      "deps": [
+        "S1"
+      ]
+    },
+    "S3": {
+      "name": "FPGA build of the real engine",
+      "group": "silicon",
+      "class": "implementation",
+      "evidence_file": "fpga/reports/ecp5_25f.txt",
+      "deps": [
+        "I2"
+      ],
+      "covers": [
+        "rtl-sketch/synth_top.v",
+        "fpga/Makefile"
+      ]
+    }
   }
 }

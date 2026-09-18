@@ -23,8 +23,21 @@ jobs:
       # modal_dp exc hazard, and red on four repaired drum circuits. --check
       # fails if README's diagram is out of date, or if any node is STALE:
       # a green claim whose evidence has gone out from under it.
+      # The roadmap is compiled from evidence that is ACTUALLY EXECUTED here,
+      # not from the presence of a file. An earlier version of this script
+      # called a node green when its test file existed -- so a suite with every
+      # assertion deleted would have rendered green, which is the exact failure
+      # the tool exists to prevent.
+      #
+      # --run executes each fast node's suite and records pass/fail with the
+      # commit. --check then fails if README disagrees, if a node is RED, or if
+      # a node is STALE -- passed once, but a file it `covers` has changed
+      # since, so the result no longer describes this code. Slow nodes
+      # (iverilog, hours) carry their status from the nightly job.
       - name: the roadmap matches the evidence
-        run: python tools/compile_dag.py --check
+        run: |
+          python tools/compile_dag.py --run
+          python tools/compile_dag.py --check
 
       # First on purpose: every node above F1 measures with these estimators,
       # so a suite built on untested analysers measures the analysers.

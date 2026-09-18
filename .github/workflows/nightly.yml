@@ -40,6 +40,15 @@ jobs:
       - name: I4 -- the whole chip at its pins
         run: python rtl-sketch/verify_synth_top.py
 
+      # The slow nodes the per-push job cannot run. This writes their pass/fail
+      # into docs/dag-results.json with the commit, which is what lets the
+      # README show an honest status for evidence that takes hours.
+      - name: record the slow evidence for the roadmap
+        run: python tools/compile_dag.py --run --slow
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: dag-results, path: docs/dag-results.json, if-no-files-found: ignore }
+
   # --------------------------------------------------------------- controls
   # A nightly run whose injected defects do not fire is a BROKEN nightly run,
   # not a quiet one. Every control here has been seen failing locally; if one

@@ -12,10 +12,12 @@ See docs/failure-modes.md, mechanism 4.
 
 Status is derived, never asserted:
 
-  STAMPED   an annotated git tag exists, and its commit is an ancestor of HEAD
-  GREEN     the evidence exists (a suite collects, a verifier is present,
-            a report file is committed) but no tag has been cut
-  STALE     the evidence exists but predates a file it covers
+  STAMPED   the evidence PASSED, and an annotated tag exists whose commit is
+            an ancestor of HEAD
+  GREEN     the evidence RAN AND PASSED at a commit in this history
+  STALE     the evidence passed, but a file the node `covers` has changed
+            since -- the result no longer describes this code
+  RED       the evidence ran and FAILED
   BLOCKED   the node declares what it is waiting for
   TODO      no evidence yet; an issue number if one is filed
 
@@ -28,6 +30,7 @@ import argparse, json, os, pathlib, re, subprocess, sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DAG = ROOT / "docs" / "dag.json"
 README = ROOT / "README.md"
+RESULTS = ROOT / "docs" / "dag-results.json"
 BEGIN, END = "<!-- DAG:BEGIN -->", "<!-- DAG:END -->"
 
 GROUPS = {"foundation": "Foundation", "minimoog": "Minimoog voice",
@@ -66,6 +69,54 @@ def mtime_commit(path: str) -> int:
     return int(out) if out.isdigit() else 0
 
 
+def run_evidence(nid: str, n: dict) -> tuple[bool, str]:
+    """Actually execute this node's evidence. Returns (passed, detail).
+
+    This is the difference between a status and a claim. An earlier version of
+    this script called a node GREEN when its test FILE EXISTED -- so a suite
+    with every assertion deleted would have rendered green, which is precisely
+    the failure this tool was written to prevent.
+    """
+    if "suite" in n:
+        r = subprocess.run([sys.executable, "-m", "pytest", n["suite"], "-q",
+                            "--no-header", "-x"], cwd=ROOT, capture_output=True,
+                           text=True, timeout=1800)
+        last = [l for l in r.stdout.strip().splitlines() if l.strip()]
+        return r.returncode == 0, (last[-1][:90] if last else "no output")
+    if "verifier" in n:
+        r = subprocess.run([sys.executable, n["verifier"]], cwd=ROOT,
+                           capture_output=True, text=True, timeout=7200)
+        last = [l for l in r.stdout.strip().splitlines() if l.strip()]
+        return r.returncode == 0, (last[-1][:90] if last else "no output")
+    if "evidence_file" in n:
+        return (ROOT / n["evidence_file"]).exists(), n["evidence_file"]
+    if "tool" in n:
+        r = subprocess.run([sys.executable, n["tool"]], cwd=ROOT,
+                           capture_output=True, text=True, timeout=3600)
+        return r.returncode == 0, f"{n['tool']} exit {r.returncode}"
+    return False, "no evidence declared"
+
+
+def load_results() -> dict:
+    if RESULTS.exists():
+        try:
+            return json.loads(RESULTS.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def stale_against(n: dict, at_sha: str) -> str | None:
+    """Has anything this node covers changed since the evidence was recorded?"""
+    if not at_sha:
+        return None
+    for f in n.get("covers", []):
+        newer = git("log", "--format=%H", f"{at_sha}..HEAD", "--", f)
+        if newer.strip():
+            return f
+    return None
+
+
 def classify(nid: str, n: dict) -> tuple[str, str]:
     """Return (status, note). Derived from evidence; never taken on trust."""
     if n.get("blocked"):
@@ -81,24 +132,25 @@ def classify(nid: str, n: dict) -> tuple[str, str]:
     if missing:
         return "TODO", "missing: " + ", ".join(missing)
 
-    # STALE: the evidence predates something it is supposed to cover. For a
-    # committed report this is real; for a suite it is a weaker signal, so we
-    # only apply it to evidence_file, where the file IS the result.
-    if "evidence_file" in n:
-        ev = mtime_commit(n["evidence_file"])
-        for dep_path in n.get("covers", []):
-            if mtime_commit(dep_path) > ev:
-                return "STALE", f"{dep_path} changed after the evidence was recorded"
+    rec = load_results().get(nid)
+    if not rec:
+        return "TODO", "never run -- `tools/compile_dag.py --run`"
+    if not rec.get("passed"):
+        return "RED", rec.get("detail", "failed")
+
+    changed = stale_against(n, rec.get("sha", ""))
+    if changed:
+        return "STALE", f"{changed} changed since this was last run"
 
     if tag_is_ancestor(n.get("tag", "")):
         return "STAMPED", n["tag"]
-    return "GREEN", ", ".join(sources)
+    return "GREEN", rec.get("detail", "passed")
 
 
 def mermaid(nodes: dict, status: dict) -> str:
     fill = {"STAMPED": "#0E6B5E,color:#fff", "GREEN": "#3f8f5f,color:#fff",
             "STALE": "#9A6510,color:#fff", "BLOCKED": "#8E2438,color:#fff",
-            "TODO": "#5a6468,color:#fff"}
+            "RED": "#8E2438,color:#fff", "TODO": "#5a6468,color:#fff"}
     out = ["```mermaid", "graph LR"]
     for g, label in GROUPS.items():
         ids = [i for i, n in nodes.items() if n.get("group") == g]
@@ -108,7 +160,7 @@ def mermaid(nodes: dict, status: dict) -> str:
         for i in ids:
             st = status[i][0]
             mark = {"STAMPED": "✓", "GREEN": "·", "STALE": "!",
-                    "BLOCKED": "✗", "TODO": "○"}[st]
+                    "BLOCKED": "✗", "RED": "✗", "TODO": "○"}[st]
             out.append(f'    {i}["{mark} {nodes[i]["name"]}"]')
         out.append("  end")
     for i, n in nodes.items():
@@ -136,9 +188,28 @@ def main() -> int:
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if any node is STALE, or if README is out of date")
     ap.add_argument("--print", action="store_true", help="write to stdout, not README")
+    ap.add_argument("--run", action="store_true",
+                    help="execute each node's evidence and record the result")
+    ap.add_argument("--slow", action="store_true",
+                    help="with --run, also execute nodes marked slow (iverilog; hours)")
     args = ap.parse_args()
 
     nodes = json.loads(DAG.read_text())["nodes"]
+
+    if args.run:
+        sha = git("rev-parse", "HEAD")
+        res = load_results()
+        for i, n in nodes.items():
+            if n.get("blocked") or not any(k in n for k in
+                                           ("suite", "verifier", "tool", "evidence_file")):
+                continue
+            if n.get("slow") and not args.slow:
+                continue                       # nightly runs these
+            ok, detail = run_evidence(i, n)
+            res[i] = {"passed": ok, "sha": sha, "detail": detail}
+            print(f"  {'PASS' if ok else 'FAIL'}  {i:3s} {detail}", file=sys.stderr)
+        RESULTS.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n")
+
     status = {i: classify(i, n) for i, n in nodes.items()}
 
     # The fidelity audit: a subsystem whose only evidence is against our own
@@ -174,9 +245,9 @@ def main() -> int:
             return 1
         README.write_text(new)
 
-    stale = [i for i in nodes if status[i][0] == "STALE"]
+    stale = [i for i in nodes if status[i][0] in ("STALE", "RED")]
     for i in stale:
-        print(f"STALE: {i} -- {status[i][1]}", file=sys.stderr)
+        print(f"{status[i][0]}: {i} -- {status[i][1]}", file=sys.stderr)
     for w in warn:
         print(f"note: {w}", file=sys.stderr)
     return 1 if (args.check and stale) else 0
