@@ -187,9 +187,17 @@ module voice_dp #(
     wire [16:0] s   = 17'h10000 - {1'b0, u};                      // 1..65536
     wire [15:0] c   = mr[32:17];                                  // (s * s) >> 17, 0..32768
     wire        last_win = (win == 2'd3) || (win == 2'd1 && !two_edge);
-    // the oscillator sample (6.6.4) and the mixer term (7)
+    // the oscillator sample (6.6.4) and the mixer term (7). The square and
+    // pulse step UP at the wrap where the saw steps DOWN, so their correction
+    // at p = 0 has the OPPOSITE sign to the saw's; the second edge, at the
+    // duty point, steps down and takes -c at the shifted phase.
+`ifdef INJECT_BUG_VOICE_SQUARE_SIGN
+    wire signed [17:0] osc_two = $signed({{2{naive[15]}}, naive}) - c_pp + c_ps;   // NEGATIVE CONTROL: the saw's
+`else                                                                                //   sign on the square: ~5 dB
+    wire signed [17:0] osc_two = $signed({{2{naive[15]}}, naive}) + c_pp - c_ps;   //   WORSE than no correction
+`endif
     wire signed [17:0] osc_raw = is_saw ? ($signed({{2{naive[15]}}, naive}) - c_pp)
-                               : two_edge ? ($signed({{2{naive[15]}}, naive}) + c_pp - c_ps)
+                               : two_edge ? osc_two
                                : $signed({{2{naive[15]}}, naive});
     wire signed [15:0] osc = (osc_raw > 18'sd32767) ? 16'sd32767 : (osc_raw < -18'sd32768) ? -16'sd32768 : osc_raw[15:0];
 
@@ -209,7 +217,11 @@ module voice_dp #(
                     default: env_update = {seg, su};
                 endcase
             end else begin
+`ifdef INJECT_BUG_VOICE_ENV_FLOOR
+                step = dec;                                   // NEGATIVE CONTROL: no max(1, .): below
+`else                                                         //   2^16 / rate the note never ends (8.3)
                 step = (dec == 24'd0) ? 24'd1 : dec;
+`endif
                 diff = $signed({2'b00, level}) - $signed({2'b00, step});
                 env_update = {seg, diff[25] ? 24'd0 : diff[23:0]};
             end
@@ -237,7 +249,11 @@ module voice_dp #(
     wire [31:0] tgt   = {inc_tgt[kk], 8'b0};
     wire [55:0] Pfull = {mr[39:0], 16'b0} + {16'b0, pacc};       // inc_acc * glide, exact
     wire [31:0] d     = Pfull[55:24];
+`ifdef INJECT_BUG_VOICE_GLIDE_FLOOR
+    wire [31:0] dmax  = d;                                        // NEGATIVE CONTROL: no max(1, .): a small
+`else                                                             //   increment times a small rate never moves
     wire [31:0] dmax  = (d == 32'd0) ? 32'd1 : d;
+`endif
     wire signed [33:0] acc_up = $signed({2'b0, inc_acc[kk]}) + $signed({2'b0, dmax});
     wire signed [33:0] acc_dn = $signed({2'b0, inc_acc[kk]}) - $signed({2'b0, dmax});
 
@@ -337,10 +353,19 @@ module voice_dp #(
                     state <= S_KEFF0;
                 end
                 S_KEFF0: begin ma <= {8'b0, k}; mb <= {5'b0, kc_n}; state <= S_KEFF1; end
+`ifdef INJECT_BUG_VOICE_KEFF
+                S_KEFF1: begin k_eff <= k; state <= S_LGO; end                // NEGATIVE CONTROL: no compensation
+`else                                                                         //   (rev 1): dies above ~3 kHz
                 S_KEFF1: begin k_eff <= mr[32] ? 17'h1FFFF : mr[31:15]; state <= S_LGO; end
+`endif
                 // ---- 5. the voice's ladder context starts ----
                 S_LGO: begin
-                    mixed <= sat16m(msh); lad_sv <= 1'b1; lad_ch <= 1'b0; y_seen <= 1'b0; d_seen <= 1'b0;
+`ifdef INJECT_BUG_VOICE_MIX_SAT
+                    mixed <= msh[15:0];                                       // NEGATIVE CONTROL: the mixer wraps
+`else
+                    mixed <= sat16m(msh);
+`endif
+                    lad_sv <= 1'b1; lad_ch <= 1'b0; y_seen <= 1'b0; d_seen <= 1'b0;
                     ma <= {1'b0, level_a}; mb <= {5'b0, rate_a};
                     state <= S_EA1;
                 end
@@ -402,7 +427,12 @@ module voice_dp #(
                 end
                 S_OUT1: begin out_d <= mr[34:15]; state <= S_OUT2; end
                 default: begin                                                // S_OUT2
-                    sample <= sat16(osum); sample_valid <= 1'b1; state <= S_IDLE;
+`ifdef INJECT_BUG_VOICE_OUT_SAT
+                    sample <= osum[15:0];                                     // NEGATIVE CONTROL: no rail
+`else
+                    sample <= sat16(osum);
+`endif
+                    sample_valid <= 1'b1; state <= S_IDLE;
                 end
             endcase
 
@@ -422,9 +452,17 @@ module voice_dp #(
                 7'h14: a_inc_f <= wr_data;  7'h15: d_dec_f <= wr_data;  7'h16: sus_f <= wr_data;  7'h17: rate_f <= wr_data[15:0];
                 7'h18: cut_lo <= wr_data[15:0];  7'h19: cut_hi <= wr_data[15:0];  7'h1A: track_hz <= wr_data[15:0];
                 7'h1C: k <= wr_data[16:0];  7'h1D: gain <= wr_data[19:0];  7'h1E: ogain <= wr_data[19:0];
-                7'h20: begin gate <= 1'b1; seg_a <= 2'd0; seg_f <= 2'd0; end   // GATE_ON
+                7'h20: begin gate <= 1'b1; seg_a <= 2'd0; seg_f <= 2'd0;       // GATE_ON: ATTACK from the
+`ifdef INJECT_BUG_VOICE_TRIG_RESET                                             //   current level (8.5)
+                       level_a <= 24'd0; level_f <= 24'd0;                     // NEGATIVE CONTROL: the reset-to-
+`endif                                                                         //   zero envelope DR 0003 rejects
+                end
                 7'h21: gate <= 1'b0;                                           // GATE_OFF
-                7'h22: begin seg_a <= 2'd0; seg_f <= 2'd0; end                 // TRIG
+                7'h22: begin seg_a <= 2'd0; seg_f <= 2'd0;                     // TRIG
+`ifdef INJECT_BUG_VOICE_TRIG_RESET
+                       level_a <= 24'd0; level_f <= 24'd0;
+`endif
+                end
                 7'h28: dcut <= wr_data[15:0];  7'h29: dk <= wr_data[16:0];
                 7'h2A: dgain <= wr_data[19:0]; 7'h2B: dogain <= wr_data[19:0];
                 default: ;                                                     // RESET is rst_n; NOP, reserved, drums

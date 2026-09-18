@@ -36,7 +36,7 @@ mapping.
 |---|---:|---:|---:|---|
 | ladder filter, time-shared, one context | **24** | 5,711 | 0 | RTL bit-exact against `model/fixed.py`, in simulation; 19-bit output (DR 0005); two contexts (the voice's and the drum filter's) bit-exact on every channel |
 | modal resonator, 4 modes | **15** | 7,017 | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
-| the whole voice around the ladder (`rtl-sketch/voice_dp.v`) | **66 steady, 150 worst** | 20,633 (7t-mapped) | 0 | RTL bit-exact against `model/voice_fx.py`, 43,200 frames; the cycles include the ladder and, in the worst frame, three reciprocals and the drum filter |
+| the whole voice around the ladder (`rtl-sketch/voice_dp.v`) | **54 best, 64 mean, 136 worst** from `go` (drum filter off; +24 with it on, +8 for `go` at cycle 8: 168 of 256 worst) | 20,522 (7t-mapped) | 0 | RTL bit-exact against `model/voice_fx.py`: 255,060 frames, every sample, every tap of contract 16.4 and the final state; eight injected defects each caught; the worst frame is the all-maximum image (three reciprocals, both PolyBLEP windows on every edge of every oscillator) |
 | the chip (`rtl-sketch/synth_top.v`: link, voice, modal bank, placeholder drum sources, I2S) | **150 of 256 worst** | 29,812 (7t-mapped) | 0 | elaborates, synthesises, runs through its pins; ARCHITECTURE.md |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
 | existing 4-voice core (sibling repo) | not measured | 19,049 | 0 | verified, in production |

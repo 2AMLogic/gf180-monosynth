@@ -44,6 +44,10 @@ q --tag mul_28x26_booth_7t --top mul --booth --chparam A=28 --chparam B=26 --chp
 q --tag mul_24x20_booth_7t --top mul --booth --chparam A=24 --chparam B=20 --chparam BSIGNED=0 $B/mul.v
 q --tag drumseq_7t --top drum_src_seq $R/drum_src_seq.v
 q --tag drumseq_7t_booth --top drum_src_seq --booth $R/drum_src_seq.v
+# the voice alone (voice_dp with recip_div and the two-context ladder inside), plain and Booth
+V="$R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v"
+q --tag voice_7t --top voice_dp $V
+q --tag voice_7t_booth --top voice_dp --booth $V
 # the chip (docs/ARCHITECTURE.md): the top level with the verified ladder and modal bank, the voice, the link, I2S
 T="$R/synth_top.v $R/spi_ctl.v $R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v $R/i2s_tx.v $R/modal_dp_rom.v $R/modal_coef_rom_p8.v"
 q --tag top_7t --top synth_top $T
