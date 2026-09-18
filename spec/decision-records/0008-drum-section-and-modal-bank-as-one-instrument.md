@@ -1,4 +1,4 @@
-# 0007: The drum section — a TR-808 built on the modal bank
+# 0008: The drum section — a TR-808 built on the modal bank
 
 - **Status**: proposed
 - **Date**: 2026-09-18
@@ -121,7 +121,7 @@ The drum section and the modal bank are one instrument, contract section 15:
 ## Consequences
 
 - Contract 12, 14, 15, 16, 17 and 18 change and Appendices F and G are
-  added; revision 4. `modal_dp.v`'s interface changes (buses, the
+  added; revision 5. `modal_dp.v`'s interface changes (buses, the
   accumulate port, `tap_y1`, `MODES`/`NUMS`/`OW`/`EW` parameters);
   `modal_dp_rom.v` and `modal_dp_regs.v` keep the rev-3 interface and
   sizing and are area variants only. `drum_src_seq.v` is deleted.

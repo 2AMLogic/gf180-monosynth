@@ -1,0 +1,5 @@
+klt 0.5.0+g604c4fb8a1ce
+synthesize: 100 s
+dangling all-x assigns removed: 2
+tie cells inserted for constant assigns: 3
+signed qualifiers left: 0

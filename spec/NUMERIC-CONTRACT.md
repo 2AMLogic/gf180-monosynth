@@ -1,16 +1,16 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 4 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 5 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
 saturating mixer, Huovilainen's nonlinear ladder with a resonance-compensation
-ROM, two integer ADSRs and a VCA — and, since revision 4, the drum section: a
+ROM, two integer ADSRs and a VCA — and, since revision 5, the drum section: a
 TR-808-shaped set of eight stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 4,
+through the two-key process this fleet uses; until then it is revision 5,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -56,7 +56,7 @@ discontinuous shapes, are mixed with saturation, filtered by a four-pole
 nonlinear ladder whose cutoff is driven by a second envelope plus keyboard
 tracking and whose resonance is compensated by cutoff, scaled by an amplitude
 envelope, then by a host volume. A host writes the voice's control registers
-over a serial link (the physical layer is OPEN, section 5.4); the host owns
+over a serial link (SPI register writes, section 5.4, DR 0007); the host owns
 all musical time. One sample leaves per frame, as I2S.
 
 ```
@@ -112,7 +112,7 @@ envelope.
 | Volume | `vol`, unsigned Q0.15, 16 bits; the reference host writes 14746 = 0.45 (`VOL_REF`) — DR 0005 |
 | Tuning | A4 (MIDI note 69) = 440 Hz |
 | Glide | `glide`, unsigned Q0.24, 24 bits, the ratio per frame minus 1; increment accumulator Q24.8 (`GLIDE_BITS`, `INC_FRAC`); the reference host writes 2692 = 90 ms per octave (`GLIDE_REF_S`) — DR 0004 |
-| Drum stops / accents | 8 stops, edge-triggered; accent Q0.15, 16 bits per stop (15.2) — DR 0007 |
+| Drum stops / accents | 8 stops, edge-triggered; accent Q0.15, 16 bits per stop (15.2) — DR 0008 |
 | Drum envelopes | 12; level 24-bit unsigned Q0.24, rate Q0.16, hold 8 bits, bursts 2, period 9, frame counter 11 (15.3) |
 | Drum paths | 16; source 5 bits, two envelope indices, nonlinearity 2 bits, attenuation 3, destination 4 (15.5) |
 | Drum sources | a 31-bit LFSR (16 bits per frame), six 24-bit square-wave phase accumulators, a pulse (15.4) |
@@ -222,18 +222,22 @@ bank, one clock overlapped). Nothing in the sample sequence depends on the
 clock frequency; an implementation that needs fewer cycles MAY be clocked
 slower. *Informative:* revision 3 adds six multiplies per frame to the front
 end — three glide slews, the kc interpolation, `k · kc` and the VCA — all on
-a shared multiplier; the output stage of 12 adds two more.
+a shared multiplier; the output stage of 12 adds two more. The whole voice as
+sequenced in `rtl-sketch/voice_dp.v` (one multiplier, one divider, the ladder
+inside) measures 150 cycles in its worst frame — three reciprocals, three
+squares, the drum filter of `docs/ARCHITECTURE.md` on — and 66 in a steady one
+(`tb_synth_top.v`); that figure is the chip with the *placeholder* drum
+sources, not the drum section of 15 (17.20).
 
 ---
 
 ## 5. Control interface
 
 This revision specifies the **semantics** of control — which registers exist,
-what each does, and when a write takes effect — and leaves the physical layer
-OPEN (5.4). The product direction (DR 0002) is a host microcontroller driving
-this block over a serial link; whether that link is a UART event stream as in
-gf180-polysynth's contract or the SPI time-slice packets proposed in
-gf180-polysynth issue 7 changes the framing, not anything below.
+what each does, and when a write takes effect — and, since revision 4, the
+physical layer (5.4, DR 0007): an SPI slave carrying one register write per
+32-bit transaction, applied at the next frame tick. The product's host (DR
+0002) is a microcontroller translating USB-MIDI into those writes.
 
 ### 5.1 The control image
 
@@ -246,14 +250,14 @@ product the host's job (5.5).
 | Register | Width | Per | Meaning | Model |
 |---|---:|---|---|---|
 | `inc_tgt[k]` | 24 u | osc | phase-increment target; `inc[k] = inc_acc[k] >> 8` is what the phase accumulator adds (6.7) | `OscFx.inc_tgt` |
-| `wave[k]` | enum | osc | one of saw, square, pulse25, tri, sine (encoding OPEN, 5.2) | `waves[k]` |
+| `wave[k]` | 3 | osc | one of saw, square, pulse25, tri, sine (encoding in 5.2) | `waves[k]` |
 | `w[k]` | 16 u | osc | mixer weight, Q0.15 | `weights[k]` |
 | `a_inc`, `d_dec`, `sus` | 24 u | env ×2 | attack increment, decay decrement, sustain level, Q0.24 | `AdsrFx.a_inc`, `.d_dec`, `.sus` |
 | `rate` | 16 u | env ×2 | release rate, Q0.16 | `AdsrFx.rate` |
 | `gate` | 1 | voice | envelope gate (both envelopes) | `VoiceFx.gate` |
 | `glide` | 24 u | voice | glide rate, Q0.24, the ratio per frame minus 1; 0 = off (6.7) | `VoiceFx.glide` |
 | `vol` | 16 u | voice | output volume, Q0.15 (12) | `VoiceFx.vol` |
-| `cut_lo`, `cut_hi`, `track_hz` | 16 u *(proposed)* | voice | cutoff floor, ceiling and keyboard-tracking offset, integer Hz | `cut_lo`, `cut_hi`, `track_hz` |
+| `cut_lo`, `cut_hi`, `track_hz` | 16 u | voice | cutoff floor, ceiling and keyboard-tracking offset, integer Hz | `cut_lo`, `cut_hi`, `track_hz` |
 | `k` | 17 u | voice | ladder resonance, 4·res in Q3.14, before the compensation of 10.2 | `LadderFx.regs`, `VoiceFx.k_reg` |
 | `gain` | 20 u | voice | ladder input gain, drive·2.6 in Q4.16 | same |
 | `ogain` | 20 u | voice | ladder output gain, (1+2·res)/2.6 in Q4.16 | same |
@@ -270,13 +274,13 @@ can hold — `test_every_legal_register_value_runs` walks the extremes of each
 through the per-sample path — so a legal write never makes the model raise
 or misbehave.
 
-The widths of `cut_lo`, `cut_hi` and `track_hz` are **proposed**: 16 bits
-unsigned is derived from the largest value any audition patch produces
-(`track_hz` = 45 158 at MIDI note 127 with `track` = 0.9; `cut_hi` = 7000),
-from full keyboard tracking (`track` = 1.0 at note 127 gives 50 175) and
-from the clamp in section 10, past which larger values change nothing. The
-model clamps to 16 bits; whether 16 is the width is still 17.10. The sum in
-section 10 MUST be computed exactly whatever the width. `k`, `gain` and
+The widths of `cut_lo`, `cut_hi` and `track_hz` are 16 bits unsigned (DR
+0007, closing 17.10): derived from the largest value any audition patch
+produces (`track_hz` = 45 158 at MIDI note 127 with `track` = 0.9; `cut_hi`
+= 7000), from full keyboard tracking (`track` = 1.0 at note 127 gives
+50 175) and from the clamp in section 10, past which larger values change
+nothing; and fixed by the write format, which carries 16 bits for them. The
+sum in section 10 MUST be computed exactly (19 bits signed) before the clamp. `k`, `gain` and
 `ogain` are the RTL's port widths, and the RTL is bit-exact against the model
 within them; the model clamps to them (`LadderFx.regs`), the ladder runs on
 `k_eff`, which 10.2 saturates to `2^17 − 1`, and at every extreme of all three
@@ -305,11 +309,19 @@ and `seg` per envelope (section 8.1), the ladder's `y[0..3]`, `w[0..3]`,
 | GATE_OFF | `gate ← 0`. Both envelopes take the release branch of 8.3 from wherever their level is. |
 | RESET | every register of section 14 ← its reset value. |
 
-Whether these are individual commands (UART) or fields of one packet (SPI
-time-slice) is the physical layer's business; a packet carrying many fields is
-one atomic write. **The encoding of `wave[k]` and of every opcode or field is
-OPEN**; the model names shapes by string. A proposed encoding is in section
-17 for the record and carries no force.
+Each of these is one 32-bit SPI transaction (5.4): a flag bit, a 7-bit
+address and 24 data bits, `{F, A[6:0], D[23:0]}` MSB first. The addresses
+(DR 0007 section 3): `INC_TGT[k]` 0x00–0x02 with `F` = jump; `WAVE[k]`
+0x04–0x06; `W[k]` 0x08–0x0A; `GLIDE` 0x0C; `VOL` 0x0D; amp envelope
+`a_inc, d_dec, sus, rate` 0x10–0x13 and filter envelope 0x14–0x17;
+`CUT_LO, CUT_HI, TRACK_HZ` 0x18–0x1A; `K, GAIN, OGAIN` 0x1C–0x1E; `GATE_ON`
+0x20, `GATE_OFF` 0x21, `TRIG` 0x22, `RESET` 0x23 (data ignored); `NOP` 0x3F.
+A register narrower than 24 bits takes the low bits of `D`; the rest MUST be
+zero. **`wave[k]`: 0 saw, 1 square, 2 pulse25, 3 tri, 4 sine, and 5–7 also
+sine** (bit 2 set selects sine, so every 3-bit value is defined). The chip
+adds registers outside this voice — the drum bus level, the drum routing
+and the drum filter, 0x0E, 0x0F, 0x28–0x2B, and the drum section's 0x40–0x7F
+— which `docs/ARCHITECTURE.md` and the drum section's own record define.
 
 Any register value is legal; nothing is rejected for range. Consequences of
 out-of-range values follow from the formulas (an `inc` ≥ 2^23 is above
@@ -329,21 +341,42 @@ the reference host `KeyHost` (5.6) and plays them through one voice; it no
 longer sums overlapping notes. Reference sequences (section 16) are sequences
 of writes.
 
-### 5.4 Physical layer — OPEN
+### 5.4 Physical layer — DR 0007
 
-Not specified here. Two candidates are on the table:
+**SPI, register writes, applied at the frame tick.** The full record, with
+its reasons against the UART event stream and the SPI time-slice packets, is
+`spec/decision-records/0007-control-interface-spi-register-writes.md`; the
+normative content:
 
-- a UART byte protocol as in gf180-polysynth `spec/NUMERIC-CONTRACT.md`
-  section 10 (115 200 8N1, status/data bytes, commands applied at the next
-  frame boundary), which DR 0002 notes is a fit for a human-facing event
-  stream but less so for an MCU bridge;
-- SPI time-slice packets, gf180-polysynth issue 7: the host sends one packet
-  per slice of N frames carrying the whole control image, with a repeat count;
-  N = 256 frames (5.33 ms) is argued for there on live-timing grounds.
+- SPI slave, mode 0 (MOSI sampled on SCK's rising edge, MISO changes on the
+  falling edge), MSB first; pins `SCK`, `MOSI`, `CS_N`, `MISO`. The receiver
+  samples the pins in the core clock domain, so SCK MUST be ≤ 2.0 MHz, and
+  `CS_N` MUST be high for ≥ 4 core cycles between transactions.
+- One transaction is **exactly 32 bits** between a falling and a rising edge
+  of `CS_N` and is one write of 5.2; a transaction of any other length is
+  discarded and applies nothing.
+- **The unit of 4.3 is the transaction, and its acceptance cycle is the core
+  cycle in which the synchronised rising edge of `CS_N` is registered with a
+  bit count of 32.** Accepted writes enter a queue of depth 4 in acceptance
+  order; at each tick the queue's occupancy is snapshotted and that many
+  writes are applied, one per cycle, before any datapath block reads a
+  control register. At the specified SCK at most two writes can complete in
+  a frame, so the queue cannot overflow; a host outside the specification
+  that overflows it loses the write and sets a sticky status flag.
+- During every transaction the chip returns a 32-bit status word on `MISO`:
+  `{0x4D, version 0x1, flags[3:0], frame[15:0]}`, loaded at the falling edge
+  of `CS_N` — the flags are `overrun`, `queue non-empty`, `overflow` and
+  `fresh` (no write since hardware reset); `frame` is the 16-bit frame
+  counter of 4.1, wrapping.
+- RESET (0x23) resets the registers of section 14 and leaves the link and
+  the queue alone, so writes queued behind it in the same frame still apply,
+  in order, after it.
 
-Whichever is chosen must satisfy 4.3 exactly as written: the frame in which a
-write completes is defined by the acceptance cycle of its last unit, and it
-applies at the next tick. A decision record will extend this section.
+*Informative:* pin to acceptance is three core cycles; a `CS_N` edge within
+about one core cycle of a tick may be accepted in either frame, and the
+contract is satisfied either way because the frame is defined by the
+acceptance cycle. `rtl-sketch/spi_ctl.v` implements this section and
+`rtl-sketch/tb_synth_top.v` drives it through the pins.
 
 ### 5.5 Host-side conversions (informative)
 
@@ -1011,7 +1044,7 @@ sample = sat16( (v · vol + dmix · dvol + body · bvol) >> 15 )
 
 With `dvol = bvol = 0` — or with no drum section — this is rev 3's
 `sat16((v · vol) >> 15)` bit for bit, and every rev-3 reference sequence is
-unchanged. Rev 4 adds the two drum terms (DR 0007) so that the two drum buses
+unchanged. Rev 5 adds the two drum terms (DR 0008) so that the two drum buses
 reach the rail at their full width: a bus clipped to 16 bits before the
 master gains could not be recovered by lowering them.
 
@@ -1027,7 +1060,7 @@ policy Sequential states for the Prophet-6 ("rather than limit the outputs
 instrument is the ladder's `tanh` in every stage, driven by `gain` (11.3,
 11.4; DR 0001); the mixer's `sat16` is the hard rail of the Q1.15 word, which
 weights the host normalises never reach (7); and the drum section's swing VCA
-is the same `tanh` table on an asymmetric drive (15.5; DR 0007), the 808's
+is the same `tanh` table on an asymmetric drive (15.5; DR 0008), the 808's
 own nonlinearity. The signal path has exactly these clamps, in signal order,
 and no others:
 
@@ -1050,7 +1083,15 @@ the drum section's path values, its two buses or a mode's excitation sum,
 which are carried exactly at the widths of 15.5. The drum section adds no
 clip of its own to the path of a signal: the tap rail (7) and the state
 word (8) are reachable by register values only, and the reference kit is
-tested not to reach them (`test_bank_headroom_zero_and_nineteen_bits_hold_the_kits_loudest_hit`). In rev 1
+tested not to reach them (`test_bank_headroom_zero_and_nineteen_bits_hold_the_kits_loudest_hit`).
+
+*Informative:* `rtl-sketch/synth_top.v` does **not** yet implement the output
+stage above. It carries the placeholder drum section of
+`docs/ARCHITECTURE.md` section 4 — one 19-bit bus, two terms,
+`sample = sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`, two shifts and two
+rails rather than the one exact sum of 12 — and with `dvol = 0`, or a silent
+drum section, that is this section's sample bit for bit, which is what
+`rtl-sketch/verify_voice.py` checks. Closing that gap is 17.20. In rev 1
 the ladder's output was 16 bits and clamp 5 was where four of the eight
 audition patches clipped; with the width, the VCA after the filter and the
 volume, the float-versus-fixed gap on `growl-bass` is −32 dB instead of
@@ -1100,7 +1141,7 @@ is no other observable state.
 | Register | Reset | Notes |
 |---|---|---|
 | `phase[k]`, `inc_tgt[k]`, `inc_acc[k]`, `e[k]`, `r[k]` | 0 | `inc = 0` gives `c = 0` by 6.6.3 and `(e, r) = (0, 0)` by 6.6.1; `(e, r)` are recomputed at the first change of `inc` |
-| `wave[k]`, `w[k]` | 0 | encoding of `wave` OPEN |
+| `wave[k]`, `w[k]` | 0 | `wave` = 0 is saw (5.2) |
 | `level`, `seg` (both envelopes) | 0, ATTACK | |
 | `gate` | 0 | |
 | `glide` | 0 | off: SET_INC takes effect at once |
@@ -1114,20 +1155,21 @@ is no other observable state.
 | LFSR state | 1 | 15.4: frame 0's noise word is 1 |
 | modal bank `y1[m]`, `y2[m]`, `exc[m]`, `h1[m]`, `h2[m]` | 0 | `ModalFx.reset()` |
 | output sample register | 0 | |
-| control parser / queue | idle, empty | |
+| control parser / queue | idle, empty | on hardware reset only: the RESET write leaves the link and its queue alone (5.4) | |
 
 Consequences: from reset the voice outputs 0 every frame until programmed —
 the envelope holds at 0 by the release branch, `vol` is 0, and a zero-state
 ladder with zero input stays at zero. All-zero control is the model's reset
 of *state*; the model has no reset values for *control* because `note_on`
-always writes the whole image. **Non-zero power-on defaults (so that a
-GATE_ON alone sounds, as in gf180-polysynth section 9) are OPEN (17.8)** and
-belong with the physical-layer decision, since an SPI time-slice host rewrites
-the whole image every slice and needs none.
+always writes the whole image. **The power-on defaults are these zeros (DR
+0007 section 6, closing 17.8): a bare GATE_ON is silent.** The host is a
+microcontroller with the patch in flash; it writes the image at boot and
+whenever the status word's `fresh` flag reads 1, and non-zero defaults would
+be a second, silent copy of a default patch in metal.
 
 ---
 
-## 15. The drum section and the modal resonator bank (DR 0007)
+## 15. The drum section and the modal resonator bank (DR 0008)
 
 `model/drums_fx.py` (`DrumsFx`) and `model/modal_fixed.py` (`ModalFx`) are
 the specification of this section; `rtl-sketch/drum_kit.v` (`drum_dp.v` +
@@ -1476,8 +1518,19 @@ continuous voice by `render_mono_fx`, whose write lists (from `KeyHost`,
 5.6) are the sequences; for the drum section, the write stream of
 `verify_drums.stimulus`. A bench MUST also be shown to fail: the injected defects of
 `rtl-sketch/ladder_dp.v` (`INJECT_BUG_LADDER_FB`, `_SAT`, `_TANH_CLAMP`) are
-the pattern; `modal_dp.v` carries `_SHIFT`, `_SAT`, `_PREEXC`, `_NUM_HOLD`,
-`_EXC_NOCLEAR` and `drum_dp.v` `_ENV_FLOOR` (no `max(1, ·)`), `_LEVEL_TRIG`
+the pattern, and the voice's are `INJECT_BUG_VOICE_SQUARE_SIGN` (6.6.4),
+`_ENV_FLOOR` (8.3), `_KEFF` (10.2), `_MIX_SAT` (7), `_GLIDE_FLOOR` (6.7),
+`_RECIP_CLAMP` (6.6.1), `_TRIG_RESET` (8.5) and `_OUT_SAT` (12), each run on
+the scenario of `rtl-sketch/verify_voice.py` that reaches it. A voice bench
+MUST compare the taps of item 4 as well as the sample and MUST report an
+undefined (X) output as a mismatch, never a pass: a sample-only comparison
+is blind while the tail is quiet (with the release floor of 8.3 removed the
+first tap to differ precedes the first sample to differ by 36 frames), and
+`rtl-sketch/stubs/voice_dp_stub.v` — the ports with every output X — is the
+run that shows the bench can tell X from wrong from right.
+
+The drum section's are the same pattern: `modal_dp.v` carries `_SHIFT`,
+`_SAT`, `_PREEXC`, `_NUM_HOLD`, `_EXC_NOCLEAR`, and `drum_dp.v` `_ENV_FLOOR` (no `max(1, ·)`), `_LEVEL_TRIG`
 (level- not edge-triggered stops), `_LFSR_TAP`, `_TAP_NOSAT`, `_LAST_PATH`
 (the strawman's dropped last drum), and `tb_drums.v`'s `+jitter` applies a
 frame's writes while the datapath is busy, which the comparison MUST see
@@ -1486,7 +1539,7 @@ frame's writes while the datapath is busy, which the comparison MUST see
 
 Table freshness: `spec/reference/gen_tables.py --check` MUST pass; it fails
 if any hash in the appendices, any image under `spec/reference/tables/`, or
-`rtl-sketch/tanh16.hex` is not what the model generates — since rev 4 that
+`rtl-sketch/tanh16.hex` is not what the model generates — since rev 5 that
 includes the noise sequence of Appendix F and the kit of Appendix G.
 
 Register widths: `test_every_host_conversion_fits_its_register` walks every
@@ -1510,11 +1563,12 @@ record that extends this document; none may be resolved by picking a reading.
    (5.6).
 2. **Glide** (6.7) — **closed in rev 3 by DR 0004**: on the chip, constant rate,
    geometric in the increment (linear in pitch), the `glide` register.
-3. **Physical control layer** (5.4): UART event stream vs SPI time-slice
-   packets (gf180-polysynth issue 7); with it, the encodings of `wave[k]` and
-   every opcode or field. A placeholder encoding, for discussion only: saw 0,
-   square 1, pulse25 2, tri 3, sine 4.
-4. **Modal bank** (15) — **closed in rev 4 by DR 0007**: the bank is the
+3. **Physical control layer** (5.4) — **closed in rev 4 by DR 0007**: SPI
+   register writes, one 32-bit transaction per write of 5.2, accepted at the
+   synchronised `CS_N` rising edge and applied at the next tick; the
+   encodings of every address and of `wave[k]` (saw 0, square 1, pulse25 2,
+   tri 3, sine 4–7) are in 5.2 and DR 0007.
+4. **Modal bank** (15) — **closed in rev 5 by DR 0008**: the bank is the
    drum section's bodies and filters; excitation is the drum paths'
    routed values accumulated per mode (15.5, 15.6), mixing is the output
    stage of 12 with `bvol`, gain staging is `headroom = 0`, a 19-bit word
@@ -1529,13 +1583,13 @@ record that extends this document; none may be resolved by picking a reading.
    rev 2**: every conversion clamps to its register width; where each clamp
    fires, and why `a_inc` and `rate` clamp rather than widen, is in 5.5. Rev
    3 adds `glide` and `vol` to the clamped set.
-8. **Power-on control defaults** (14); `vol` resets to 0, so a bare GATE_ON
-   is silent.
+8. **Power-on control defaults** (14) — **closed in rev 4 by DR 0007**: all
+   zero; a bare GATE_ON is silent; the MCU host writes the image at boot.
 9. **`inc = 0`** (6.3) — **resolved in rev 2**: the oscillator stalls at DC
    with `c = 0` and `(e, r) = (0, 0)` (6.6.1); model-checked for every shape.
-10. **Widths of `cut_lo`, `cut_hi`, `track_hz`** (5.1): 16 bits is proposed
-    from the audition patches and full keyboard tracking (50 175 at note
-    127); the model clamps to it since rev 2, but the width is not decided.
+10. **Widths of `cut_lo`, `cut_hi`, `track_hz`** (5.1) — **closed in rev 4 by
+    DR 0007**: 16 bits unsigned, fixed by the write format; the sum of
+    section 10 is computed exactly at 19 bits before the clamp.
 11. **Ratification itself.** This document is proposed. Ratification is the
     two-key act this fleet uses and is not claimed here.
 12. **Self-oscillation tuning** (11.5, DR 0006): the resonant frequency is
@@ -1570,6 +1624,17 @@ record that extends this document; none may be resolved by picking a reading.
     eight stops land accented under a bass note; at 0.30 it clips 24. The
     rail is the host's to manage (DR 0005); a reference value for the two
     gains is not decided.
+20. **The chip does not yet carry this drum section** (12, 15):
+    `rtl-sketch/synth_top.v` instantiates `drum_section_placeholder` — the
+    modal bank alone on a single 19-bit bus, no sources of its own — and its
+    master mix is the two-term `sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`
+    of `docs/ARCHITECTURE.md` section 4, not the one exact sum of 12.
+    `drum_kit.v` is verified bit-exact against `model/drums_fx.py`
+    standalone (`rtl-sketch/verify_drums.py`) and the placeholder is
+    verified through the pins (`rtl-sketch/verify_top.py`), but nothing
+    verifies the two joined. Replacing the placeholder with `drum_kit` and
+    the mix with 12's formula, and re-running `rtl-sketch/headroom_check.py`
+    and the area flow on the result, is unscheduled work, not a decision.
 
 ---
 
@@ -1601,7 +1666,23 @@ record that extends this document; none may be resolved by picking a reading.
   reference sequence's values change (the chain order, the volume, the
   compensation). Rev 1 and 2 were proposed, not frozen, so their text is
   revised rather than extended. Not ratified.
-- **Rev 4 (2026-09-18)** — resolves 17.4 by DR 0007: the drum section
+- **Rev 4 (2026-09-17)** — resolves 17.3, 17.8 and 17.10 by DR 0007 (the
+  control interface: SPI register writes applied at the frame tick, the
+  register map and the `wave` encoding, all-zero power-on defaults, 16-bit
+  cutoff registers; RESET leaves the link and queue alone). No arithmetic,
+  table, hash or reference sequence changes. The voice is now implemented
+  (`rtl-sketch/voice_dp.v`) and verified bit-exact against the model at the
+  register port by `rtl-sketch/verify_voice.py`: 255 060 frames over 24
+  scenario segments (every waveform, every NOTE_INC entry and the increments
+  where 5.5's clamps fire, glide up, down and at its limits, GATE_ON / TRIG /
+  GATE_OFF in every segment, a release to exactly zero, paraphonic keys, the
+  register extremes, three of the audition reference sequences), every sample,
+  every tap of 16.4 and the final state; eight injected defects (16) each
+  caught, and an all-X stub caught. The worst frame measured is 136 cycles
+  from `go` with the drum filter off (the all-maximum image: three reciprocals
+  and both PolyBLEP windows on every edge). The chip around it is
+  `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 5 (2026-09-18)** — resolves 17.4 by DR 0008: the drum section
   (section 15, rewritten; `model/drums_fx.py`) and the modal bank as one
   instrument — eight edge-triggered stops with accents, twelve envelopes on
   the voice's release rule with hold, bursts and choke, sixteen routing
@@ -1610,9 +1691,10 @@ record that extends this document; none may be resolved by picking a reading.
   numerators on six, a 19-bit word, per-mode accumulated excitation and a
   stated hold requirement on its coefficients. The output stage (12) sums
   the two drum buses with the voice under `dvol`, `bvol` before the one
-  rail — rev 3's formula bit for bit at zero gains, so no rev-3 reference
+  rail — rev 3's formula bit for bit at zero gains, so no rev-3 or rev-4
+  reference
   sequence changes. Two tables added (Appendices F, G); no existing table
-  or hash changed. Open items 13–19 added. Not ratified.
+  or hash changed. Open items 13–20 added. Not ratified.
 
 ---
 
@@ -1787,7 +1869,7 @@ SHA-256 of the 33 decimal values joined by commas: `514d0ba224df47ab47e4c6b54546
 
 ### Appendix F -- NOISE64: the first 64 noise words from reset
 
-Normative (DR 0007), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, `s <- (s << 1) | (s[30] xor s[15] xor s[17] xor s[19])` -- the recurrence `b[n] = b[n-31] + b[n-16] + b[n-18] + b[n-20]` over GF(2), characteristic polynomial x^31 + x^15 + x^13 + x^11 + 1, primitive, period 2^31 - 1 bits -- seeded with 1 at reset and stepped 16 times per frame; the noise word of a frame is the 16 bits shifted in, oldest first, read as signed Q1.15 (`drums_fx.lfsr_frame`). Frame 0's word is 1: the seed's bit reaches the tap at bit 15 on the frame's last step. Eight words per row; the first column is the frame.
+Normative (DR 0008), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, `s <- (s << 1) | (s[30] xor s[15] xor s[17] xor s[19])` -- the recurrence `b[n] = b[n-31] + b[n-16] + b[n-18] + b[n-20]` over GF(2), characteristic polynomial x^31 + x^15 + x^13 + x^11 + 1, primitive, period 2^31 - 1 bits -- seeded with 1 at reset and stepped 16 times per frame; the noise word of a frame is the 16 bits shifted in, oldest first, read as signed Q1.15 (`drums_fx.lfsr_frame`). Frame 0's word is 1: the seed's bit reaches the tap at bit 15 on the frame's last step. Eight words per row; the first column is the frame.
 
 | frame | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|

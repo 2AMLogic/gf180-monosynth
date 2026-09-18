@@ -139,7 +139,7 @@ def tool(name: str) -> str | None:
 
 
 def simulate(rtl: str, tb: str, log2n: int, rom: str, defines: list[str],
-             outdir: str, timeout_s: float = 600.0, out_bits: int = OUT_BITS) -> str | None:
+             outdir: str, timeout_s: float = 600.0, out_bits: int = OUT_BITS, nch: int = 0) -> str | None:
     iverilog, vvp = tool("iverilog"), tool("vvp")
     if not iverilog or not vvp:
         print("verify_ladder: iverilog/vvp not on PATH (or set OSS_CAD_SUITE)")
@@ -147,8 +147,11 @@ def simulate(rtl: str, tb: str, log2n: int, rom: str, defines: list[str],
     vvp_file = os.path.join(outdir, "tb_ladder.vvp")
     out_file = os.path.join(outdir, "ladder_rtl_out.txt")
     if os.path.exists(out_file): os.remove(out_file)
+    tbm = "tb_ladder_n" if nch else "tb_ladder"          # the bench module the -P parameters address
     cmd = [iverilog, "-g2012", "-o", vvp_file,
-           f"-Ptb_ladder.LOG2N={log2n}", f'-Ptb_ladder.ROM_FILE="{rom}"', f"-Ptb_ladder.OW={out_bits}"]
+           f"-P{tbm}.LOG2N={log2n}", f'-P{tbm}.ROM_FILE="{rom}"', f"-P{tbm}.OW={out_bits}"]
+    if nch:
+        cmd.append(f"-P{tbm}.NCH={nch}")
     cmd += [f"-D{d}" for d in defines] + [tb, rtl]
     r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True)
     if r.returncode != 0:
@@ -222,6 +225,9 @@ def main(argv=None) -> int:
     ap.add_argument("--rtl", default=os.path.join(HERE, "ladder_dp.v"))
     ap.add_argument("--tb", default=os.path.join(HERE, "tb_ladder.v"))
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
+    ap.add_argument("--nch", type=int, default=0,
+                    help="verify ladder_dp_n.v with this many channels (tb_ladder_n.v): every sample "
+                         "is driven to each channel in turn and every channel must match the model")
     ap.add_argument("--out-bits", type=int, default=OUT_BITS, choices=(16, 19),
                     help="ladder output width: 19 (Q4.15, the voice's) or 16 (Q1.15, rev 1)")
     a = ap.parse_args(argv)
@@ -230,13 +236,17 @@ def main(argv=None) -> int:
     print(f"verify_ladder: model LadderFx(24-bit state, 20 fraction, {a.tanh_n}-entry interpolated tanh, "
           f"{a.out_bits}-bit output)")
     expected, _ = generate(a.tanh_n, a.outdir, out_bits=a.out_bits)
+    if a.nch:                                    # ladder_dp_n: every sample to every channel, in turn
+        a.rtl = os.path.join(HERE, "ladder_dp_n.v"); a.tb = os.path.join(HERE, "tb_ladder_n.v")
+        expected = [e for e in expected for _ in range(a.nch)]
     if a.compare_only:
         status = compare(expected, a.compare_only)
     else:
         defines = [f"INJECT_BUG_LADDER_{a.inject}"] if a.inject else []
         print(f"verify_ladder: simulating {os.path.relpath(a.rtl, HERE)} "
-              f"(TANH_LOG2N={log2n}, {rom}{', ' + defines[0] if defines else ''})")
-        out = simulate(a.rtl, a.tb, log2n, rom, defines, a.outdir, out_bits=a.out_bits)
+              f"(TANH_LOG2N={log2n}, {rom}{', ' + defines[0] if defines else ''}"
+              f"{', NCH=%d' % a.nch if a.nch else ''})")
+        out = simulate(a.rtl, a.tb, log2n, rom, defines, a.outdir, out_bits=a.out_bits, nch=a.nch)
         status = 2 if out is None else compare(expected, out)
     if a.expect_fail:
         if status == 1:

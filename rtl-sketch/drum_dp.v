@@ -2,7 +2,7 @@
 // against model/drums_fx.py (DrumsFx). Supersedes drum_src_seq.v, the area
 // strawman that was verified against nothing.
 //
-// model/drums_fx.py is the specification (contract section 15, DR 0007):
+// model/drums_fx.py is the specification (contract section 15, DR 0008):
 // verify_drums.py / tb_drums.v drive this module inside drum_kit.v with the
 // model's write stream and compare both buses every frame with no
 // tolerance; the INJECT_BUG_DRUM_* defines prove the comparison can fail.

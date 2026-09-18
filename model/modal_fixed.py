@@ -10,7 +10,7 @@ behave like the float.
 
 Each mode is   y[n] = x[n] + a1*y[n-1] + a2*y[n-2],   a1 = 2 r cos w, a2 = -r^2.
 
-Since the drum section (model/drums_fx.py, DR 0007) the bank is the TR-808's
+Since the drum section (model/drums_fx.py, DR 0008) the bank is the TR-808's
 bridged-T bodies and its band-pass / high-pass filters as well as the struck
 bar, so three things were added and nothing that existed was changed:
 

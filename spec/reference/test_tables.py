@@ -1,7 +1,7 @@
 """The contract's tables are the model's, and the hashes the contract states
 are the ones the revisions were written with: revision 1's five, unchanged
-through revisions 2, 3 and 4; K_ROM32 from DR 0006 (revision 3); NOISE64 and
-KIT808 from DR 0007 (revision 4).
+through revisions 2, 3 and 4 (4 changed no arithmetic); K_ROM32 from DR 0006 (revision 3); NOISE64 and
+KIT808 from DR 0008 (revision 5).
 
     .venv/bin/python -m pytest spec/reference -q
 
@@ -23,7 +23,7 @@ REV3 = {
     "G_ROM128":      "c5ee86efeffbe3cadd040ca3851b5c90806f05f9fab13d5f3cea1cf7730fbe2a",
     "K_ROM32":       "514d0ba224df47ab47e4c6b5454666b88568f3172bacdc2e17baba3c5b6c6e1a",
 }
-REV4 = {
+REV5 = {
     "NOISE64":       "41f2adb399b60f0d7f1d77a03bf004d9b2ec28ab220f476cfafe96c36f99a613",
     "KIT808":        "819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc",
 }
@@ -35,12 +35,12 @@ def test_committed_images_and_contract_match_the_model():
     assert gt.main(["--check"]) == 0
 
 
-def test_rev3_hashes_are_unchanged_and_rev4_adds_two():
-    """Revision 4 added NOISE64 and KIT808 and changed no existing table."""
+def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
+    """Revision 5 added NOISE64 and KIT808 and changed no existing table."""
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
     assert {k: got[k] for k in REV3} == REV3
-    assert {k: got[k] for k in REV4} == REV4
-    assert set(got) == set(REV3) | set(REV4)
+    assert {k: got[k] for k in REV5} == REV5
+    assert set(got) == set(REV3) | set(REV5)
 
 
 def test_spot_values_the_contract_quotes():

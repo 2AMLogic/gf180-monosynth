@@ -1,0 +1,8 @@
+{
+  "schema": "klt.synthesize.request/1",
+  "engine": "yosys",
+  "sources": ["../../../rtl-sketch/ladder_dp.v"],
+  "hdl_toplevel": "ladder_dp",
+  "pdk": { "cell_library": "gf180mcu_fd_sc_mcu7t5v0", "corner": "tt_025C_5v00" },
+  "constraints": { "clock_period_ns": 81.38 }
+}

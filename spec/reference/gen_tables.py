@@ -13,7 +13,7 @@ drifting away from it. It does three things:
         TANH16      16 x Q1.15     fixed.LadderFx(tanh_entries=16, interp=True).tbl
         G_ROM128   129 x Q0.16     voice_fx.make_g_rom()  (128 entries + guard)
         K_ROM32     33 x Q1.15     voice_fx.make_k_rom()  (32 entries + guard, DR 0006)
-        NOISE64     64 x Q1.15     drums_fx.lfsr_frame from LFSR_SEED (the first 64 noise words, DR 0007)
+        NOISE64     64 x Q1.15     drums_fx.lfsr_frame from LFSR_SEED (the first 64 noise words, DR 0008)
         KIT808      (addr, value)  drums_fx.kit_808()  (the reference kit, informative but pinned)
      plus two derived images the contract also states hashes for:
         SINE_FULL1024   the 1024-entry expansion via voice_fx.sine_fx
@@ -191,7 +191,7 @@ def appendix() -> str:
     s.append(f"\nSHA-256 of the 33 decimal values joined by commas: `{sha(kr)}`\n")
     nz, kit = noise64(), kit808()
     s.append("### Appendix F -- NOISE64: the first 64 noise words from reset\n")
-    s.append("Normative (DR 0007), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, "
+    s.append("Normative (DR 0008), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, "
              "`s <- (s << 1) | (s[30] xor s[15] xor s[17] xor s[19])` -- the recurrence "
              "`b[n] = b[n-31] + b[n-16] + b[n-18] + b[n-20]` over GF(2), characteristic polynomial "
              "x^31 + x^15 + x^13 + x^11 + 1, primitive, period 2^31 - 1 bits -- seeded with 1 at reset and "

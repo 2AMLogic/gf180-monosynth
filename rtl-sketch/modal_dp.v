@@ -5,7 +5,7 @@
 //     y[n] = x[n] + a1*y[n-1] + a2*y[n-2],   a1 = 2 r cos w,  a2 = -r^2
 //
 // with no delay line and no RAM: the whole state is two registers per mode.
-// Since DR 0007 the bank is the drum section's bodies and filters as well as
+// Since DR 0008 the bank is the drum section's bodies and filters as well as
 // the struck bar: the TR-808's bridged-T voices are coefficient presets of
 // it, and its band-pass / high-pass filters are modes whose input is
 // pre-differenced (contract 15.6):

@@ -16,7 +16,7 @@ Renders (48 kHz, 16-bit mono):
     02-groove-808.wav        a two-bar 808 pattern with accents, closed/open hats and the choke
     03-groove-toms.wav       toms and congas-style fills against the kick
     04-groove-claps.wav      clap, cowbell and hats
-    05-combined.wav          the DR 0007 milestone (05-combined-drums-at-0.30.wav: the same with the drum buses at 0.30): a bass line through the voice (the
+    05-combined.wav          the DR 0008 milestone (05-combined-drums-at-0.30.wav: the same with the drum buses at 0.30): a bass line through the voice (the
                              growl-bass patch) with the drums, through output_fx at the
                              reference gains, unnormalised: bass release while drums ring,
                              every drum soloed, simultaneous hits, the loudest combination

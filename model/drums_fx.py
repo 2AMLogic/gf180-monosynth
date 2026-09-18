@@ -1,5 +1,5 @@
 """Fully integer drum section, TR-808-shaped: the executable specification of
-contract section 15 (DR 0007). Nothing evaluated per frame is float; float is
+contract section 15 (DR 0008). Nothing evaluated per frame is float; float is
 allowed only in the host conversions at the bottom (Hz, seconds and levels to
 register values), the same rule as model/voice_fx.py.
 
