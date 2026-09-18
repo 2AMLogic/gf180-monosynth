@@ -265,6 +265,44 @@ class _Plugin:
     def text(self, idx):
         return self.p.get_parameter_text(int(idx))
 
+    # (index, normalised value, EXPECTED PARAMETER NAME, expected readback or
+    # None) -- every setting that changes the sound and is NOT the thing under
+    # test. A comparison against a setting nobody wrote down is not a
+    # comparison, and every one of these was previously left at whatever the
+    # plugin happened to default to.
+    #
+    # The expected NAME is not decoration. Surge RENAMES parameters 259-267
+    # when oscillator 1's type changes, so index 265 is "Unison Voices" for a
+    # Classic oscillator and "High Cut" for an Audio In one -- and pinning it
+    # to 0 as "1 voice" sets a 13.75 Hz high cut instead. That is a silent,
+    # total loss of signal, and the name check is what caught it.
+    PINS = ()
+
+    def apply_pins(self):
+        for idx, val, _name, _want in self.PINS:
+            if val is not None:
+                self.set(idx, val)
+
+    def pinned_report(self) -> dict:
+        """What the pinned settings actually read back, AFTER a render -- a
+        plugin's parameter text and NAMES do not update until the processor
+        has run, which is how a Diva cutoff appeared stuck at 90 for a whole
+        session and how the Surge renumbering above stayed hidden."""
+        return {f"{i}:{self.p.get_parameter_name(i)}": self.text(i)
+                for i, _v, _n, _w in self.PINS}
+
+    def check_pins(self) -> list:
+        """Every pinned index must still carry the name it was pinned by, and
+        read back what it was set to. Call this AFTER a render."""
+        bad = []
+        for idx, _val, name, want in self.PINS:
+            got_name = self.p.get_parameter_name(idx)
+            if name is not None and got_name != name:
+                bad.append((idx, "NAME", name, got_name))
+            elif want is not None and self.text(idx) != want:
+                bad.append((idx, "VALUE", want, self.text(idx)))
+        return bad
+
     def check_names(self, mapping):
         bad = [(i, want, self.p.get_parameter_name(i)) for i, want in mapping.items()
                if self.p.get_parameter_name(i) != want]
@@ -332,6 +370,31 @@ class SurgeRig(_Plugin):
              246: 'A VCA Gain', 247: 'A Velocity > VCA Gain'}
     SUBTYPE = {"Type 1": 0.015, "Type 1 Compensated": 0.07,
                "Type 2": 0.135, "Type 2 Compensated": 0.20}
+    PINS = (
+        (227, 0.5, 'Character', 'Neutral'),       # a pre-filter tone control on the
+                                                  # oscillators. Was never set.
+        (234, 0.0, 'A Osc Drift', '0.00 %'),
+        (259, 0.5, 'A Osc 1 Audio In Channel', None),
+        (260, 0.5, 'A Osc 1 Audio In Gain', '0.00 dB'),
+        # 264/265 are the Audio In oscillator's own Low Cut and High Cut. They
+        # read 29.14 Hz and 13.75 Hz -- the extremes of their ranges, which is
+        # how Surge shows a DEACTIVATED cut. They are pinned by name only, with
+        # no value written: writing 0 to 265 would set a 13.75 Hz high cut and
+        # silence the input. `flat_path_db` measures that the path really is
+        # flat rather than taking the readback's word for it.
+        (264, None, 'A Osc 1 Low Cut', None),
+        (265, None, 'A Osc 1 High Cut', None),
+        (277, 0.0, 'A Osc 2 Unison Voices', '1 voice'),
+        (289, 0.0, 'A Osc 3 Unison Voices', '1 voice'),
+        (18, 1.0, 'FX Chain Bypass', 'All FX Off'),
+        (12, 1.0, 'Global Volume', '0.00 dB'),
+        (316, 0.5, 'A Pre-Filter Gain', '0.00 dB'),
+        (246, 0.5, 'A VCA Gain', '0.00 dB'),
+        (250, 0.5, 'A Filter Balance', '0.00 %'),
+        (253, 0.5, 'A Waveshaper Drive', '0.00 dB'),
+        (230, 0.0, 'A Portamento', '0.000 s'),
+        (235, 0.5, 'A Noise Color', '0.00 %'),
+    )
     V_VINTAGE_LADDER = 0.3063
     V_AUDIO_IN = 0.3662
     # Surge's cutoff scale, read straight off its own readback: 13.75 Hz at 0,
@@ -368,6 +431,7 @@ class SurgeRig(_Plugin):
         self.set(I['vel_vca'], 1.0)          # 0 dB: no velocity sensitivity
         for i in range(19, 19 + 4 * 13, 13):  # every FX slot type -> Off
             self.set(i, 0.0)
+        self.apply_pins()
         assert self.text(I['f1_type']) == 'LP Vintage Ladder', self.text(I['f1_type'])
         assert self.text(I['f1_sub']) == self.subtype, self.text(I['f1_sub'])
 
@@ -444,6 +508,21 @@ class MiniV3Rig(_Plugin):
              vcf_a=26, vcf_d=27, vcf_s=28, vca_a=29, vca_d=30, vca_s=31,
              chorus_mix=6, delay_wet=11, vocal_wet=43, o1=72, o2=73, o3=74,
              noise_sw=75, ext_sw=76, fmod=78)
+    PINS = (
+        (103, 0.0, 'Unison', None),   # Unison -- multiple detuned voices. Was never set.
+        (110, 0.0, 'Soft Clipping', 'Off'),  # Soft Clipping -- an output saturation stage. Was never set.
+        (3, 0.0, 'Voices/Osc detune', None),     # Voices/Osc detune. Was never set.
+        (62, 0.0, 'Chorus', None),    # Chorus enable
+        (63, 0.0, 'Chorus Type', 'Chorus Type 1'),
+        (4, 0.0, 'Chorus Speed', None), (5, 0.0, 'Chorus Depth', None), (6, 0.0, 'Chorus Dry/Wet', None),      # chorus speed/depth/mix
+        (64, 0.0, 'Delay', None), (65, 0.0, 'Delay Sync', None),                    # Delay enable, sync
+        (7, 0.0, 'Delay Time Left', None), (8, 0.0, 'Delay FeedBack Left', None), (9, 0.0, 'Delay Time Right', None), (10, 0.0, 'Delay FeedBack Right', None), (11, 0.0, 'Delay Wet', None),
+        (106, 0.0, 'Vocal Filter', None),   # Vocal Filter enable
+        (41, 0.0, 'Vocal Filter X', None), (42, 0.0, 'Vocal Filter Y', None), (43, 0.0, 'Vocal Filter Dry/wet', None), (44, 0.0, 'Vocal Filter resonance', None),
+        (99, 0.0, 'Vocal Filter Lfo Rate', None), (100, 0.0, 'Vocal Filter Lfo', None),                   # vocal filter LFO
+        (77, 0.0, 'Pink Noise', None),    # Pink Noise blend
+        (2, 0.5, 'Tune', None),     # Tune -- centred
+    )
     NAMES = {0: 'General Level', 15: 'Level Osc1', 16: 'Level Osc2', 17: 'Level Osc3',
              21: 'Level Noise', 22: 'Level Ext', 23: 'CutOff', 24: 'Emphasis',
              25: 'Amount', 26: 'VCF Attack', 27: 'VCF Decay', 28: 'VCF Sustain',
@@ -463,6 +542,7 @@ class MiniV3Rig(_Plugin):
         self.set(I['tune'], 0.5)
         self.set(I['vcf_a'], 0.0); self.set(I['vcf_d'], 0.0); self.set(I['vcf_s'], 1.0)
         self.set(I['vca_a'], 0.0); self.set(I['vca_d'], 1.0); self.set(I['vca_s'], 1.0)
+        self.apply_pins()
 
     def set_point(self, cut, res):
         self.set(self.I['cutoff'], cut)
@@ -549,6 +629,16 @@ class DivaRig(_Plugin):
              159: 'FreqModDepth', 161: 'FreqMod2Depth', 162: 'KeyFollow',
              163: 'FilterFM', 164: 'LadderMode', 165: 'LadderColor', 168: 'Feedback',
              175: 'ShapeMix', 179: 'Pan', 180: 'Volume', 181: 'VCA', 183: 'ModDepth'}
+    PINS = (
+        (150, 0.0, 'Revision', '1.00'),     # HPF Revision -- a filter MODEL revision
+        (166, 0.0, 'SlnKyRevision', '1.00'),     # SlnKyRevision -- likewise
+        (186, 0.0, 'Mode', 'lin'),      # VCA Mode: lin / simple moog / complex moog. Was never set.
+        (15, 0.5, 'FineTuneCents', '0.00'),      # FineTuneCents
+        (13, 0.0, 'TuningMode', None),        # TuningMode
+        (122, 0.0, 'ShapeModel', 'ideal'),    # ShapeModel: ideal / analog1 / analog2
+        (154, 0.0, 'Post-HPF Freq', '-1.00'),    # Post-HPF Freq
+        (175, 0.0, 'ShapeMix', '0.00'),     # ShapeMix
+    )
     V_LADDER, V_24DB, V_CLEAN, V_ROUGH = 0.0917, 0.2417, 0.2417, 0.75
     V_GATE, V_DIVINE, V_BEST, V_OFF, V_WHITE = 0.2417, 0.875, 0.75, 0.2417, 0.2417
     V_HPF_POST = 0.3667
@@ -585,6 +675,7 @@ class DivaRig(_Plugin):
         self.set(I['vca'], self.V_GATE)             # flat gate, no amplitude envelope
         self.set(I['vca_moddepth'], 0.5)
         self.set(I['volume'], 0.8)
+        self.apply_pins()
         assert self.text(I['vcf_model']) == 'Ladder', self.text(I['vcf_model'])
         assert self.text(I['laddermode']) == '24db', self.text(I['laddermode'])
         assert self.text(I['accuracy']) == 'divine', self.text(I['accuracy'])
@@ -733,3 +824,144 @@ def _smooth_log(f, g_db, at, frac: float = 1 / 12.0):
             sel[max(0, i - 1):i + 2] = True
         out.append(float(np.mean(g_db[sel])))
     return np.array(out)
+
+
+PATH_MODELD = f"{VST3}/Model D.vst3"
+
+
+class ModelDRig(_Plugin):
+    """**Moog's own Minimoog Model D.** Not another third-party interpretation:
+    written by the people with the schematics, with the brand's name on it.
+
+    It cannot be read, so it is not the kind of evidence Surge is. But a
+    disagreement with it is a different kind of finding from a disagreement
+    with Mini V3 or Diva -- it is the closest thing to an authoritative
+    statement about what a Model D should sound like that can be driven
+    programmatically. **It gets its own verdict and is never averaged into a
+    "reference spread".**
+
+    Every parameter is a bare 0..1 whose text is the raw value -- no units, no
+    enumerated names -- so its cutoff knob is a knob and is calibrated by
+    bisecting against its own self-oscillation, exactly as Mini V3's is.
+    Commanded-cutoff accuracy is NOT answerable against it.
+
+    0 audio input channels, so no external signal can be put through its
+    filter; its own noise generator is the broadband source.
+    """
+    name = "modeld"
+    path = PATH_MODELD
+    have_input = False
+    cutoff_in_hz = False
+    kind = "modeld"
+    note = 48
+
+    I = dict(legato=0, poly=1, contour_shape=2, tune=3, glide_rate=4, mod_mix=5,
+             mod_o3_feg=6, mod_noise_lfo=7, osc_mod=8, osc3_ctl=9,
+             o1_range=10, o1_wave=11, o2_range=12, o2_tune=13, o2_wave=14,
+             o3_range=15, o3_tune=16, o3_wave=17,
+             o1_vol=18, o2_vol=19, o3_vol=20, ext_vol=21, noise_vol=22,
+             o1_on=23, o2_on=24, o3_on=25, ext_on=26, noise_on=27, noise_color=28,
+             filt_mod=29, kbd1=30, kbd2=31, cutoff=32, emphasis=33, contour_amt=34,
+             feg_a=35, feg_d=36, feg_s=37, aeg_a=38, aeg_d=39, aeg_s=40,
+             master=41, lfo_rate=42, lfo_wave=43, glide_on=44, decay_on=45,
+             arp_on=46, key_hold=52, bender_on=53)
+    NAMES = {0: 'Legato', 1: 'Polyphonic', 2: 'Contour Shape', 3: 'Tune',
+             4: 'Glide Rate', 10: 'Osc 1 Range', 11: 'Osc 1 Wave',
+             18: 'Osc 1 Volume', 21: 'Ext. Input Volume', 22: 'Noise Volume',
+             23: 'Osc 1 Enabled', 26: 'Ext. Input Enabled', 27: 'Noise Enabled',
+             28: 'Noise Color', 32: 'Cutoff Frequency', 33: 'Filter Emphasis',
+             34: 'Amount Of Contour', 35: 'Filter Contour Attack',
+             38: 'Loudness Contour Attack', 40: 'Loudness Contour Sustain',
+             41: 'Master Volume', 44: 'Glide Enabled', 45: 'Decay Enabled',
+             46: 'Arp Enabled', 52: 'Key Hold'}
+    # Every sound-changing control that is NOT the thing under test, written
+    # down rather than defaulted. Model D's text is the raw 0..1 value, so the
+    # expected readback is that number.
+    PINS = (
+        (0, 0.0, 'Legato', '0.00'),
+        (1, 0.0, 'Polyphonic', '0.00'),
+        (2, 0.0, 'Contour Shape', '0.00'),
+        (3, 0.5, 'Tune', '0.50'),
+        (5, 0.0, 'Modulation Mix', '0.00'),
+        (6, 0.0, 'Mod. Osc 3 Filter EG', '0.00'),
+        (7, 0.0, 'Mod. Noise LFO', '0.00'),
+        (8, 0.0, 'Osc Modulation', '0.00'),
+        (29, 0.0, 'Filter Modulation', '0.00'),
+        (30, 0.0, 'Keyboard Control 1', '0.00'),
+        (31, 0.0, 'Keyboard Control 2', '0.00'),
+        (34, 0.0, 'Amount Of Contour', '0.00'),
+        (44, 0.0, 'Glide Enabled', '0.00'),
+        (45, 0.0, 'Decay Enabled', '0.00'),
+        (46, 0.0, 'Arp Enabled', '0.00'),
+        (52, 0.0, 'Key Hold', '0.00'),
+        (53, 0.0, 'Bender Enabled', '0.00'),
+    )
+
+    def setup(self):
+        self.check_names(self.NAMES)
+        I = self.I
+        for k in ('o1_vol', 'o2_vol', 'o3_vol', 'ext_vol', 'noise_vol',
+                  'o1_on', 'o2_on', 'o3_on', 'ext_on', 'noise_on'):
+            self.set(I[k], 0.0)
+        self.set(I['feg_a'], 0.0); self.set(I['feg_d'], 0.0); self.set(I['feg_s'], 1.0)
+        self.set(I['aeg_a'], 0.0); self.set(I['aeg_d'], 1.0); self.set(I['aeg_s'], 1.0)
+        self.set(I['master'], 0.8)
+        self.set(I['noise_color'], 0.0)          # calibrated by measurement, not assumed
+        self.apply_pins()
+
+    def set_point(self, cut, res):
+        self.set(self.I['cutoff'], cut)
+        self.set(self.I['emphasis'], res)
+        return cut
+
+    def ring(self, cut, res, seconds=1.2, amp=0.25):
+        """Self-oscillation: every mixer source off, emphasis past threshold,
+        one key held. The Model D's own filter singing on its own -- which is
+        the one measurement `model/moog_probe.py` was built for."""
+        self.set_point(cut, res)
+        for k in ('o1_on', 'o2_on', 'o3_on', 'ext_on', 'noise_on'):
+            self.set(self.I[k], 0.0)
+        self.silence_state(0.3)
+        y = self.render(np.zeros(1), seconds + 0.1)
+        return y[int(0.55 * len(y)):]
+
+    def noise_render(self, cut, res, seconds=1.4, level=1.0):
+        self.set_point(cut, res)
+        self.set(self.I['noise_on'], 1.0)
+        self.set(self.I['noise_vol'], level)
+        y = self.render(np.zeros(1), seconds)
+        self.set(self.I['noise_on'], 0.0)
+        return y[int(0.35 * SR):]
+
+    def noise_curve(self, freqs, cut, res, seconds=4.0, level=1.0):
+        num = self.noise_render(cut, res, seconds, level)
+        den = self._wide_open(seconds, level)
+        fn, pn = _welch(num)
+        _, pd = _welch(den)
+        g = 10 * np.log10(np.maximum(pn, 1e-30) / np.maximum(pd, 1e-30))
+        return _smooth_log(fn, g, freqs)
+
+    def _wide_open(self, seconds=4.0, level=1.0):
+        key = (round(seconds, 3), round(level, 6))
+        if getattr(self, "_wo_key", None) != key:
+            self._wo = self.noise_render(1.0, 0.0, seconds, level)
+            self._wo_key = key
+        return self._wo
+
+    def drive_tone(self, f, cut, res, amp):
+        raise NotImplementedError(
+            "Model D has 0 audio input channels: no known signal can be put through its "
+            "filter, so the drive measurement is not answerable against it")
+
+    def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.05, amp=0.25):
+        ka, kb = _knob(cache, self, "modeld", lo), _knob(cache, self, "modeld", hi)
+        self.set(self.I['emphasis'], res)
+        self.set(self.I['o1_on'], 1.0); self.set(self.I['o1_vol'], 0.9)
+        self.set(self.I['o1_wave'], 0.0)                 # calibrated by measurement
+        pre, n = int(0.30 * SR), int(seconds * SR)
+        ramp = np.concatenate([np.full(pre, ka, dtype=np.float32),
+                               np.linspace(ka, kb, n).astype(np.float32),
+                               np.full(int(0.05 * SR), kb, dtype=np.float32)])
+        self.p.set_automation(self.I['cutoff'], ramp)
+        y = self.render(np.zeros(1), len(ramp) / SR)
+        return y[pre:pre + n]

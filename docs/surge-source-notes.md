@@ -91,7 +91,7 @@ a staircase of known step size).
 | Surge Type 2 (Huov) | −52.0 | −76.4 | −91.2 |
 | Surge Type 1 (RK) | −51.6 | −76.1 | −90.9 |
 | Mini V3 | −51.5 | −74.5 | −86.2 |
-| Diva | −32.0 | −33.0 | −33.1 |
+| ~~Diva~~ | ~~−32.0~~ | ~~−33.0~~ | ~~−33.1~~ | **WITHDRAWN: unlicensed, see `docs/reference-integrity.md` §1** |
 
 **Ours has a 5–9 dB higher movement ripple floor than Surge and Mini V3**, and
 the gap widens as the sweep slows. Every filter's ripple falls with the sweep
