@@ -110,6 +110,7 @@ import wave
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "model"))
 sys.path.insert(0, str(ROOT / "audition"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 import numpy as np                                                   # noqa: E402
 from scipy.io import wavfile                                         # noqa: E402
@@ -117,6 +118,7 @@ from scipy.signal import butter, sosfiltfilt                         # noqa: E40
 
 import audio_measure as am                                           # noqa: E402
 import drum_verify as dv                                             # noqa: E402
+import refprofile as rp                                              # noqa: E402
 
 CASES_CSV = ROOT / "docs" / "scorecard" / "cases.csv"
 RESULTS = ROOT / "docs" / "scorecard" / "results"
@@ -149,6 +151,12 @@ TOLERANCE_POLICY = {
     "bus sum": "0.5 dB -- the final output must be the sum of the per-bus stems",
     "rail": "0.01 % of samples at the rail, a stated budget for a render with "
             "no limiter in the path",
+    "rolloff": "1.5 dB per octave -- audio_measure.slope_db_oct's own "
+               "max_residual_db. That estimator REFUSES a straight-line fit "
+               "whose RMS residual exceeds it, so a difference smaller than it "
+               "is inside the fit's own scatter and is not a difference. A "
+               "number the estimator states about itself, not one derived from "
+               "any error of ours",
 }
 
 
@@ -834,24 +842,374 @@ ENSEMBLE_CASES = {
     "E2A": ("03-lead-line", False),
 }
 
+# ===========================================================================
+# 6b. The filter side, from the FROZEN reference profile
+#
+# Nothing here renders a plugin. `refprofile.load_clip` reads audio that was
+# rendered once, cached and hashed, and REFUSES when the cache is absent or has
+# drifted from the hash in `refprofile/profile.json`. That is the difference
+# between a reference and a render: a re-rendered reference moves when the
+# plugin updates and moves silently, because the number coming out looks the
+# same.
+#
+# Our side is `reference_rigs.OurLadder`, the integer ladder at the host's own
+# operating point -- the same device `model/reference_compare.py` measures, at
+# the same drive, through the same stimulus. No plugin is involved on either
+# side of this comparison at run time.
+# ===========================================================================
+#: Below this, relative to the same curve's passband plateau, the stepped-tone
+#: projection is reading the path's own truncation noise: a slope fitted
+#: through it reads first far too steep and then far too shallow.
+#: `reference_compare.response_row` caps its fit band there and
+#: `refprofile.ESTIMATOR_FLOORS` publishes the number; this reads it from the
+#: profile's table rather than keeping a second copy.
+STOPBAND_FLOOR_DB = rp.ESTIMATOR_FLOORS["stepped-tone stopband"]["value_db"]
+
+
+def _ref_band(freqs, cut_hz):
+    """The passband a corner, a peak and a plateau are measured against --
+    `reference_compare.response_row`'s own band, so the two agree by
+    construction."""
+    return (freqs[0], max(freqs[0] * 2.5, (cut_hz or 400.0) * 0.25))
+
+
+def filt_corner(cut_hz: float):
+    """The -3 dB corner READ OFF the measured response, never the commanded
+    cutoff. The cases say "verified by measurement" and mean it: Surge is
+    commanded at 250 Hz and its four cascaded poles put the -3 dB point at
+    128 Hz, which is a property of a 4-pole low-pass and not a tuning error.
+
+    Ground truth: audio_measure.corner_from_curve's own tests."""
+    def f(freqs, g):
+        return am.corner_from_curve(freqs, g, ref_band=_ref_band(freqs, cut_hz))
+    return f
+
+
+def filt_lowband_gain(cut_hz: float, open_plateau_db: float):
+    """Passband level with the filter AT the cutoff, relative to the SAME
+    instrument with its filter effectively out of the way. A ratio inside one
+    instrument, so a fixed gain difference between two synthesisers cancels
+    out of it by construction -- which is the rule every number in
+    `model/reference_compare.py` is held to and the reason a raw plateau in
+    dBFS is not quoted here.
+
+    Ground truth: test_run_case.py::test_filt_lowband_gain_reads_a_known_offset."""
+    def f(freqs, g):
+        rb = _ref_band(freqs, cut_hz)
+        try:
+            pl = am.plateau_db(freqs, g, rb)
+        except am.InsufficientEvidence as e:
+            return am.Estimate(None, False, str(e), dict(band=rb))
+        return am.Estimate(pl - open_plateau_db, True, "",
+                           dict(plateau_db=round(pl, 4),
+                                wide_open_plateau_db=round(open_plateau_db, 4),
+                                band_hz=[round(b, 2) for b in rb]))
+    return f
+
+
+def filt_rolloff(cut_hz: float):
+    """Stopband slope MINUS the slope an IDEAL analogue 4-pole gives over the
+    SAME band.
+
+    The correction is not decoration. A slope is fitted between 2.2 and 7 times
+    each device's OWN measured corner, and those are different bands when the
+    corners differ -- Surge's is 282-897 Hz here, ours 259-825 Hz. An ideal
+    4-pole is not yet at its asymptotic -24 dB/oct in either, it is at about
+    -22.4, and by slightly different amounts. Quoting the raw slopes side by
+    side would charge each filter for where its own corner happened to land.
+    `reference_compare.ideal_4pole_slope` is the closed form, already in the
+    repository for exactly this.
+
+    Refuses whenever `slope_db_oct` refuses -- a curve that is not a straight
+    line over the band has no slope, and that refusal is what found the
+    quantisation floor this profile's probe level is chosen inside.
+
+    Ground truth: test_run_case.py::test_filt_rolloff_of_an_ideal_4pole_is_zero."""
+    import reference_compare as rc
+
+    def f(freqs, g):
+        rb = _ref_band(freqs, cut_hz)
+        c = am.corner_from_curve(freqs, g, ref_band=rb)
+        if not c.ok:
+            return am.Estimate(None, False,
+                               "no measured corner, so no band to fit a slope over: "
+                               + c.reason, c.detail)
+        try:
+            pl = am.plateau_db(freqs, g, rb)
+        except am.InsufficientEvidence as e:
+            return am.Estimate(None, False, str(e), dict(band=rb))
+        live = np.asarray(freqs)[np.asarray(g) > pl + STOPBAND_FLOOR_DB]
+        top = float(live.max()) if len(live) else 9000.0
+        band = (2.2 * c.value, min(7.0 * c.value, 9000.0, top))
+        sl = am.slope_db_oct(freqs, g, band)
+        if not sl.ok:
+            return sl
+        ideal = rc.ideal_4pole_slope(band, c.value)
+        return am.Estimate(sl.value - ideal, True, "",
+                           dict(slope_db_oct=round(sl.value, 4),
+                                ideal_4pole_db_oct=round(ideal, 4),
+                                band_hz=[round(b, 2) for b in band],
+                                corner_hz=round(c.value, 3),
+                                fit_residual_db=round(float(sl.detail.get("residual_db", 0.0)), 4),
+                                stopband_floor_db=STOPBAND_FLOOR_DB))
+    return f
+
+
+#: The First-32 filter cases this runner can measure, and the frozen clips each
+#: one is measured against. `res_ours` is our own control's value, not a
+#: translation of Surge's: `k = 4*res` (model/fixed.py regs), so res 0.0 is our
+#: zero and the two zeros are the same physical setting. Resonance grids above
+#: zero are NOT commensurable between devices and nothing here maps one onto
+#: the other -- which is why F2A is not in this table.
+FILTER_CASES = {
+    "F1A": dict(ref_clip="surge-type2/lp-cut250-res0.00",
+                ref_open_clip="surge-type2/lp-open20k-res0.00",
+                cut_hz=250.0, open_hz=20000.0, res_ref=0.0, res_ours=0.0),
+}
+
+FILTER_PLAN = {
+    "F1A": [
+        ("Corner frequency", "Hz", "corner", tol_frequency),
+        ("low-band gain", "dB", "lowband", tol_db),
+        ("rolloff", "dB/oct", "rolloff", tol_fixed(1.5, "rolloff")),
+    ],
+}
+
+
+def load_filter_reference(clip_id: str, inject: str = "") -> tuple:
+    """The frozen reference response curve, derived from cached audio whose
+    content hash is checked on every read.
+
+    `refprofile.load_clip` raises `refprofile.Refused` for a cache that is
+    absent, short, at the wrong rate, silent, or whose bytes do not hash to
+    what the committed profile says. Every one of those is a stated
+    no-verdict here and never a number."""
+    profile = rp.load_profile()
+    if inject == "REF_PROFILE_MISSING":
+        clip_id = "surge-type2/NO-SUCH-CLIP"
+    if inject == "REF_PROFILE_TAMPERED":
+        # Exercise the real refusal: the audio on disk no longer matches the
+        # hash in the committed profile. Done by moving the profile's expected
+        # hash rather than by damaging the cache, because a control must not be
+        # able to leave the operator's reference corpus broken behind it.
+        profile = json.loads(json.dumps(profile))
+        m = profile["clips"][clip_id]
+        h = m["sha256"]
+        m["sha256"] = ("0" if h[0] != "0" else "1") + h[1:]
+    y, sr, meta = rp.load_clip(clip_id, profile)
+    freqs = list(meta["freqs_hz"])
+    parts = [(int(a), int(b), float(f)) for a, b, f in meta["parts"]]
+    amp = float(meta["amp"])
+    if inject == "REF_CORNER_2X":
+        # The reference as it would read if the filter that made it had a
+        # corner an OCTAVE lower: time-stretch by 2, which moves every
+        # frequency in the recording to f/2, and read the curve on the
+        # frequency grid it is now actually at. A window that held an integer
+        # number of periods of f holds the same integer number of periods of
+        # f/2 once doubled, so the projection stays exact.
+        n = len(y)
+        y = np.interp(np.linspace(0.0, n - 1.0, 2 * n), np.arange(n), y)
+        parts = [(2 * i0, 2 * nw, f / 2.0) for i0, nw, f in parts]
+        freqs = [f / 2.0 for f in freqs]
+    try:
+        import reference_rigs as rr
+        g = rr.SurgeRig.tone_project(y, parts, amp, clip_id)
+    except am.InsufficientEvidence as e:
+        raise Refused(f"the frozen clip {clip_id} could not be projected: {e}")
+    return np.asarray(freqs, dtype=np.float64), np.asarray(g, dtype=np.float64), meta
+
+
+def our_filter_curve(freqs, cut_hz: float, res: float, amp: float):
+    """Our ladder through the SAME stepped tone at the SAME level. Rendered
+    here and now from the integer model -- never a committed WAV -- so what is
+    measured is the design as it stands."""
+    import reference_rigs as rr
+    dev = rr.OurLadder("ours")
+    try:
+        g = dev.tone_gain_db(list(freqs), cut_hz, res, amp)
+    except am.InsufficientEvidence as e:
+        raise Refused(f"our ladder's stepped-tone probe refused at cutoff {cut_hz:.0f} Hz, "
+                      f"resonance {res}: {e}")
+    return np.asarray(g, dtype=np.float64)
+
+
+def run_filter_case(case: dict, inject: str, keep_audio: bool) -> dict:
+    cid = case["case_id"]
+    spec = FILTER_CASES[cid]
+    required = [m.strip() for m in case["required_measurements"].split(";") if m.strip()]
+    cut, amp = spec["cut_hz"], rp.PROBE_AMP
+
+    ref_f, ref_g, meta = load_filter_reference(spec["ref_clip"], inject)
+    open_f, open_g, open_meta = load_filter_reference(spec["ref_open_clip"])
+    ours_g = our_filter_curve(ref_f, cut, spec["res_ours"], amp)
+    ours_open_g = our_filter_curve(open_f, spec["open_hz"], spec["res_ours"], amp)
+
+    ref_open_plateau = am.plateau_db(open_f, open_g, _ref_band(open_f, cut))
+    ours_open_plateau = am.plateau_db(open_f, ours_open_g, _ref_band(open_f, cut))
+
+    ests = {
+        "corner": (filt_corner(cut), filt_corner(cut)),
+        "lowband": (filt_lowband_gain(cut, ours_open_plateau),
+                    filt_lowband_gain(cut, ref_open_plateau)),
+        "rolloff": (filt_rolloff(cut), filt_rolloff(cut)),
+    }
+    metrics = {}
+    for name, units, key, tol_rule in FILTER_PLAN[cid]:
+        e_ours, e_ref = ests[key]
+        metrics[name] = measure_pair(name, units, e_ours, (ref_f, ours_g),
+                                     (ref_f, ref_g), tol_rule, {}, est_ref=e_ref)
+    for m in required:
+        metrics.setdefault(m, invalid_metric("", "this runner has no estimator for it"))
+
+    audio = f"reference {spec['ref_clip']} (frozen, sha256 {meta['sha256'][:12]})"
+    audio_path = "not written (--no-audio)"
+    if keep_audio:
+        pth = AUDIO_OUT / f"{cid}-ours-response.json"
+        pth.parent.mkdir(parents=True, exist_ok=True)
+        pth.write_text(json.dumps({"freqs_hz": [float(f) for f in ref_f],
+                                   "ours_gain_db": [float(v) for v in ours_g],
+                                   "reference_gain_db": [float(v) for v in ref_g],
+                                   "cut_hz": cut, "res_ours": spec["res_ours"],
+                                   "res_reference": spec["res_ref"], "amp": amp},
+                                  indent=1) + "\n")
+        audio_path = str(pth.relative_to(ROOT))
+        audio = f"{audio}; ours {audio_path}"
+
+    import reference_rigs as rr
+    prof = rp.load_profile()
+    rig = prof["rigs"][meta["rig"]]
+    base = {
+        "engine": ENGINE, "case_id": cid, "subject": case["subject"],
+        "source_commit": source_commit(), "analysis_run": analysis_run(),
+        "provenance": provenance(
+            model_input_hashes({
+                f"frozen:{spec['ref_clip']}": "sha256:" + meta["sha256"][:16],
+                f"frozen:{spec['ref_open_clip']}": "sha256:" + open_meta["sha256"][:16],
+            }),
+            {"ours": audio_path, "reference": meta["file"]},
+            dict(cut_hz=cut, res_ours=spec["res_ours"], res_reference=spec["res_ref"],
+                 probe_amp=amp, probe_level_dbfs=rp.PROBE_LEVEL_DBFS,
+                 n_probe_tones=len(ref_f), inject=inject or None)),
+        "reference_profile": (f"{meta['rig']}:{spec['ref_clip']} "
+                              f"(commanded {cut:.0f} Hz, readback "
+                              f"{meta['cutoff_readback_hz']} Hz, resonance "
+                              f"{spec['res_ref']}), frozen at "
+                              f"{prof['built']['worktree']['commit']}"),
+        "reference_identity": (
+            f"{rig['plugin'].get('bundle_version', '?')} "
+            f"{rig['plugin'].get('bundle_id', '?')}, binary sha256 "
+            f"{str(rig['plugin'].get('binary_sha256'))[:16]}; LP Vintage Ladder "
+            f"subtype Type 2 = sst-filters VintageLadder::Huov, Huovilainen DAFx-04, "
+            f"the same paper DR 0001 implements. Rendered once through the qualified "
+            f"rig of #87 and frozen: this result did not run a plugin."),
+        "render_run": (f"reference_rigs.OurLadder@{_sha(ROOT / 'model' / 'reference_rigs.py')} "
+                       f"stepped tone, {len(ref_f)} frequencies {ref_f[0]:.0f}-{ref_f[-1]:.0f} Hz, "
+                       f"amp {amp} ({rp.PROBE_LEVEL_DBFS:+.2f} dBFS), cutoff {cut:.0f} Hz, "
+                       f"resonance {spec['res_ours']} (k = 4*res, so this is our zero), "
+                       f"{rp.SR} Hz, no resampling anywhere"),
+        "audio": audio,
+        "tolerance_policy": TOLERANCE_POLICY,
+        "estimator_floors": rp.ESTIMATOR_FLOORS,
+        "metrics": metrics,
+        "diagnostics": {
+            "ours_corner_hz": _est_value(filt_corner(cut)(ref_f, ours_g)),
+            "reference_corner_hz": _est_value(filt_corner(cut)(ref_f, ref_g)),
+            "ours_wide_open_plateau_db": round(float(ours_open_plateau), 4),
+            "reference_wide_open_plateau_db": round(float(ref_open_plateau), 4),
+            "reference_commanded_cutoff_hz": meta["commanded"]["cut_hz"],
+            "reference_cutoff_readback_hz": meta["cutoff_readback_hz"],
+            "probe_level_dbfs": rp.PROBE_LEVEL_DBFS,
+            "note": ("levels are never compared across the two instruments: every "
+                     "number here is a ratio inside one of them, a frequency, or a "
+                     "slope. The wide-open plateaus are recorded so the discarded "
+                     "absolute levels are still on the record."),
+        },
+    }
+    if inject:
+        base["INJECTED_CONTROL"] = inject
+    return base
+
+
+def _est_value(e):
+    return round(float(e.value), 4) if e.ok else None
+
+
 # Deliberately not run, with the reason. `--list` prints this table and the PR
 # carries it: a case nobody attempted has to say so, or "not run" and "we
 # forgot" become the same entry.
 NOT_RUN = {}
-for _c in ("F1A", "F2A", "F3A", "F5A", "F1B", "F1C", "F1D", "F2B", "F2C", "F2D",
-           "F3B", "F3C", "F3D", "F4A", "F4B", "F4C", "F4D", "F5B", "F5C", "F5D",
+
+#: The other cutoff regions and the sealed settings. The profile freezes ONE
+#: cutoff region, 250 Hz, which is what the First-32 filter cases state; the
+#: Expansion and Holdout variants are a separate deliverable and are not
+#: attempted here.
+for _c in ("F1B", "F1C", "F1D", "F2B", "F2C", "F2D", "F3B", "F3C", "F3D",
+           "F4A", "F4B", "F4C", "F4D", "F5B", "F5C", "F5D",
            "F6A", "F6B", "F6C", "F6D"):
-    NOT_RUN[_c] = ("no frozen reference profile and no filter plan in this "
-                   "runner: nothing maps these subjects to Surge parameter "
-                   "settings, and docs/scorecard/README.md requires that frozen "
-                   "before results are collected. (The waveform-mapping repair "
-                   "these were blocked on has since landed in #87, so the rig "
-                   "itself is no longer the blocker.)")
+    NOT_RUN[_c] = ("out of scope for this reference profile, which freezes the "
+                   "250 Hz cutoff region the First-32 filter cases state. The "
+                   "1 kHz / 4 kHz regions and the sealed holdout trajectories "
+                   "are a separate deliverable; they need their own frozen "
+                   "clips, and a holdout's settings must be sealed before any "
+                   "of it is measured.")
+
+NOT_RUN["F2A"] = (
+    "the reference is frozen and the resonance ladder is in the profile; the "
+    "COMPARISON is not well posed at a fixed input level. Measured: Surge Type 2's "
+    "response at 250 Hz is identical to two decimal places at -60, -36 and -12 dBFS "
+    "(its thermal = 1/70 input scaling keeps it small-signal throughout), while our "
+    "measured peak at res 1.20 is +32.1 dB at -60 dBFS, +28.3 at -36 and +10.0 at "
+    "-12. The two are therefore never at the same drive into their own "
+    "nonlinearity, and a peak gain quoted at a fixed input level is a statement "
+    "about that level. reference_compare.stage_peakdrive's answer -- match a "
+    "fraction of each device's own self-oscillation onset and read the "
+    "small-signal end -- is not available to us: our small-signal end is inside "
+    "our own quantisation floor, where slope_db_oct refuses every resonant row. "
+    "This needs a matched-drive definition written down before it is measured. "
+    "The ten-rung ladder is frozen in refprofile/profile.json so whoever writes "
+    "it does not have to re-render the reference.")
+
+NOT_RUN["F3A"] = (
+    "the case requires separating MIXER DRIVE from output gain. Surge's mixer "
+    "drive is Pre-Filter Gain, parameter 316, which the qualified rig PINS at "
+    "'0.00 dB' as a setting that is not the thing under test -- and #87's rig "
+    "refuses to build when a pin does not hold, which is the behaviour to keep, "
+    "not to work around. Making 316 the thing under test is a change to the rig, "
+    "not to this runner. The three drive clips at stated input levels are frozen "
+    "in the profile and already show the shape of the answer: Surge's h3 at 250 Hz "
+    "/ res 0.5 is -113.0 dB at -6 dBFS and -100.6 dB at 0 dBFS against a MEASURED "
+    "floor of -122.6 dB, where ours is -22.7 dB at 0 dBFS. That ~78 dB gap is "
+    "Surge's documented thermal = 1/70 input scaling, not a finding about either "
+    "filter's harmonic ratios, and publishing it as one would be the scorecard "
+    "lying in our favour's direction.")
+
+NOT_RUN["F5A"] = (
+    "no clip in this profile automates a parameter, deliberately. The case asks "
+    "for cutoff MOTION and for the host automation block size to be pinned, and "
+    "'stepping' cannot be attributed between the plugin and the host without that "
+    "control: docs/failure-modes.md records all three plugins appearing to step at "
+    "94 Hz because that was the host's block rate. Our side additionally has no "
+    "swept-cutoff render -- reference_rigs.OurLadder answers three questions and a "
+    "sweep is not one of them -- so there is nothing to compare a frozen sweep "
+    "against yet.")
+
 for _c in ("M1A", "M2A", "M3A", "M4A", "M5A", "M6A", "M7A", "M8A"):
-    NOT_RUN[_c] = ("no frozen reference profile: nothing in the repository maps "
-                   "these subjects to Mini V3 patch and parameter settings, and "
-                   "docs/scorecard/README.md requires that mapping to be frozen "
-                   "before results are collected. The rig is also under repair.")
+    NOT_RUN[_c] = (
+        "no qualified Mono reference, and the two candidates failed for different "
+        "reasons that are MEASURED and recorded in refprofile/profile.json rather "
+        "than inherited. Model D -- the cross-check these cases name -- renders "
+        "EXACT silence headlessly: peak 0.0 with oscillator 1 on at full level and "
+        "the filter wide open, and peak 0.0 with the filter self-oscillating. The "
+        "rig builds and its pins hold; it simply makes no sound, so nothing "
+        "downstream of it can be a reference. Mini V3 does make sound, and every "
+        "one of its parameters is a bare 0..1 with no units and no readback: its "
+        "cutoff can be calibrated against its own self-oscillation "
+        "(reference_compare.calibrate_knob) and its ENVELOPE knobs cannot, because "
+        "nothing in this repository maps a Mini V3 envelope knob to a time. Every "
+        "Mono case requires envelope timing, so a Mini V3 patch frozen today would "
+        "compare our envelope against an arbitrary knob position and publish the "
+        "difference as a result. The envelope-knob calibration is the missing "
+        "piece and it is a deliverable of its own.")
 NOT_RUN["E3A"] = ("no shipped patch uses the noise source or oscillator-3 "
                   "modulation, so the stimulus cannot be built from frozen "
                   "material without inventing a patch.")
@@ -866,6 +1224,8 @@ def plan_for(case_id: str) -> str:
         return "drum"
     if case_id in ENSEMBLE_CASES:
         return "ensemble"
+    if case_id in FILTER_CASES:
+        return "filter"
     return "unplanned"
 
 
@@ -940,8 +1300,19 @@ class StaleBase(Exception):
 # `origin/main`, an earlier green run does not cover the tree -- which is
 # exactly what happened: eight drum cases refused because this worktree's
 # `drums_fx.py` had eight circuits while origin/main's had eleven.
+# `refprofile/profile.json` is here because a result measured against a
+# different frozen reference is not comparable with one measured against this
+# one -- the same argument that put `drums_fx.py` here.
+#
+# `model/reference_rigs.py` is deliberately NOT here, although the filter
+# cases render our side from it. It is the file a reference-profile branch
+# changes, so gating on it would make the gate unsatisfiable on exactly the
+# branch that has to run the board -- and CLAUDE.md is explicit that an
+# unsatisfiable gate is worse than no gate. It is hashed onto every record
+# through MODEL_INPUTS instead, so a stale result is still detectable.
 DEPENDENCIES = ("model/drums_fx.py", "model/voice_fx.py", "model/audio_measure.py",
-                "model/drum_verify.py", "docs/scorecard/cases.csv")
+                "model/drum_verify.py", "refprofile/profile.json",
+                "docs/scorecard/cases.csv")
 
 
 def base_check(allow_stale: bool = False) -> dict:
@@ -1045,7 +1416,8 @@ def provenance(inputs: dict, artefacts: dict, config: dict) -> dict:
 # The generated inputs every result here depends on: change one and an earlier
 # green result no longer covers the tree.
 MODEL_INPUTS = ("model/drums_fx.py", "model/voice_fx.py", "model/audio_measure.py",
-                "tools/run_case.py", "docs/scorecard/cases.csv")
+                "model/reference_rigs.py", "tools/run_case.py", "tools/refprofile.py",
+                "refprofile/profile.json", "docs/scorecard/cases.csv")
 
 
 def model_input_hashes(extra: dict | None = None) -> dict:
@@ -1071,9 +1443,17 @@ def invalid_metric(units: str, why: str, tolerance: float | None = None) -> dict
     return m
 
 
-def measure_pair(name, units, est, ours, ref, tol_rule, ctx) -> dict:
+def measure_pair(name, units, est, ours, ref, tol_rule, ctx, est_ref=None) -> dict:
+    """`est_ref`, when given, is the estimator for the REFERENCE side.
+
+    It exists for one metric and is not a loophole: "low-band gain" is a gain
+    against the SAME instrument with its filter out of the way, so each side's
+    estimator carries its own wide-open plateau. A plateau in dBFS compared
+    across two instruments is a level mismatch wearing a measurement's
+    clothes; a ratio inside one instrument is not. Everything else here passes
+    one estimator and it is used on both sides, which is the rule."""
     a = est(*ours)
-    b = est(*ref)
+    b = (est if est_ref is None else est_ref)(*ref)
     if not b.ok:
         return invalid_metric(units, f"reference: {b.reason} {b.detail}")
     tol, basis = tol_rule(b.value, ctx)
@@ -1278,10 +1658,12 @@ def run_case(case: dict, refdir: pathlib.Path, inject: str = "",
             return run_drum_case(case, refdir, inject, keep_audio)
         if kind == "ensemble":
             return run_ensemble_case(case, keep_audio)
+        if kind == "filter":
+            return run_filter_case(case, inject, keep_audio)
         base["note"] = "REFUSED: this runner has no plan for this case."
         base["metrics"] = {m: invalid_metric("", "no measurement plan") for m in required}
         return base
-    except Refused as e:
+    except (Refused, rp.Refused) as e:
         base["note"] = f"REFUSED: {e}"
         base["metrics"] = {m: invalid_metric("", str(e)) for m in required}
         return base
@@ -1327,6 +1709,10 @@ def cmd_list(cases: list[dict]) -> int:
         elif kind == "ensemble":
             p, d = ENSEMBLE_CASES[c["case_id"]]
             why = f"{p}, {'dense' if d else 'sparse'} 808 groove, stems vs final output"
+        elif kind == "filter":
+            f = FILTER_CASES[c["case_id"]]
+            why = (f"ours vs frozen {f['ref_clip']} "
+                   f"(cut {f['cut_hz']:.0f} Hz, res {f['res_ref']})")
         else:
             why = "no plan in this runner"
         print(f"{c['case_id']:<7}{c['family']:<10}{c['batch']:<14}{kind:<11}{why[:70]}")
@@ -1346,7 +1732,9 @@ def main(argv=None) -> int:
     ap.add_argument("--refs", default=os.environ.get(REFS_ENV, REFS_DEFAULT),
                     help=f"the Fischer TR-808 corpus (default {REFS_DEFAULT}, ${REFS_ENV})")
     ap.add_argument("--results", default=None, help="where result JSON goes")
-    ap.add_argument("--inject", default="", choices=["", "REF_F0_20PCT", "REF_MISSING"],
+    ap.add_argument("--inject", default="",
+                    choices=["", "REF_F0_20PCT", "REF_MISSING", "REF_CORNER_2X",
+                             "REF_PROFILE_MISSING", "REF_PROFILE_TAMPERED"],
                     help="an injected control; requires --results outside the board")
     ap.add_argument("--expect", default="", choices=["", "pass", "fail", "no verdict"],
                     help="exit 1 unless every case lands in this state (for controls)")
