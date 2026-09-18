@@ -15,6 +15,7 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import verify_ladder, verify_modal, verify_drums, verify_top, verify_voice, tanh_rom
+import verify_ctl, verify_synth_top
 
 needs_sim = pytest.mark.skipif(
     verify_ladder.tool("iverilog") is None or verify_ladder.tool("vvp") is None,
@@ -143,3 +144,84 @@ def test_drum_timing_contract_is_load_bearing(tmp_path):
     Applying a frame's writes 20 clocks into the frame instead must be seen
     by the comparison: status exactly 1."""
     assert verify_drums.main(["--short", "--jitter", "20", "--outdir", str(tmp_path)]) == 1
+
+
+# ---- the control link: can it CARRY what the models write? ------------------
+
+@needs_sim
+def test_control_link_carries_both_models_register_images(tmp_path):
+    """Every bench above drives the register WRITE PORT. This one drives the
+    PINS and compares what reaches the port against what the host INTENDED --
+    155 writes: the voice's patch image from model/voice_fx.py's own
+    conversion, the reference kit from model/drums_fx.py's kit_808(), and
+    every drum register class at its full width. Status exactly 0."""
+    assert verify_ctl.main(["--outdir", str(tmp_path)]) == 0
+
+
+@needs_sim
+def test_dr7_revision1_frame_could_not_carry_the_drum_image(tmp_path):
+    """THE DEFECT THIS BENCH EXISTS FOR, kept runnable. DR 0007 revision 1's
+    32-bit frame -- 7-bit address, 24-bit datum, no page bit -- corrupts 118
+    of those 155 writes: 118 have no drum page to land in, 67 addresses do not
+    fit in 7 bits (A_PATH 0x80, A_MODE 0xC0, A_RESET 0xFF) and 26 data do not
+    fit in 24 (ENV_CTL is 27 bits, MODE_A1/A2 are 26). Status exactly 1."""
+    assert verify_ctl.main(["--link", "dr7rev1", "--outdir", str(tmp_path)]) == 1
+
+
+@needs_sim
+@pytest.mark.parametrize("bug", ["SPI_ADDR7", "SPI_DATA24", "SPI_NOSEC", "SPI_ANYLEN", "SPI_DRAIN_LATE"])
+def test_control_link_negative_control_is_caught(bug, tmp_path):
+    """Revision 1's address field, revision 1's data field, no page bit, a
+    mis-sized transaction applied instead of discarded, and a drain that runs
+    at `go` instead of before it -- each must produce a mismatch."""
+    assert verify_ctl.main(["--inject", bug, "--outdir", str(tmp_path)]) == 1
+
+
+# ---- the whole chip at its pins, against the model -------------------------
+
+@needs_sim
+def test_chip_is_bit_exact_at_its_pins(tmp_path):
+    """synth_top through SCK/MOSI/CS_N in and BCLK/LRCLK/SDATA out: the voice
+    image and the reference drum kit are written over the link, notes are
+    played, drums are struck, a body is retuned while it rings, ROUTE.DFILT is
+    engaged and released mid-ring, and every I2S word decoded from the WIRE is
+    compared against model/synth_top_model.py. Not against dut.sample: that
+    comparison is circular and is what tb_synth_top.v does."""
+    assert verify_synth_top.main(["--short", "--outdir", str(tmp_path)]) == 0
+
+
+@needs_sim
+@pytest.mark.parametrize("bug", ["VOICE_MASTER_PRESHIFT", "VOICE_DRUM_CLAMP16", "VOICE_OUT_SAT",
+                                 "I2S_SHIFT", "I2S_SWAP", "I2S_DELAY",
+                                 "MODAL_NUM_HOLD", "MODAL_EXC_NOCLEAR", "DRUM_LFSR_TAP"])
+def test_chip_negative_control_is_caught(bug, tmp_path):
+    """Each product shifted before the sum instead of contract 12's single
+    shift; the drum buses clipped to 16 bits before their gains; no rail; the
+    wire one bit late; the channels swapped; the sample a period late -- and
+    three defects inside the drum engine, to show the chip-level bench sees
+    through to them. Status exactly 1."""
+    assert verify_synth_top.main(["--short", "--inject", bug, "--outdir", str(tmp_path)]) == 1
+
+
+@needs_sim
+def test_chip_reaches_the_envelope_dead_zone(tmp_path):
+    """DRUM_ENV_FLOOR needs the full-length stimulus, because the short one
+    never drives an envelope into the dead zone and the control went UNCAUGHT
+    until the stimulus was changed to strike the open hat from just above its
+    freeze level. Recorded as a test so the hole cannot come back."""
+    assert verify_synth_top.main(["--inject", "DRUM_ENV_FLOOR", "--outdir", str(tmp_path)]) == 1
+
+
+@needs_sim
+@pytest.mark.parametrize("legacy", [False, True])
+def test_ladder_channel_bleed_is_caught_by_either_stimulus(legacy, tmp_path):
+    """INJECT_BUG_LADDER_CH_BLEED shares the half-sample delay line across
+    channels. Both the row-per-channel stimulus and the old every-row-to-every-
+    channel one catch it -- measured, and it corrects the claim that the old
+    stimulus was blind to cross-channel bleeding. What the old one really could
+    not do is run the two contexts on DIFFERENT signals and coefficients, which
+    is what the chip does (the drum filter has its own DCUT/DK/DGAIN/DOGAIN)."""
+    args = ["--nch", "2", "--inject", "CH_BLEED", "--outdir", str(tmp_path)]
+    if legacy:
+        args.append("--legacy-stimulus")
+    assert verify_ladder.main(args) == 1

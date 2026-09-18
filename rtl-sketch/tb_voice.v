@@ -33,14 +33,14 @@ module tb_voice;
 
     reg clk = 0, rst_n = 0;
     reg go = 0, wr_valid = 0, wr_flag = 0;
-    reg [6:0]  wr_addr = 0;
-    reg [23:0] wr_data = 0;
+    reg [7:0]  wr_addr = 0;                    // DR 0007 revision 2: 8 bits on page 0
+    reg [31:0] wr_data = 0;                    //                      32-bit datum
     wire signed [15:0] sample;
     wire sample_valid, busy;
     wire signed [15:0] mixed; wire [14:0] ae, fe, cut; wire [16:0] k_eff; wire signed [18:0] y19;
     voice_dp dut (.clk(clk), .rst_n(rst_n), .go(go),
                   .wr_valid(wr_valid), .wr_flag(wr_flag), .wr_addr(wr_addr), .wr_data(wr_data),
-                  .drum_bus(19'sd0), .drum_done(1'b1),
+                  .dmix(21'sd0), .body(19'sd0), .drum_done(1'b1),
                   .sample(sample), .sample_valid(sample_valid), .busy(busy),
                   .mixed(mixed), .ae(ae), .fe(fe), .cut(cut), .k_eff(k_eff), .y19(y19));
     always #10 clk = ~clk;

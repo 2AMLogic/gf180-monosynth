@@ -1,8 +1,18 @@
-// tb_synth_top.v -- drives synth_top through its PINS: an SPI master (mode 0,
-// 32-bit transactions, SCK = clk/8 = 1.536 MHz) sends the writes listed in
-// +cmd=<file> (one per line: "wait_frames flag addr data", waiting that many
-// frame ticks before the transaction starts), an I2S receiver decodes SDATA
-// as a DAC does, and the bench measures the frame schedule:
+// tb_synth_top.v -- the SCHEDULE AND PLUMBING bench. Drives synth_top through
+// its PINS: an SPI master (mode 0, 48-bit transactions of DR 0007 revision 2,
+// SCK = clk/8 = 1.536 MHz) sends the writes listed in +cmd=<file> (one per
+// line: "wait_frames flag sec addr data", waiting that many frame ticks
+// before the transaction starts), an I2S receiver decodes SDATA as a DAC
+// does, and the bench measures the frame schedule:
+//
+// ITS I2S CHECK IS CIRCULAR AND IS NOT THE VERIFICATION OF i2s_tx: it compares
+// the decoded wire against `dut.sample`, the core's OWN output, so it cannot
+// see a bit shift, a channel swap or a wrong D -- whatever the core produces
+// is also what it expects. rtl-sketch/tb_top_bx.v / verify_synth_top.py do
+// that comparison against model/synth_top_model.py instead, and the three
+// INJECT_BUG_I2S_* controls prove it can fail. What this bench is for is the
+// schedule: strobe cycles, drain cycles, pin-to-acceptance latency, and that
+// the datapath is idle at every tick.
 //
 //   * cycles from the tick to the voice's sample strobe (mean / worst) and to
 //     the drum bus (drum_done), and that the datapath is idle at every tick;
@@ -85,13 +95,15 @@ module tb_synth_top;
 
     // ---- SPI master, mode 0, MSB first, SCK = clk/8 ------------------------------------
     reg [31:0] miso_word;
-    task spi_write(input flag, input [6:0] addr, input [23:0] data);
-        integer b; reg [31:0] word;
+    task spi_write(input flag, input sec, input [7:0] addr, input [31:0] data);
+        integer b; reg [47:0] word;
         begin
-            word = {flag, addr, data};
+            word = {flag, 6'b0, sec, addr, data};
             cs_n = 0; #200;
-            for (b = 31; b >= 0; b = b - 1) begin
-                mosi = word[b]; #325.5; sck = 1; miso_word[b] = miso; #325.5; sck = 0;
+            for (b = 47; b >= 0; b = b - 1) begin
+                mosi = word[b]; #325.5; sck = 1;
+                if (47 - b < 32) miso_word[31 - (47 - b)] = miso;
+                #325.5; sck = 0;
             end
             #200; cs_n = 1; #700;
         end
@@ -107,7 +119,7 @@ module tb_synth_top;
     always @(posedge cs_n) csn_rise_cycle = cyc_abs;
 
     // ---- the script ------------------------------------------------------------------------
-    integer cmd_fd, rc, wait_f, flag_i, addr_i, data_i, n_sent = 0, run_frames = 2000, ticks_seen = 0;
+    integer cmd_fd, rc, wait_f, flag_i, sec_i, addr_i, data_i, n_sent = 0, run_frames = 2000, ticks_seen = 0;
     reg [8*512-1:0] cmd_file;
     always @(posedge clk) if (dut.tick) ticks_seen = ticks_seen + 1;
     task wait_ticks(input integer n); integer t0; begin t0 = ticks_seen; wait (ticks_seen >= t0 + n); end endtask
@@ -120,10 +132,10 @@ module tb_synth_top;
         cmd_fd = $fopen(cmd_file, "r");
         if (cmd_fd == 0) begin $display("tb_synth_top: cannot open %0s", cmd_file); $finish; end
         while (!$feof(cmd_fd)) begin
-            rc = $fscanf(cmd_fd, "%d %d %d %d\n", wait_f, flag_i, addr_i, data_i);
-            if (rc == 4) begin
+            rc = $fscanf(cmd_fd, "%d %d %d %d %d\n", wait_f, flag_i, sec_i, addr_i, data_i);
+            if (rc == 5) begin
                 if (wait_f > 0) wait_ticks(wait_f);
-                spi_write(flag_i[0], addr_i[6:0], data_i[23:0]);
+                spi_write(flag_i[0], sec_i[0], addr_i[7:0], data_i);
                 n_sent = n_sent + 1;
                 if (n_sent == 1) $display("tb_synth_top: status word on MISO = %08x (ID %02x ver %0x flags %0x frame %0d)",
                                           miso_word, miso_word[31:24], miso_word[23:20], miso_word[19:16], miso_word[15:0]);
