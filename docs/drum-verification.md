@@ -1204,3 +1204,32 @@ whose τ is a knob position rather than a fixed value — `OH`'s 196 ms is the
 chart at DECAY mid and the kit deliberately ships 150 ms.
 
 `drum_verify.py` now takes `--voices` and covers all sixteen.
+
+### 10.7 The run that closed it
+
+The branch was harvested and committed by the coordinator before this run
+landed, with the note "its final verification run had not landed when this was
+committed". It has now, on the committed tree:
+
+| | result |
+|---|---|
+| `model/test_808_acceptance.py`, `TR808_STRICT=1` | **102 passed**, `KNOWN_DEFECTS` empty |
+| `test_drums_fx`, `test_audio_measure`, `test_drum_fit`, `test_modal_fixed` | **160 passed** |
+| `spec/reference/gen_tables.py --check` | every table image and hash matches the model (Appendix G's kit re-pinned) |
+| `rtl-sketch/verify_drums.py` | **bit-exact over 191,560 frames**, 117 clocks/frame of the 256 |
+| `verify_drums` negative controls | 9 of 9 caught: `DRUM_ENV_FLOOR`, `DRUM_LEVEL_TRIG`, `DRUM_LFSR_TAP`, `DRUM_TAP_NOSAT`, `DRUM_LAST_PATH`, `DRUM_SQ_LONE`, `MODAL_NUM_HOLD`, `MODAL_EXC_NOCLEAR`, write jitter |
+| `rtl-sketch/verify_ctl.py` | 202 writes reached the port as sent; the rev-1 link control caught |
+| `rtl-sketch/verify_synth_top.py` | 2,118 I2S periods decoded from the wire, every one identical to the model |
+| `verify_synth_top --inject DRUM_RESET_ALIAS` | **caught** — the 0xFF collision is detectable at the chip's pins |
+
+**One of the meta tests had to be fixed before it was worth anything, and the
+bug is worth naming.** `test_meta_rev8_stub_is_red_on_the_new_circuits_and_green_on_the_old_ones`
+originally split the suite with a pytest `-k` expression, one of whose terms
+was `hat_`. `-k` is a substring match, and `hat_` matches **"w[hat_]is"** and
+**"t[hat_]is"** — so `test_cymbal_band_split_against_the_machine_and_what_is_still_missing`
+and `test_rimshot_is_distorted_and_that_is_the_sound` were silently pulled into
+the group that had to stay *green* under a stub that blanks their circuits. The
+meta test failed for a reason that had nothing to do with what it was checking.
+It now parses failing **node ids** out of one stub run and checks two things
+against explicit lists: every test naming a circuit revision 8 did not have is
+red, and nothing else is.
