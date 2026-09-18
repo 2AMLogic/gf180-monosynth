@@ -12,7 +12,8 @@
     "class: 'implementation' = tested against OUR model. 'fidelity' = tested",
     "against an EXTERNAL reference. A subsystem with no fidelity evidence is",
     "UNVALIDATED however many implementation tests pass -- see issue #45.",
-    "covers: files whose change invalidates this node's evidence -> STALE. slow: too slow for a push; status is read from docs/dag-results.json, which the nightly job writes. GREEN means the evidence RAN AND PASSED at a commit, never merely that a file exists."
+    "covers: files whose change invalidates this node's evidence -> STALE. slow: too slow for a push; status is read from docs/dag-results.json, which the nightly job writes. GREEN means the evidence RAN AND PASSED at a commit, never merely that a file exists.",
+    "covers must name EVERY input whose change invalidates the node. S1 and S3 once listed only synth_top.v, so they stayed GREEN through voice RTL and ROM changes -- compiling a status document does not fix an incomplete definition of what the evidence depends on."
   ],
   "nodes": {
     "F1": {
@@ -87,15 +88,17 @@
       "name": "Matches software references",
       "group": "minimoog",
       "class": "fidelity",
-      "suite": "model/test_reference_compare.py",
       "deps": [
         "M2"
       ],
       "covers": [
         "model/voice_fx.py",
         "model/fixed.py",
-        "model/reference_compare.py"
-      ]
+        "model/reference_compare.py",
+        "model/reference_rigs.py"
+      ],
+      "evidence_file": "docs/reference-compare-results.json",
+      "note": "the committed comparison RESULT, not the estimator unit tests -- those consume no reference audio and cannot show we compared anything"
     },
     "M4": {
       "name": "Matches real hardware",
@@ -204,7 +207,17 @@
         "I2"
       ],
       "covers": [
-        "rtl-sketch/synth_top.v"
+        "rtl-sketch/synth_top.v",
+        "rtl-sketch/voice_dp.v",
+        "rtl-sketch/ladder_dp.v",
+        "rtl-sketch/ladder_dp_n.v",
+        "rtl-sketch/modal_dp.v",
+        "rtl-sketch/drum_kit.v",
+        "rtl-sketch/drum_dp.v",
+        "rtl-sketch/drum_regs.v",
+        "rtl-sketch/spi_ctl.v",
+        "rtl-sketch/i2s_tx.v",
+        "spec/reference/tables"
       ]
     },
     "S2": {
@@ -226,7 +239,18 @@
       ],
       "covers": [
         "rtl-sketch/synth_top.v",
-        "fpga/Makefile"
+        "rtl-sketch/voice_dp.v",
+        "rtl-sketch/ladder_dp.v",
+        "rtl-sketch/ladder_dp_n.v",
+        "rtl-sketch/modal_dp.v",
+        "rtl-sketch/drum_kit.v",
+        "rtl-sketch/drum_dp.v",
+        "rtl-sketch/drum_regs.v",
+        "rtl-sketch/spi_ctl.v",
+        "rtl-sketch/i2s_tx.v",
+        "spec/reference/tables",
+        "fpga/Makefile",
+        "fpga/rtl"
       ]
     }
   }
