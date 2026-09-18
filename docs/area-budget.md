@@ -409,7 +409,7 @@ written, the core is 0.50 mm² of cells, not 0.37–0.40.
   `ARCHITECTURE.md` section 10) **understates the chip by about 0.4 mm² of
   cells** and is withdrawn as a projection; the measured per-block numbers
   themselves stand. `synth_top.v` still carries the small placeholder
-  (contract 17.20), so no measurement of the joined top exists yet.
+  (contract 17.23), so no measurement of the joined top exists yet.
 - **The time-shared 4-voice engine (2.3) and the shared ladder/modal
   multiplier (3.2) are derived**, each from the difference of two
   measurements. They are labelled as such wherever they appear.

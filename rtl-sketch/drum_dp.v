@@ -74,6 +74,7 @@ module drum_dp #(
     reg [7:0]  stops_q, fire_q;
     reg [30:0] lfsr;
     reg signed [15:0] noise_r, sq_r, sqpair_r;
+    reg [5:0]         sqmsb_r;
     reg [23:0] phase [0:5];
     reg [23:0] level  [0:ENVS-1];
     reg [23:0] strike [0:ENVS-1];
@@ -110,6 +111,10 @@ module drum_dp #(
     wire signed [15:0] sqsum_w  = sq0 + sq1 + sq2 + sq3 + sq4 + sq5;
     wire signed [15:0] sqpair_w = (phase[4][23] ? -16'sd16383 : 16'sd16383)
                                 + (phase[5][23] ? -16'sd16383 : 16'sd16383);
+    // one oscillator alone, +-16383 (contract 15.4, src 5..10): the cowbell's
+    // two gates. Only the six sign bits are held for the frame, not six words.
+    wire [5:0] sqmsb_w = {phase[5][23], phase[4][23], phase[3][23],
+                          phase[2][23], phase[1][23], phase[0][23]};
 
     // ---- envelope slot e: decode, select the multiply ----------------------------
     wire [EI-1:0] ei = e[EI-1:0];
@@ -170,8 +175,17 @@ module drum_dp #(
 `else
     wire signed [15:0] tap16 = (tap_sh > 32767) ? 16'sd32767 : (tap_sh < -32768) ? -16'sd32768 : tap_sh[15:0];
 `endif
+`ifdef INJECT_BUG_DRUM_SQ_LONE
+    // NEGATIVE CONTROL: one oscillator's gate sees the PAIR -- rev 5's defect,
+    // which makes nl(a + b) where the machine makes nl(a) + nl(b) and puts a
+    // difference tone 42 dB above the machine's (contract 15.5, DR 0010)
+    wire signed [15:0] sq_lone = sqpair_r;
+`else
+    wire signed [15:0] sq_lone = sqmsb_r[p_src[2:0] - 3'd5] ? -16'sd16383 : 16'sd16383;
+`endif
     wire signed [15:0] s_raw = (p_src == 5'd1) ? noise_r : (p_src == 5'd2) ? sq_r :
                                (p_src == 5'd3) ? 16'sd32767 : (p_src == 5'd4) ? sqpair_r :
+                               (p_src >= 5'd5 && p_src < 5'd5 + 6) ? sq_lone :
                                (p_src >= 5'd16 && p_src < 5'd16 + MODES) ? tap16 : 16'sd0;
     // the swing VCA: x4 on the positive half, /8 on the negative (15.5)
     wire signed [17:0] u = (p_nl == 2'd1) ? (s_raw[15] ? {{5{s_raw[15]}}, s_raw[15:3]} : {s_raw, 2'b00})
@@ -202,6 +216,7 @@ module drum_dp #(
     always @(posedge clk) begin
         if (!rst_n) begin
             stops_q <= 0; fire_q <= 0; lfsr <= 31'd1; noise_r <= 0; sq_r <= 0; sqpair_r <= 0;
+            sqmsb_r <= 0;
             for (i = 0; i < 6; i = i + 1) phase[i] <= 0;
             for (i = 0; i < ENVS; i = i + 1) begin level[i] <= 0; strike[i] <= 0; tcnt[i] <= 0; end
             dmix <= 0; st <= 0; e <= 0; p <= 0; half <= 0; mul_a <= 0; mul_b <= 0;
@@ -219,6 +234,7 @@ module drum_dp #(
                 noise_r <= nbits;
                 sq_r    <= sqsum_w;
                 sqpair_r <= sqpair_w;
+                sqmsb_r  <= sqmsb_w;
                 for (i = 0; i < 6; i = i + 1) phase[i] <= phase[i] + osc_inc_bus[i*24 +: 24];
                 dmix <= 0; e <= 0; st <= 2'd1; op_q <= 2'd1; e_q <= 0; chok_q <= 1'b0;
             end

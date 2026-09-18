@@ -212,14 +212,17 @@ def appendix() -> str:
     s.append("|---:|---:|---|---|---:|---:|---|")
     half = (len(kit) + 1) // 2
     for i in range(half):
-        row = ""
+        cells = []
         for j in (i, i + half):
             if j < len(kit):
                 a_, v_ = kit[j]
-                row += f"| 0x{a_:02X} | 0x{v_:X} | {_reg_name(a_)} "
+                cells.append(f"| 0x{a_:02X} | 0x{v_:X} | {_reg_name(a_)} ")
             else:
-                row += "| | | "
-        s.append(row + "|")
+                cells.append("| | | ")
+        # the spacer column between the two halves, as Appendix A's rows have:
+        # without it every row is one cell short of the header and the
+        # right-hand triple renders shifted a column left
+        s.append(cells[0] + "| " + cells[1] + "|")
     s.append(f"\nSHA-256 of the {len(kit)} decimal words `address << 32 | value`, joined by commas, which is "
              f"`spec/reference/tables/kit808.hex` read as decimal: `{sha(kit808_words())}`")
     return "\n".join(s) + "\n"

@@ -38,7 +38,7 @@ mapping.
 | drum section: sources, 12 envelopes, 16 paths (`drum_dp`) | **48** | 10,716 (0.278 mm² of gf180 7t cells) | 0 | RTL bit-exact against `model/drums_fx.py` (DR 0008) |
 | modal bank, 12 modes / 6 numerators — the drums' bodies and filters | **39** (15 at 4 modes, 7,017 cells) | 13,845 (0.367 mm²) | 0 | RTL bit-exact against `model/modal_fixed.py`; sizing proposed, not ratified |
 | the whole voice around the ladder (`rtl-sketch/voice_dp.v`) | **54 best, 64 mean, 136 worst** from `go` (drum filter off; +24 with it on, +8 for `go` at cycle 8: 168 of 256 worst) | 20,522 (7t-mapped) | 0 | RTL bit-exact against `model/voice_fx.py`: 255,060 frames, every sample, every tap of contract 16.4 and the final state; eight injected defects each caught; the worst frame is the all-maximum image (three reciprocals, both PolyBLEP windows on every edge of every oscillator) |
-| the chip (`rtl-sketch/synth_top.v`: link, voice, modal bank, **placeholder** drum sources, I2S) | **150 of 256 worst** | 29,812 (7t-mapped) | 0 | elaborates, synthesises, runs through its pins; ARCHITECTURE.md. The drum section above is not in it yet — contract 17.20 |
+| the chip (`rtl-sketch/synth_top.v`: link, voice, modal bank, **placeholder** drum sources, I2S) | **150 of 256 worst** | 29,812 (7t-mapped) | 0 | elaborates, synthesises, runs through its pins; ARCHITECTURE.md. The drum section above is not in it yet — contract 17.23 |
 | formant voice, 5 resonators | ~20–25 *(est)* | — | ~1.8 kbit ROM | not written |
 | existing 4-voice core (sibling repo) | not measured | 19,049 | 0 | verified, in production |
 | **used** | drum section **85 of 256** tick to `body_valid` (48 in the datapath + 39 in the bank, one clock overlapped) | | | the chip's own worst frame is 150, measured without it |
@@ -266,12 +266,21 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   `voice_dp.v`, against `model/voice_fx.py`. What is **not** verified is the
   join: `synth_top.v` still carries `drum_section_placeholder` and the
   two-term master mix, not `drum_kit` and the output stage of contract 12
-  (contract 17.20). `drum_src_seq.v`, the area strawman verified against
+  (contract 17.23). `drum_src_seq.v`, the area strawman verified against
   nothing, and `touch_dp.v`, never compared against anything, are both
   deleted. The earlier "20 cycles, 1,917 cells" ladder figure was the area of
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
-- **The drum section is an 808 by circuit, not by ear — yet.** DR 0008 builds
+- **The drum section is an 808 by circuit, and now partly by measurement.**
+  [`docs/drum-verification.md`](drum-verification.md) compares every voice
+  against a real TR-808 (s/n 103852, CC0). Its section 8 withdraws one
+  measurement method and three of its own headline numbers, and records what
+  was actually wrong: the snare's noise *band* (not its level, which was
+  2.3 dB down and not 16), the cowbell's shared gate, and the bass drum's f0,
+  which the kit took from Roland's chart while taking its Q from the circuit.
+  Contract revision 6 fixes those; **the excitation is still an impulse where
+  the machine's is a shaped pulse, and that is the largest thing left
+  (17.20)**. DR 0008 builds
   it from `docs/tr808-reference.md`: bridged-T bodies as modal presets,
   six square oscillators for the hats and cowbell, one noise source, the
   swing VCA. What the reference kit leaves out is listed in the contract's
@@ -281,18 +290,18 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   centre and the clap's timing are choices the reference could not settle.
   The renders in `audio/drums/` are what a listener judges.
 - **The numeric contract is proposed, not ratified.**
-  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 5)
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 6)
   writes the integer voice and the drum section down section by section,
   pins its seven tables by SHA-256 (`spec/reference/gen_tables.py --check`
   keeps them the model's), and lists in its section 17 what it deliberately
   leaves open: the self-oscillation tuning table, the modal bank's sizing,
   the drum section's size and what its kit does not model, and the chip's
-  unwired drum section (17.20). The physical control layer, the power-on
+  unwired drum section (17.23). The physical control layer, the power-on
   defaults and the cutoff register widths are closed by
   [DR 0007](../spec/decision-records/0007-control-interface-spi-register-writes.md),
-  and the drum section by
-  [DR 0008](../spec/decision-records/0008-drum-section-and-modal-bank-as-one-instrument.md)
-  (both proposed). Until the contract is ratified, the filter, the modal
+  the drum section by
+  [DR 0008](../spec/decision-records/0008-drum-section-and-modal-bank-as-one-instrument.md),
+  and the kit's fit to real hardware by DR 0009 and DR 0010 (all proposed). Until the contract is ratified, the filter, the modal
   bank, the drum section and the voice are bit-exact against their own
   models and nothing more.
 - **The chip has been synthesised to gf180mcu but not placed or routed.**

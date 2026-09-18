@@ -82,7 +82,7 @@ The drum section and the modal bank are one instrument, contract section 15:
    (part of its arithmetic since rev 1, the analogue of the ladder's) and
    the tap's rail; neither is reached by the reference kit at any accent.
 5. **The kit is a table, not hardware.** Appendix G is the reference kit
-   as 99 register writes, SHA-pinned so the renders and the RTL bench are
+   as 99 register writes (100 since revision 6), SHA-pinned so the renders and the RTL bench are
    reproducible; every frequency, Q and time constant in it is the
    reference's, the levels are balanced to Roland's tuning chart, and the
    choices the reference could not settle are marked (15.7). Fitting a

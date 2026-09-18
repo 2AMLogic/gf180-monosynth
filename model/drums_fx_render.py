@@ -113,9 +113,10 @@ def bd_decays():
     """The three DECAY positions of reference 2's table, as coefficient
     writes while the previous hit still rings (a host may retune any frame)."""
     hits, extra = [], []
-    for i, (q, label) in enumerate(((5.2, "short"), (22.3, "mid"), (62.0, "long"))):
+    for i, knob in enumerate((1.0, 5.0, 9.0)):                      # "short", "mid", "long"
+        q = dx.bd_decay_q(knob)
         f = int((0.05 + 1.2 * i) * SR)
-        extra += [(f - 1, a, v) for a, v in dx.mode_writes(dx.M_BD, 56.0, q, 0.0)[:2]]
+        extra += [(f - 1, a, v) for a, v in dx.mode_writes(dx.M_BD, dx.BD_HZ, q, 0.0)[:2]]
         hits += [(f, dx.BD, 1.0), (f + int(0.6 * SR), dx.BD, 1.0)]
     kit = dx.kit_808()
     out, _ = drums_only(hits, 3.7, kit=kit, extra_writes=extra)
@@ -123,18 +124,22 @@ def bd_decays():
 
 
 def bd_attack_shift():
-    """Reference 2's BD attack: for the first 4 ms the resonator sits at
-    ~130 Hz, Q ~6, then returns to 56 Hz -- a host sequence of two
-    coefficient writes per hit (open item 17.14), shown beside the plain
-    hit: plain, shifted, plain, shifted."""
-    hits, extra = [], []
-    for i in range(4):
-        f = int((0.05 + 0.7 * i) * SR)
-        hits.append((f, dx.BD, 1.0))
-        if i % 2:
-            extra += [(f, a, v) for a, v in dx.mode_writes(dx.M_BD, 130.0, 6.1, 0.0)[:2]]
-            extra += [(f + 192, a, v) for a, v in dx.mode_writes(dx.M_BD, 56.0, 22.3, 0.0)[:2]]
-    out, _ = drums_only(hits, 2.9, extra_writes=extra)
+    """Reference 2's BD attack (contract 15.7.1): for the first 4 ms the
+    resonator sits at ~130 Hz, Q ~6, then returns to its own f0 -- the
+    coefficient sequence `bd_attack_writes` now emits for every BD hit,
+    rendered beside the same hit WITHOUT it (coef_seq=False): plain,
+    shifted, plain, shifted. The plain pair is the negative control a
+    listener can hear."""
+    hits = [(int((0.05 + 0.7 * i) * SR), dx.BD, 1.0) for i in range(4)]
+    kit = dx.kit_808()
+    w = [(int((0.05 + 0.7 * i) * SR), dx.BD, 1.0) for i in (1, 3)]
+    writes = dx.hit_writes(hits, kit, coef_seq=False)
+    for f, _, _ in w:
+        writes += dx.bd_attack_writes(f, dx._kit_amp(kit, dx.M_BD))
+    n = int(2.9 * SR)
+    d = dx.DrumsFx()
+    dm, bd = d.play(sorted(writes, key=lambda t: t[0]), n)
+    out = dx.output_fx(np.zeros(n), 0, dm, dx.accent_reg(DVOL), bd, dx.accent_reg(BVOL))
     write_wav("07-bd-plain-then-attack-shift.wav", out)
 
 

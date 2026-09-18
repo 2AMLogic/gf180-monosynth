@@ -41,7 +41,8 @@ Formats (contract 15.1):
     path        src 5 bits, e1/e2 4 bits, nl 2, att 3, dest 4 (22 bits)
     sources     Q1.15: NOISE (16 LFSR bits per frame), SQSUM (six squares,
                 +-5461 each), PULSE (32767), SQPAIR (squares 4 + 5, +-16383
-                each), TAP m = sat16(y1[m] >> 3), the mode's state / 8
+                each), SQ i (one square alone, +-16383, i = 0..5 at src 5..10),
+                TAP m = sat16(y1[m] >> 3), the mode's state / 8
     envsum      ENV(e1) + ENV(e2), ENV(e) = level >> 9; index 15 reads 32767
     v           17 bits; dmix and every exc exact, 21 bits
     LFSR        31 bits, x^31 + x^15 + x^13 + x^11 + 1, seed 1, 16 steps per frame
@@ -73,7 +74,7 @@ NOISE_BITS = 16                  # LFSR steps per frame = bits per noise word
 SQ_STEP, SQPAIR_STEP = 5461, 16383   # six squares sum to +-32766; the pair to +-32766
 SQPAIR = (4, 5)                  # the 808's trimmed oscillators 5 and 6 (800 and 540 Hz)
 TAP_SHIFT = 3                    # TAP m = sat16(y1[m] >> 3): the state / 8, rails at +-8.0 (15.5)
-SRC_OFF, SRC_NOISE, SRC_SQSUM, SRC_PULSE, SRC_SQPAIR, SRC_TAP = 0, 1, 2, 3, 4, 16
+SRC_OFF, SRC_NOISE, SRC_SQSUM, SRC_PULSE, SRC_SQPAIR, SRC_SQ, SRC_TAP = 0, 1, 2, 3, 4, 5, 16
 NL_LIN, NL_SWING, NL_TANH = 0, 1, 2
 DEST_MIX, ENV_FULL = 15, 15
 MIX_BITS = 21                    # 16 paths x 17-bit values, exact
@@ -317,8 +318,8 @@ class DrumsFx:
         self.lfsr, noise = lfsr_frame(self.lfsr)                # 15.4
         sq = [SQ_STEP if p < (1 << (PHASE_BITS - 1)) else -SQ_STEP for p in self.phase]
         sqsum = sum(sq)
-        sqpair = sum(SQPAIR_STEP if self.phase[i] < (1 << (PHASE_BITS - 1)) else -SQPAIR_STEP
-                     for i in SQPAIR)
+        sq1 = [SQPAIR_STEP if p < (1 << (PHASE_BITS - 1)) else -SQPAIR_STEP for p in self.phase]
+        sqpair = sq1[SQPAIR[0]] + sq1[SQPAIR[1]]
         for i in range(N_OSC):
             self.phase[i] = (self.phase[i] + self.osc_inc[i]) & PHASE_MASK
         y1 = self.bank.y1
@@ -336,6 +337,8 @@ class DrumsFx:
                 s = 32767
             elif src == SRC_SQPAIR:
                 s = sqpair
+            elif SRC_SQ <= src < SRC_SQ + N_OSC:
+                s = sq1[src - SRC_SQ]
             elif SRC_TAP <= src < SRC_TAP + self.M:
                 s = y1[src - SRC_TAP] >> TAP_SHIFT
                 self.n_tapsat += not (-32768 <= s <= 32767)
@@ -442,11 +445,81 @@ def env_writes(e: int, stop: int, tau_s: float, peak: float, *, choke: int = 15,
 BD, SD, LT, HT, CH, OH, CP, CB = range(8)
 STOP_NAMES = ("BD", "SD", "LT", "HT", "CH", "OH", "CP", "CB")
 # Modes 0..5 have numerators (the filters), 6..11 are the bridged-T bodies.
-M_HATBP, M_OHHP, M_CHHP, M_SDHP, M_CPBP, M_CBBP, M_BD, M_SDLO, M_SDHI, M_LT, M_HT, M_SPARE = range(12)
+M_HATBP, M_OHHP, M_CHHP, M_SDN, M_CPBP, M_CBBP, M_BD, M_SDLO, M_SDHI, M_LT, M_HT, M_SPARE = range(12)
 # Envelopes.
 E_BDX, E_BDCLICK, E_SDX, E_SDN, E_LTX, E_HTX, E_CH, E_OH, E_CPBURST, E_CPTAIL, E_CBA, E_CBB = range(12)
 OSC_HZ = (205.3, 369.6, 304.4, 522.7, 800.0, 540.0)   # the HD14584 bank, reference 1.5
 FRAME = 1.0 / SR
+
+# ---- the bass drum, entirely from docs/tr808-reference.md section 2 -----------
+# VERIFIED IN A SOURCE [W14a section 5; computed with section 1.2 from R161,
+# R165, R166, R170, C41/C42]: the bridged-T's f0 is **49.4 Hz**, and Werner
+# measures ~49.5. Roland's tuning chart says 56 Hz ("18 ms"); the reference
+# calls that "typical and variable" and tells the implementer to treat 50-56 Hz
+# as the target. The two are not interchangeable, and rev 5 shipped the chart's
+# f0 with the CIRCUIT's Q table -- which is inconsistent: section 2's decay
+# table (Q 2.3/5.2/22.3/63/84 against tau 15/33/144/408/544 ms) satisfies
+# tau = Q/(pi f0) to 1.5 % at f0 = 49.4 and only to 12.8 % at 56. Shipping
+# Q = 22.3 at 56 Hz gives tau = 127 ms where the same table says 144. So the
+# short decay was never a DECAY fault: it was the pitch error, propagated.
+# DR 0009 resolves the conflict inside the reference in favour of the computed
+# value, which two sample sets also corroborate (49-51 Hz).
+BD_HZ, BD_HZ_CHART = 49.4, 56.0
+# VERIFIED IN A SOURCE [section 2, W14a section 6]: Q against the VR6 DECAY
+# knob position, the feedback buffer's own law. The DECAY CONTROL IS NOT A
+# FAULT -- this is the table rev 5 already shipped. Knob positions are the
+# panel's 0..10; the reference tabulates VR6's 0..1.
+BD_DECAY_Q = {0.0: 2.3, 1.0: 5.2, 5.0: 22.3, 9.0: 63.0, 10.0: 84.0}
+# VERIFIED IN A SOURCE [section 2, W14a section 8.1; SN p.6]: while Q43 is on
+# it shorts R165, the foot resistance falls and f0 rises to ~130 Hz at Q ~ 6
+# for ~4 ms ("the ON period of Q43 ... equals 4 ms"; Werner measures ~6 ms).
+# It is the SAME resonator retuned, not a second one, so the host writes the
+# attack coefficients at the hit and the body's 4 ms later.
+BD_ATTACK_HZ, BD_ATTACK_Q, BD_ATTACK_MS = 130.0, 6.0, 4.0
+# VERIFIED IN A SOURCE [section 4, SN text; magnitude inferred]: with the tom's
+# germanium diodes conducting the foot resistance collapses and f0 rises to
+# ~1.7x the small-signal value at the start of a hard hit, settling back as the
+# ring decays -- "amplitude-dependent and gradual, not a stepped envelope", and
+# "accent changes the pitch envelope". This is the toms' "doom" sweep.
+TOM_DROP_RATIO, TOM_DROP_MS, TOM_DROP_STEPS = 1.7, 60.0, 6
+
+
+def bd_decay_q(knob: float) -> float:
+    """Q of the BD body mode for a DECAY knob position in 0..10, from the
+    reference's own table, interpolated geometrically (the law is a resistive
+    divider's, and log Q tracks the tabulated points to 1 % where they are
+    dense). Float; host side only."""
+    ks = sorted(BD_DECAY_Q)
+    k = min(max(float(knob), ks[0]), ks[-1])
+    return float(math.exp(np.interp(k, ks, [math.log(BD_DECAY_Q[x]) for x in ks])))
+
+
+def bd_attack_writes(frame: int, amp: float, decay_knob: float = 5.0) -> list:
+    """The BD attack window as host writes (reference section 2): the body
+    mode is retuned to BD_ATTACK_HZ / BD_ATTACK_Q in the frame of the hit and
+    back to its own f0 / Q after BD_ATTACK_MS. Two writes each way -- a1 and
+    a2 -- because `amp` and `num` do not change."""
+    n = int(round(BD_ATTACK_MS * 1e-3 * SR))
+    hot = mode_writes(M_BD, BD_ATTACK_HZ, BD_ATTACK_Q, amp)[:2]
+    cold = mode_writes(M_BD, BD_HZ, bd_decay_q(decay_knob), amp)[:2]
+    return ([(frame, a, v) for a, v in hot] + [(frame + n, a, v) for a, v in cold])
+
+
+def tom_pitch_drop_writes(frame: int, mode: int, f0_hz: float, q: float, amp: float,
+                          accent: float = 1.0) -> list:
+    """The toms' diode pitch drop as host writes (reference section 4): f0
+    starts at up to TOM_DROP_RATIO x its small-signal value and relaxes back
+    over TOM_DROP_MS in TOM_DROP_STEPS, the excess scaled by the accent
+    because the mechanism is amplitude-dependent. Q is held: the diodes move
+    the foot resistance, which the reference treats as an f0 effect."""
+    out = []
+    excess = (TOM_DROP_RATIO - 1.0) * min(max(accent, 0.0), 1.0)
+    for i in range(TOM_DROP_STEPS + 1):
+        t = i / TOM_DROP_STEPS
+        hz = f0_hz * (1.0 + excess * math.exp(-3.0 * t))
+        f = frame + int(round(t * TOM_DROP_MS * 1e-3 * SR))
+        out += [(f, a, v) for a, v in mode_writes(mode, hz, q, amp)[:2]]
+    return out
 
 
 def kit_808() -> list:
@@ -463,21 +536,24 @@ def kit_808() -> list:
     w += mode_writes(M_HATBP, 7117.0, 6.0, 0.0, BP)          # hats' band-pass, reference 10/11; tapped only
     w += mode_writes(M_OHHP, 7800.0, 2.5, 0.45, HP)          # OH high-pass, reference 11
     w += mode_writes(M_CHHP, 11700.0, 2.5, 0.69, HP)         # CH high-pass, reference 11
-    w += mode_writes(M_SDHP, 2750.0, 0.7, 0.34, HP)           # SD snappy high-pass, reference 3
+    w += mode_writes(M_SDN, 2750.0, 0.7, 0.2059, BP)            # SD snappy filter: the reference's own
+                                                             # 2.75 kHz / Q 0.7 (reference 3) read as a
+                                                             # BAND-pass, which is what the machine measures
     w += mode_writes(M_CPBP, 1071.0, 1.6, 0.0, BP)           # CP band-pass, reference 7; tapped only
-    w += mode_writes(M_CBBP, 900.0, 4.0, 0.0224, BP)            # CB band-pass: 0.9 kHz Q 4 CHOSEN (reference 9, 18)
-    w += mode_writes(M_BD, 56.0, 22.3, 0.00286, RAW)          # BD, decay mid, reference 2 / 14
-    w += mode_writes(M_SDLO, 173.0, 16.3, 0.004, RAW)        # SD low, later units, reference 3
-    w += mode_writes(M_SDHI, 336.0, 9.9, 0.0041, RAW)         # SD high; TONE = this pair's ratio
-    w += mode_writes(M_LT, 90.0, 25.0, 0.0046, RAW)          # LT, reference 4
-    w += mode_writes(M_HT, 185.0, 25.0, 0.0094, RAW)         # HT, reference 4
+    w += mode_writes(M_CBBP, 1100.0, 2.8, 0.02176, BP)         # CB band-pass: FITTED to the reference unit's
+                                                             # 16 partials (reference 9's open item, closed)
+    w += mode_writes(M_BD, BD_HZ, bd_decay_q(5.0), 0.003309, RAW)   # BD at DECAY 5.0, both MEASURED (DR 0009)
+    w += mode_writes(M_SDLO, 173.0, 16.3, 0.0036, RAW)        # SD low, later units, reference 3
+    w += mode_writes(M_SDHI, 336.0, 9.9, 0.00369, RAW)         # SD high; TONE = this pair's ratio
+    w += mode_writes(M_LT, 90.0, 25.0, 0.0078319, RAW)          # LT, reference 4
+    w += mode_writes(M_HT, 185.0, 25.0, 0.0162904, RAW)         # HT, reference 4
     # envelopes: the pulse-shaper's kick is a 0.1 ms exponential (reference 2, "what to implement");
     # the bodies' exciters are 0.25 so that an accent of 2.0 keeps the BD's state (the bank's
     # loudest ring, ~720 x the kick) under a quarter of the 28-bit rail
     w += env_writes(E_BDX, BD, 0.1e-3, 0.25)
     w += env_writes(E_BDCLICK, BD, 0.0, 0.06, hold=48)       # the 1 ms pulse leaking through, reference 2
     w += env_writes(E_SDX, SD, 0.1e-3, 0.25)
-    w += env_writes(E_SDN, SD, 15e-3, 0.5)                   # SNAPPY = this peak, reference 3
+    w += env_writes(E_SDN, SD, 15e-3, 0.5)                   # SNAPPY = this peak x M_SDN's amp, reference 3
     w += env_writes(E_LTX, LT, 0.1e-3, 0.25)
     w += env_writes(E_HTX, HT, 0.1e-3, 0.25)
     w += env_writes(E_CH, CH, 20e-3, 1.0)                    # reference 11
@@ -485,14 +561,14 @@ def kit_808() -> list:
     w += env_writes(E_CPBURST, CP, 4e-3, 0.69, bursts=2, period=480)  # three bursts 10 ms apart, reference 7
     w += env_writes(E_CPTAIL, CP, 47e-3, 0.22)               # the tail at -10 dB, reference 7 (chosen ratio)
     w += env_writes(E_CBA, CB, 5e-3, 0.5)                    # two-slope envelope, reference 9
-    w += env_writes(E_CBB, CB, 30e-3, 0.5)
+    w += env_writes(E_CBB, CB, 100e-3, 0.5)                  # MEASURED: the reference tail is tau 98 ms
     # paths
     paths = [
         path_word(SRC_PULSE, E_BDX, dest=M_BD),
         path_word(SRC_PULSE, E_BDCLICK, dest=DEST_MIX),
         path_word(SRC_PULSE, E_SDX, dest=M_SDLO),
         path_word(SRC_PULSE, E_SDX, dest=M_SDHI),              # both from the pulse (reference 3: cascade is subtle)
-        path_word(SRC_NOISE, E_SDN, dest=M_SDHP),
+        path_word(SRC_NOISE, E_SDN, dest=M_SDN),
         path_word(SRC_PULSE, E_LTX, dest=M_LT),
         path_word(SRC_PULSE, E_HTX, dest=M_HT),
         path_word(SRC_SQSUM, ENV_FULL, dest=M_HATBP),          # the six squares, always on, into the band-pass
@@ -500,7 +576,11 @@ def kit_808() -> list:
         path_word(SRC_TAP + M_HATBP, E_OH, nl=NL_SWING, dest=M_OHHP),
         path_word(SRC_NOISE, ENV_FULL, dest=M_CPBP),           # noise, always on, into the clap band-pass
         path_word(SRC_TAP + M_CPBP, E_CPBURST, E_CPTAIL, nl=NL_TANH, dest=DEST_MIX),
-        path_word(SRC_SQPAIR, E_CBA, E_CBB, nl=NL_SWING, dest=M_CBBP),
+        # the cowbell's two oscillators are gated SEPARATELY (reference 9: each has its own
+        # transistor gate) and summed after: nl(a) + nl(b), never nl(a + b), which would make
+        # the 260 Hz difference tone the machine has not got (15.5)
+        path_word(SRC_SQ + SQPAIR[0], E_CBA, E_CBB, nl=NL_SWING, dest=M_CBBP),
+        path_word(SRC_SQ + SQPAIR[1], E_CBA, E_CBB, nl=NL_SWING, dest=M_CBBP),
     ]
     for p, word in enumerate(paths):
         w.append((A_PATH + p, word))
@@ -508,16 +588,44 @@ def kit_808() -> list:
 
 
 # ---- the reference host (informative): hits and patterns to writes ------------------
-def hit_writes(hits, kit: list = None, start_frame: int = 0) -> list:
+def _kit_amp(kit: list, mode: int) -> float:
+    """The amp register a kit image writes for one mode, back as a level."""
+    a = A_MODE + mode * MODE_STRIDE + 2
+    for addr, v in kit or ():
+        if addr == a:
+            return v / 65536.0
+    return 0.0
+
+
+def hit_writes(hits, kit: list = None, start_frame: int = 0, coef_seq: bool = True) -> list:
     """hits: (frame, stop, accent 0..2.0). Each hit writes its stop's accent
     and raises the stop bit in that frame; the bit is dropped in the next
     frame so the next hit is an edge again. Two hits of one stop in
     consecutive frames cannot both fire (no 0->1 between them) -- a host
-    leaves a frame between hits, as a slice-based host does by construction."""
-    w = [(start_frame, a, v) for a, v in (kit or [])]
+    leaves a frame between hits, as a slice-based host does by construction.
+
+    `coef_seq` (the default) also emits the two coefficient sequences the
+    reference describes and no register image can hold, because they are
+    changes over time to ONE mode's coefficients rather than settings: the
+    BD's 4 ms attack window (section 2) and the toms' diode pitch drop
+    (section 4). They are the host's, not the block's -- the block already
+    lets any mode be retuned on any frame (contract 15.6) -- which is why
+    they live here and not in `kit_808()`, and why Appendix G is unchanged
+    by them. `coef_seq=False` is the bare register image, for a host that
+    sequences coefficients itself."""
+    kit = kit or []
+    w = [(start_frame, a, v) for a, v in kit]
     by_frame = {}
     for f, s, a in hits:
         by_frame.setdefault(int(f), []).append((int(s), float(a)))
+    if coef_seq:
+        for f, s_, a_ in hits:
+            if s_ == BD:
+                w += bd_attack_writes(int(f), _kit_amp(kit, M_BD))
+            elif s_ == LT:
+                w += tom_pitch_drop_writes(int(f), M_LT, 90.0, 25.0, _kit_amp(kit, M_LT), a_)
+            elif s_ == HT:
+                w += tom_pitch_drop_writes(int(f), M_HT, 185.0, 25.0, _kit_amp(kit, M_HT), a_)
     mask = 0
     events = {}
     for f in sorted(by_frame):

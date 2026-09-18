@@ -211,16 +211,29 @@ def test_tap_is_the_mode_state_over_eight_with_a_rail():
 def test_sources_are_what_the_contract_says():
     """PULSE is 32767; SQSUM is the six squares at +-5461 each (a 7-level
     staircase from 0 phases = +32766); SQPAIR is squares 4 and 5 at +-16383;
-    OFF and every unassigned code are 0; envelope index 15 reads full scale
-    (32767, so a path value is the source x 32767 >> 15) and 12..14 zero."""
+    SQ i is square i ALONE at +-16383 (src 5..10), so SQ 4 + SQ 5 is SQPAIR
+    term for term and the cowbell's two gates cost no level; OFF and every
+    unassigned code are 0; envelope index 15 reads full scale (32767, so a
+    path value is the source x 32767 >> 15) and 12..14 zero."""
     d = dx.DrumsFx()
-    for p, (src, e1) in enumerate(((dx.SRC_PULSE, 15), (dx.SRC_SQSUM, 15), (dx.SRC_SQPAIR, 15), (dx.SRC_OFF, 15),
-                                   (5, 15), (dx.SRC_PULSE, 13), (dx.SRC_PULSE, 12), (dx.SRC_NOISE, 15))):
+    srcs = ((dx.SRC_PULSE, 15), (dx.SRC_SQSUM, 15), (dx.SRC_SQPAIR, 15), (dx.SRC_OFF, 15),
+            (11, 15), (dx.SRC_PULSE, 13), (dx.SRC_PULSE, 12), (dx.SRC_NOISE, 15),
+            (dx.SRC_SQ + 4, 15), (dx.SRC_SQ + 5, 15))
+    for p, (src, e1) in enumerate(srcs):
         d.write(dx.A_PATH + p, dx.path_word(src, e1, dest=p))
     d.phase[5] = 1 << 23                                                      # square 5 low
     _, _, _, noise, sqsum, exc, vals = d.frame()
     assert vals[:7] == [(v * 32767) >> 15 for v in (32767, 4 * 5461)] + [0] * 5 and sqsum == 4 * 5461
     assert noise == 1 and vals[7] == (noise * 32767) >> 15 == 0             # the seed's first word, x 32767 >> 15
+    lone = [(v * 32767) >> 15 for v in (dx.SQPAIR_STEP, -dx.SQPAIR_STEP)]
+    assert vals[8:10] == lone, vals[8:10]
+    # SQ 4 + SQ 5 is SQPAIR at the SOURCE, so splitting the cowbell into two
+    # gated paths costs no level. The path values can differ by one LSB
+    # because `>> 15` floors, and floor(a) + floor(b) != floor(a + b) when the
+    # two have opposite signs -- which is the only difference the split makes
+    # to a LINEAR path, and is why the cowbell's own test measures the
+    # difference tone rather than the sample values.
+    assert abs(vals[8] + vals[9] - vals[2]) <= 1, (vals[8], vals[9], vals[2])
 
 
 # ---- the bank's extension (15.6) -----------------------------------------------------
@@ -314,23 +327,6 @@ def test_kit_voices_sit_at_the_chart_levels():
         assert abs(pk / target[name] - 1.0) < 0.12, (name, pk)
 
 
-def test_bd_is_a_56_hz_resonator_with_the_reference_decay():
-    """The BD is mode 6 ringing at 56 Hz with tau 127 ms (reference 2,
-    decay mid), pinged by the 0.1 ms exponential kick: zero crossings over
-    0.1..0.4 s give 56 Hz within 3 %, and the envelope's 1/e time is 127 ms
-    within 20 %."""
-    d, dm, bd = _solo(dx.BD, 0.6)
-    x = bd.astype(float)
-    a, b = int(0.1 * SR) + 10, int(0.4 * SR) + 10
-    zc = np.sum(np.diff(np.signbit(x[a:b])) != 0)
-    assert abs(zc / 2 / ((b - a) / SR) - 56.0) / 56.0 < 0.03
-    env = np.abs(x)
-    p0 = env[a:a + 2000].max(); t = a + 2000
-    while env[t:t + 1000].max() > p0 / math.e:
-        t += 100
-    assert abs((t - a - 1000) / SR - 0.127) / 0.127 < 0.2
-
-
 def test_snare_has_two_partials_and_a_snap():
     """Spectral peaks at the SD's 173 and 336 Hz modes (later units,
     reference 3), and noise energy above 2 kHz from the snappy path that is
@@ -420,6 +416,8 @@ def test_signal_path_has_no_transcendentals():
     transcendental, and every traced array is integer."""
     d = dx.DrumsFx()
     w = dx.hit_writes([(5, s, 1.0) for s in range(8)], dx.kit_808())
+    nframes = max(300, max(f for f, _, _ in w) + 1)   # the coefficient sequences
+                                                      # of 15.7 run to 60 ms after a hit
 
     def boom(*a, **k):
         raise AssertionError("float transcendental in the signal path")
@@ -429,10 +427,273 @@ def test_signal_path_has_no_transcendentals():
     try:
         for o, n, _ in orig:
             setattr(o, n, boom)
-        dm, bd = d.play(w, 300)
+        dm, bd = d.play(w, nframes)
     finally:
         for o, n, f in orig:
             setattr(o, n, f)
     assert dm.dtype == np.int64 and bd.dtype == np.int32
     for k in ("dmix", "body", "fire", "noise", "env", "exc"):
         assert np.issubdtype(d.trace[k].dtype, np.integer), k
+
+
+# ---- measured against a real TR-808 (docs/drum-verification.md section 8) -------
+#
+# Every target below is a number measured from the reference recordings by
+# model/drum_fit.py, whose separator is itself validated in
+# model/test_drum_fit.py. The three statuses the contract distinguishes:
+#   verified in a source      docs/tr808-reference.md's tagged claims
+#   measured against this recording   s/n 103852, one unit, stated as such
+#   our chosen specification  what kit_808() ships, and why
+# are kept apart in the names and the docstrings.
+
+SNAPPY_RATIO_AT_5 = 0.6193       # measured: noise/tone amplitude at SNAPPY 5.0
+CB_DIFF_TONE_DB = -65.0          # the machine's own 265 Hz line is -67.8 dB
+
+
+def _sd_noise_ratio(accent=1.0):
+    """The snare's noise/tone amplitude ratio, by exact arithmetic rather than
+    by the separator: the tonal and noise paths are separate paths into
+    separate modes with LIN nonlinearities, so each renders alone and the two
+    sum to the whole."""
+    import drum_fit as df
+    pk = lambda e: dx.A_ENV + e * dx.ENV_STRIDE + 1
+    def render(ov):
+        kit = [(a, ov.get(a, v)) for a, v in dx.kit_808()]
+        d = dx.DrumsFx(); n = int(0.5 * SR)
+        dm, bd = d.play(dx.hit_writes([(10, dx.SD, accent)], kit), n)
+        return bd.astype(np.float64) / 32768.0
+    full, tone, noise = render({}), render({pk(dx.E_SDN): 0}), render({pk(dx.E_SDX): 0})
+    i = max(0, int(np.argmax(np.abs(full) > 0.02 * np.abs(full).max())) - int(5e-4 * SR))
+    n = int(0.25 * SR)
+    t, z = tone[i:i + n], noise[i:i + n]
+    return math.sqrt(float(z @ z) / float(t @ t)), noise
+
+
+def test_snare_noise_sits_where_the_machines_snappy_knob_puts_it():
+    """MEASURED: across the reference set's 25 snare files the noise/tone
+    amplitude ratio runs 0.212 / 0.219 / 0.619 / 1.153 / 1.652 at SNAPPY
+    0 / 2.5 / 5 / 7.5 / 10. kit_808() claims the chart's 12-o'clock setting,
+    so it must sit at SNAPPY 5.0 -- within 15 %, which is inside the +-0.125
+    spread the five TONE positions show at that setting.
+
+    The target is read off the KNOB'S CURVE, not off one file: a single
+    energy share cannot say where on a knob a signal sits, because the curve
+    is flat from 0 to 2.5 (the pot's dead zone plus the separator's own 4.7 %
+    floor on this material) and then rises about 2 dB per knob unit."""
+    got, _ = _sd_noise_ratio()
+    assert abs(got / SNAPPY_RATIO_AT_5 - 1.0) < 0.15, (
+        f"noise/tone amplitude {got:.4f} against the machine's {SNAPPY_RATIO_AT_5:.4f} "
+        f"at SNAPPY 5.0 ({20 * math.log10(got / SNAPPY_RATIO_AT_5):+.2f} dB)")
+
+
+def test_snare_noise_is_a_hump_at_3_to_5_khz_not_a_rising_high_pass():
+    """MEASURED: the machine's snare noise, recovered as the residual after
+    subtracting the two body modes, puts 1.6 / 20.5 / 36.1 / 28.5 / 10.4 /
+    2.9 percent of its energy in 0.7-1.5 / 1.5-3 / 3-5 / 5-8 / 8-12 /
+    12-16 kHz -- it PEAKS at 3-5 kHz and falls above. A 2-pole high-pass
+    cannot do that; ours put 30.5 % in 8-12 kHz and 27.9 % above 12 kHz."""
+    import drum_fit as df
+    _, noise = _sd_noise_ratio()
+    edges = [700, 1500, 3000, 5000, 8000, 12000, 16000]
+    sh = df.band_shares(df.trim_onset(noise, SR)[:int(0.25 * SR)], SR, edges)
+    assert np.argmax(sh) == 2, f"the peak band must be 3-5 kHz, got {sh}"
+    assert sh[5] < 8.0, f"{sh[5]:.1f} % above 12 kHz against the machine's 2.9 %"
+    assert sh[1] > 12.0, f"{sh[1]:.1f} % in 1.5-3 kHz against the machine's 20.5 %"
+
+
+def test_snare_noise_filter_is_a_band_pass():
+    """The fix is one register: the snappy mode's NUMERATOR. Its pole stays at
+    the reference's own 2.75 kHz / Q 0.7 (docs/tr808-reference.md section 3,
+    verified in a source); read as a high-pass that pole is flat to Nyquist,
+    and read as a band-pass it fits the measured noise spectrum to 1.9 dB
+    weighted rms against the high-pass's 5.2."""
+    kit = dict(dx.kit_808())
+    assert kit[dx.A_MODE + dx.M_SDN * dx.MODE_STRIDE + 3] == BP
+
+
+def test_cowbell_gates_each_oscillator_separately():
+    """VERIFIED IN A SOURCE (docs/tr808-reference.md section 9): 'each
+    oscillator has its own transistor gate (Q15, Q14)'. Two paths, one per
+    oscillator, each through its own swing VCA, summed into the band-pass --
+    and no path may take the pre-summed pair, because nl(a+b) != nl(a)+nl(b)."""
+    kit = dict(dx.kit_808())
+    paths = [kit[dx.A_PATH + p] for p in range(dx.N_PATH) if dx.A_PATH + p in kit]
+    cb = [w for w in paths if ((w >> 18) & 15) == dx.M_CBBP]
+    assert len(cb) == 2, f"expected one path per cowbell oscillator, got {len(cb)}"
+    srcs = sorted(w & 31 for w in cb)
+    assert srcs == [dx.SRC_SQ + dx.SQPAIR[0], dx.SRC_SQ + dx.SQPAIR[1]], srcs
+    assert all(((w >> 13) & 3) == dx.NL_SWING for w in cb)
+    assert not any((w & 31) == dx.SRC_SQPAIR for w in paths), "SRC_SQPAIR is the defect"
+
+
+def test_cowbell_has_no_difference_tone():
+    """MEASURED: the reference unit's 265 Hz line (824 - 558, the difference
+    of its two trimmed oscillators) is at -67.8 dB, which is 18.9 dB above
+    that recording's own spectral floor in 230-290 Hz (median -86.7 dB) and
+    so is a real line, not the floor. Ours was at -25.6 dB: 42 dB louder than
+    the machine's. It must now be at least as far down as the machine's,
+    allowing 3 dB."""
+    import drum_fit as df
+    d, dm, bd = _solo(dx.CB, 0.5)
+    x = bd.astype(np.float64) / 32768.0
+    f0, f1 = dx.OSC_HZ[dx.SQPAIR[0]], dx.OSC_HZ[dx.SQPAIR[1]]
+    diff = abs(f0 - f1)
+    got = df.line_db(x, SR, diff, tol=6.0)
+    assert got < CB_DIFF_TONE_DB, f"difference tone at {diff:.0f} Hz is {got:.1f} dB"
+
+
+def test_gating_the_sum_makes_a_difference_tone_and_gating_each_does_not():
+    """The mechanism, in isolation: two square waves, one swing VCA, nothing
+    else. `nl(a + b)` puts the difference and sum tones about 8 dB below the
+    fundamentals; `nl(a) + nl(b)` puts them at the arithmetic floor, 150 dB
+    down -- they are not there at all. This is the whole of the cowbell
+    defect, and it is why the fix is two paths rather than a filter."""
+    d = dx.DrumsFx()
+    n = 1 << 16
+    fa, fb = dx.OSC_HZ[dx.SQPAIR[1]], dx.OSC_HZ[dx.SQPAIR[0]]
+    mask = (1 << 24) - 1
+    pa = (np.arange(n) * dx.osc_inc_reg(fa)) & mask
+    pb = (np.arange(n) * dx.osc_inc_reg(fb)) & mask
+    A = np.where(pa < (1 << 23), dx.SQPAIR_STEP, -dx.SQPAIR_STEP)
+    B = np.where(pb < (1 << 23), dx.SQPAIR_STEP, -dx.SQPAIR_STEP)
+    nl = lambda v: np.array([d._nonlinear(int(s), dx.NL_SWING) for s in v], dtype=np.float64)
+    def line(y, hz):
+        S = np.abs(np.fft.rfft(y * np.hanning(len(y))))
+        f = np.fft.rfftfreq(len(y), 1.0 / SR)
+        m = (f > hz - 6) & (f < hz + 6)
+        return 20 * math.log10(S[m].max() / S.max() + 1e-30)
+    together, apart = nl(A + B), nl(A) + nl(B)
+    assert line(together, abs(fa - fb)) > -15.0
+    assert line(together, fa + fb) > -15.0
+    assert line(apart, abs(fa - fb)) < -100.0
+    assert line(apart, fa + fb) < -100.0
+
+
+def test_cowbell_tail_and_band_pass_are_the_fitted_ones():
+    """MEASURED: the reference cowbell's tail is tau = 98 ms (fit over
+    -3..-30 dB), not 30; and a 2-pole band-pass fitted to 16 identified
+    partials lands at 1100 Hz Q 2.8, not 900 Hz Q 4."""
+    kit = dict(dx.kit_808())
+    mask = (1 << 26) - 1
+    a1, a2 = pole_regs(1100.0, 2.8)
+    assert kit[dx.A_MODE + dx.M_CBBP * dx.MODE_STRIDE] == (a1 & mask)
+    assert kit[dx.A_MODE + dx.M_CBBP * dx.MODE_STRIDE + 1] == (a2 & mask)
+    assert kit[dx.A_ENV + dx.E_CBB * dx.ENV_STRIDE + 2] == dx.rate_reg(100e-3)
+
+
+def test_bd_pitch_is_the_reference_circuits_not_roland_s_chart():
+    """VERIFIED IN A SOURCE (docs/tr808-reference.md section 2, [W14a section
+    5; computed with section 1.2]): the bridged-T's f0 is 49.4 Hz, and Werner
+    measures ~49.5. Roland's chart's 56 Hz ("18 ms") is the outlier, and the
+    reference marks the chart "typical and variable".
+
+    The proof that 49.4 is the reference's own working number, not a reading
+    of it, is section 2's decay table: its Q and tau columns satisfy the
+    resonator identity tau = Q / (pi f0) to 1.5 % at 49.4 Hz and only to
+    12.8 % at 56. Rev 5 shipped that table's Q = 22.3 with the chart's 56 Hz,
+    which is why its tau came out 127 ms where the same table says 144.
+    MEASURED, corroborating: 50.70 +- 0.02 Hz on the reference unit at the
+    chart's own 12-o'clock condition, 48.8-51.0 Hz on a second sample set."""
+    import drum_fit as df
+    for f0, bound in ((dx.BD_HZ, 0.016), (dx.BD_HZ_CHART, 0.130)):
+        worst = max(abs(q / (math.pi * f0) * 1e3 / tau - 1)
+                    for q, tau in ((2.3, 15), (5.2, 33), (22.3, 144), (63.0, 408), (84.0, 544)))
+        assert worst < bound, (f0, worst)
+        assert (worst < 0.02) == (f0 == dx.BD_HZ), "only one of the two is self-consistent"
+        assert (f0 != dx.BD_HZ_CHART) or worst > 0.10, "the chart's f0 must be the inconsistent one"
+    d, dm, bd = _solo(dx.BD, 1.0)
+    x = bd.astype(np.float64) / 32768.0
+    m = df.noise_share(df.trim_onset(x, SR)[int(0.020 * SR):], SR,
+                       df.VOICE_MODES["BD"], win_s=0.30)["modes"][0]
+    assert m["hz"] == pytest.approx(dx.BD_HZ, rel=0.01), m
+
+
+def test_bd_decay_control_is_the_references_own_q_table():
+    """The DECAY control is NOT a fault and is not retuned here: `bd_decay_q`
+    is docs/tr808-reference.md section 2's table, Q against the VR6 position,
+    and it must reproduce every tabulated point within 3 %.
+
+    With the pitch fixed, the resulting tau at the 12-o'clock position is the
+    reference's own 144 ms -- reported as TAU, the single exponential's time
+    constant. Its T20 is 2.303 tau = 331 ms, which is the table's own "2.3
+    tau" column (330 ms); Roland's chart's "mid 300 ms" is the T20-like
+    figure, not the tau, and reading it as a tau is how this voice acquired
+    two false decay findings already."""
+    for k, q in dx.BD_DECAY_Q.items():
+        assert dx.bd_decay_q(k) == pytest.approx(q, rel=0.03), (k, q)
+    tau_ms = dx.bd_decay_q(5.0) / (math.pi * dx.BD_HZ) * 1e3
+    assert tau_ms == pytest.approx(144.0, rel=0.03), tau_ms
+    assert 2.303 * tau_ms == pytest.approx(330.0, rel=0.05), "T20, not tau"
+
+
+def test_bd_body_rings_at_the_tabulated_tau():
+    """MEASURED on our own render, the quantity the table states: tau of the
+    body mode, fitted as a damped sinusoid from 20 ms (past the attack window)
+    over 300 ms. It must be section 2's 144 ms.
+
+    Recorded, not hidden: the reference UNIT measures tau = 178.0 +- 29.1 ms
+    at its 12-o'clock DECAY, 23 % longer than the circuit table. That is
+    inside the +-50 % on Q that section 12 says is normal between units, and
+    the rule is that the reference wins over one unit, so the kit takes 144
+    and the gap is tracked (contract 17.21) rather than tuned away."""
+    import drum_fit as df
+    d, dm, bd = _solo(dx.BD, 1.0)
+    x = bd.astype(np.float64) / 32768.0
+    m = df.noise_share(df.trim_onset(x, SR)[int(0.020 * SR):], SR,
+                       df.VOICE_MODES["BD"], win_s=0.30)["modes"][0]
+    assert m["tau_ms"] == pytest.approx(144.0, rel=0.05), m
+
+
+def test_bd_has_the_attack_window_and_without_it_does_not():
+    """VERIFIED IN A SOURCE (section 2, [W14a section 8.1; SN p.6]): while Q43
+    is on it shorts R165 and f0 rises to ~130 Hz at Q ~ 6 for ~4 ms. It is the
+    SAME resonator retuned, so the host writes it (15.7).
+
+    Measured as BAND ENERGY OVER A STATED INTERVAL -- the first 4 ms, filtered
+    in the time domain and then integrated -- never as a short-window FFT
+    peak: 4 ms at 48 kHz gives 250 Hz bins, and the apparent peak of anything
+    then tracks the bin spacing. `coef_seq=False` is the built-in negative
+    control: the same measurement on the same render without the sequence.
+    Ours puts 22.3 % of the first 4 ms in 80-150 Hz against 2.7 % without it;
+    the reference unit puts 41.2 % there, so this closes most of the gap and
+    not all of it (contract 17.21)."""
+    import drum_fit as df
+    edges = [20, 80, 150, 300, 600, 2000]
+    def first4(seq):
+        d = dx.DrumsFx()
+        n = int(0.8 * SR)
+        dm, bd = d.play(dx.hit_writes([(10, dx.BD, 1.0)], dx.kit_808(), coef_seq=seq), n)
+        x = df.trim_onset(bd.astype(np.float64) / 32768.0, SR)
+        return df.band_energy_interval(x, SR, edges, 0.0, 0.004)
+    with_, without = first4(True), first4(False)
+    assert without[1] < 5.0, f"the control must have no attack: {without}"
+    assert with_[1] > 15.0, f"80-150 Hz over the first 4 ms is {with_[1]:.1f} %"
+    assert with_[1] > 5 * without[1]
+
+
+def test_toms_drop_in_pitch_by_the_diode_ratio_and_by_accent():
+    """VERIFIED IN A SOURCE (section 4, [SN text; magnitude inferred]): with
+    the germanium diodes conducting the foot resistance collapses and f0 rises
+    to ~1.7x the small-signal value at the start of a hard hit, settling back
+    -- "amplitude-dependent and gradual", and "accent changes the pitch
+    envelope". The reference's own example is LT ~145 Hz at the start of a
+    hard hit settling to 86.
+
+    Measured from half-periods between zero crossings, which needs no window
+    at all. `coef_seq=False` is the negative control."""
+    def halfperiods(x, n=4):
+        z = np.nonzero(np.diff(np.signbit(x)))[0]
+        return [SR / (2 * (z[i + 1] - z[i])) for i in range(min(n, len(z) - 1))]
+    def start_hz(accent, seq):
+        d = dx.DrumsFx()
+        n = int(0.6 * SR)
+        dm, bd = d.play(dx.hit_writes([(10, dx.LT, accent)], dx.kit_808(), coef_seq=seq), n)
+        import drum_fit as df
+        return max(halfperiods(df.trim_onset(bd.astype(np.float64), SR)))
+    flat = start_hz(1.0, False)
+    assert flat == pytest.approx(90.0, rel=0.03), f"the control must be flat at 90 Hz, got {flat}"
+    hard = start_hz(1.0, True)
+    assert hard / 90.0 == pytest.approx(dx.TOM_DROP_RATIO, rel=0.10), hard
+    assert hard == pytest.approx(145.0, rel=0.10), "the reference's own LT example"
+    soft = start_hz(0.4, True)
+    assert flat < soft < hard, f"accent must move it: {soft} between {flat} and {hard}"

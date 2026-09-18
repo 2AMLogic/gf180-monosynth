@@ -4,8 +4,16 @@ What this is: every voice `model/drums_fx.py` renders, measured against a
 recording of a real Roland TR-808 at the same panel setting, with the numbers
 and the pictures behind each verdict.
 
+> **Superseded in part, 2026-09-18 — read §8 first.** The body/air energy
+> split used throughout §3 and §4 is invalid on a decaying one-shot and its
+> numbers are withdrawn; so is "the first 4 ms peaks at 250 Hz". §8 gives the
+> validated replacements and what was actually wrong. The structural findings
+> — the cowbell's shared gate, the missing attack window, the snare's noise
+> band — survive; the magnitudes do not.
+
 **Headline.** Four of eight voices are right or nearly right. The snare is
-badly wrong — its noise is 16 dB too quiet, so half the instrument is
+badly wrong — ~~its noise is 16 dB too quiet~~ (withdrawn, §8.1: the level is
+2.3 dB down, the *band* is the fault), so half the instrument is
 missing. The cowbell is wrong in three ways. The bass drum works but is
 thin, short and pitched high, which is the sponsor's "the kick is really
 weak". **All four of the previously suspected defects are refuted**: they were
@@ -136,8 +144,8 @@ solo render at accent 1.0.
 
 | voice | verdict | f0 / peak | τ | worst single error |
 |---|---|---|---|---|
-| **BD** | **close — thin and short** | 56.0 vs **49.8** Hz (+12.4 %) | 127 vs **230** ms (−45 %) | no attack transient, no harmonics |
-| **SD** | **wrong** | 173.0 vs 172.0 Hz ✓ | 29.1 vs 28.4 ms ✓ | noise 1.2 % of energy vs **47.3 %** |
+| **BD** | **close — thin and short** (§8.3) | 56.0 vs **49.8** Hz — superseded, 50.70 ± 0.02 | 127 vs 230 ms — superseded, the kit's own f0 error (DR 0009) | no attack transient, no harmonics |
+| **SD** | **wrong** (§8.1) | 173.0 vs 172.0 Hz ✓ | 29.1 vs 28.4 ms ✓ | ~~noise 1.2 % vs 47.3 %~~ withdrawn — 18.6 % vs 27.7 %, and the band is wrong |
 | **LT** | **matches** | 90.0 vs 88.4 Hz (+1.8 %) | 88.8 vs 87.6 ms (+1.4 %) | pink noise absent (small) |
 | **HT** | **matches** | 185.0 vs 187.5 Hz (−1.3 %) | 43.0 vs 41.7 ms (+3.1 %) | pink noise absent (small) |
 | **CH** | **close — too bright** | 7200 vs 6814 Hz | 19.6 vs 16.0 ms (+23 %) | 47 % above 13 kHz vs 30 % |
@@ -171,8 +179,9 @@ Three things are wrong, and together they are "the kick is really weak":
    preset sits at about knob 4.2 of 10. The ends of the range are right, so
    this is the mid-point mapping, not the mechanism.
    **Fix:** Q ≈ 40 rather than 22.3 (τ ∝ Q).
-3. **There is no attack and no harmonic structure.** The real bass drum's
-   first 4 ms has its energy at **250 Hz**; ours has no spectral peak above DC
+3. **There is no attack and no harmonic structure.** ~~The real bass drum's
+   first 4 ms has its energy at **250 Hz**~~ — **withdrawn, an FFT-bin
+   artefact; see §8.3 for the band-energy measurement that replaces it**; ours has no spectral peak above DC
    at all — the first 4 ms is a rising ramp. And the real one has a 2nd
    harmonic at **−43 dB** and a 3rd at −51 dB, where ours are at **−80 and
    −97 dB**: ours is a mathematically pure sine. On anything smaller than a
@@ -211,12 +220,16 @@ is not what a 1980s-serial unit does.
 Now the spectrum panel. The real machine's noise band sits at −20 dB from
 1.5 to 10 kHz. Ours sits at −50 dB. Measured as energy:
 
+> **This table is withdrawn (§8.1).** Both columns are the whole-span Hann
+> split, which under-reports a fast-decaying noise by 5–9×. The validated
+> figures are 27.7 % for the machine at SNAPPY 5.0 and 18.6 % for ours.
+
 | | body (<700 Hz) | noise (>700 Hz) | power centroid |
 |---|---|---|---|
 | real, SNAPPY 5.0 | 48.5 % | **51.5 %** | **2513 Hz** |
 | ours | 98.8 % | **1.2 %** | **282 Hz** |
 
-The noise is **about 16 dB too quiet** — a factor of 47 in power. Measured
+~~The noise is **about 16 dB too quiet**~~ — a factor of 47 in power. Measured
 against the machine's own SNAPPY law, our kit is sitting at roughly **2.5 on a
 0–10 dial** while claiming to be the 12-o'clock reference:
 
@@ -224,6 +237,9 @@ against the machine's own SNAPPY law, our kit is sitting at roughly **2.5 on a
 |---|---|---|---|---|---|
 | noise share, real | 0.0 % | 1.1 % | 47.3 % | 79.3 % | 89.8 % |
 | ours | | **1.2 %** | | | |
+
+> Withdrawn (§8.1). The validated curve is 4.70 / 4.96 / 27.66 / 56.01 /
+> 71.89 %, it is flat from 0 to 2.5, and ours interpolates to SNAPPY ≈ 4.4.
 
 Second, the band is wrong. Ours is white noise through a 2-pole high-pass at
 2.75 kHz, so it is flat to Nyquist. The real machine's snare noise is a hump:
@@ -429,6 +445,15 @@ probably a defect rather than a virtue.
 
 ## 6. What to change, in order
 
+> **Status after contract revision 6 (§8):** 1 done (but the diagnosis was
+> wrong — the level was 2.3 dB down, not 16 dB, and the band was the fault);
+> 2 done, all three parts; 3 done for f0 and the attack window — the decay
+> needed no change and the h2/h3 gap is the excitation shape, 17.20; 4, 5 and
+> 6 not done. The priority order below is also superseded: a discrimination
+> study over the whole kit puts the snare furthest from the machine and the
+> bass drum closest, and puts **the excitation shape** above everything in
+> this table.
+
 | | voice | change | why |
 |---|---|---|---|
 | 1 | SD | raise `E_SDN` peak / `M_SDHP` amp by ≈16 dB; band-limit the snappy path around 4 kHz | half the instrument is missing; worst defect found |
@@ -465,3 +490,200 @@ probably a defect rather than a virtue.
 *Measured 2026-09-18 against `sounds-tr808-fischer` @ `85fbecf`, renders from
 `model/drums_fx.py` as of the `drums` branch. Script:
 `model/drum_verify.py`. Plots: `docs/img/drum-verification/`.*
+
+---
+
+## 8. Re-measured, 2026-09-18: one method withdrawn, three faults fixed
+
+Everything above this section was measured with `model/drum_verify.py`. Four
+of its findings do not survive re-measurement, and **the headline of §4.2 is
+one of them**:
+
+| | why |
+|---|---|
+| "the snare's noise is 16 dB too quiet" (§4.2) | the body/air split is invalid on a decaying one-shot (§8.0); the gap is 2.3 dB and the *band* is the fault (§8.1) |
+| "the real bass drum's first 4 ms has its energy at 250 Hz" (§4.1) | an FFT-bin artefact; 4 ms at 44.1 kHz gives 250.6 Hz bins (§8.3) |
+| "the BD decay is 45 % short" (§4.1) | not a decay fault: the kit's own f0 error propagating through τ = Q/(π f0) (§8.3) |
+| "BD pitch, ours 56.0 vs real 49.8 Hz" (§4) | the direction is right, the number superseded — 50.70 ± 0.02 at the 12-o'clock condition (§8.3) |
+
+The structural findings survive: the cowbell's shared gate, the snare's noise
+band, the missing attack window. This section supersedes the rows it names;
+the rest of the document stands. New measurements are `model/drum_fit.py`,
+validated in `model/test_drum_fit.py`.
+
+### 8.0 The method that failed, and how it was caught
+
+`drum_verify.measure`'s **body/air energy split** — power above and below a
+split frequency, from `drum_verify.spectrum` — applies a Hann window across
+the whole analysis span. On a 500 ms span that weights t = 10 ms by **0.0039**
+and t = 250 ms by **1.0**: a 48 dB tilt away from the attack and towards
+whichever component decays slowest. On a decaying one-shot it therefore does
+not measure energy; it measures the tail.
+
+Caught by building the one case where the truth is exact. The snare's tonal
+path and its noise path are separate paths into separate modes with linear
+nonlinearities, so each renders alone and the two sum to the whole, and the
+true noise share is arithmetic:
+
+| our SD render, noise share | |
+|---|---|
+| **truth**, from the two separate renders | **18.55 %** |
+| damped-mode subtraction (`drum_fit.noise_share`) | 18.90 % |
+| the committed body/air split at 700 Hz | **1.25 %** |
+
+The split is wrong by a factor of 15. On synthetic mixtures with a share set
+by construction it under-reports by 5–9× whenever the noise decays faster than
+the tone, which is exactly our snare's case. Both facts are now tests that
+must keep failing for the old method
+(`test_the_whole_span_hann_split_is_the_artefact_it_is_recorded_as`).
+
+**The separator that replaces it** fits one damped sinusoid per body mode —
+amplitude, frequency, τ and phase free, τ ≥ 5 ms so the shaped pulse cannot be
+mistaken for a mode — and calls the residual noise, over a **stated 250 ms
+window from onset**. Validated twice: against synthetic mixtures across
+0–90 % (within 0.6 pp below a 30 % share, 1.5 pp above), and against the exact
+share of our own render (18.90 % against 18.55 %).
+
+This is the **fifth** measurement artefact in this voice's history, after the
+four of §3, and the third of the same family: a window or a transform chosen
+without checking what it does to a signal that decays.
+
+### 8.1 SD — the noise level was never 16 dB down; the *shape* was the fault
+
+**Withdrawn**: "noise 1.2 % of energy vs 47.3 %", "about 16 dB too quiet",
+"our kit is sitting at roughly 2.5 on a 0–10 dial", and the §4.2 body/noise
+table. All are the whole-span split.
+
+The SNAPPY knob's transfer curve, from all 25 snare files, mean over the five
+TONE positions, by damped-mode subtraction:
+
+| SNAPPY | 0.0 | 2.5 | 5.0 | 7.5 | 10.0 |
+|---|---:|---:|---:|---:|---:|
+| noise share | 4.70 % | 4.96 % | **27.66 %** | 56.01 % | 71.89 % |
+| noise/tone amplitude | 0.212 | 0.219 | **0.619** | 1.153 | 1.652 |
+| dB | −13.5 | −13.2 | **−4.2** | +1.2 | +4.4 |
+
+The curve is **flat from 0 to 2.5** — the pot's dead zone plus the separator's
+own ≈4.7 % floor on this material — so a share below about 8 % cannot be
+placed on the knob at all, and "ours sits at 2.5" was never readable from one
+file. Ours measured a noise/tone amplitude of **0.477**, which interpolates to
+**SNAPPY ≈ 4.4**, and the gap to the 12-o'clock setting the kit claims is
+**2.3 dB**, not 16.
+
+What *is* badly wrong is the band. The machine's snare noise, recovered as the
+residual, against ours:
+
+| % of noise energy | 0.7–1.5 k | 1.5–3 k | 3–5 k | 5–8 k | 8–12 k | 12–16 k |
+|---|---:|---:|---:|---:|---:|---:|
+| reference unit | 1.6 | 20.5 | **36.1** | 28.5 | 10.4 | 2.9 |
+| ours (rev 5) | 0.1 | 2.6 | 15.7 | 22.8 | **30.2** | **28.6** |
+
+**The shaping fix is one register** — the numerator. The level is the separate
+SNAPPY setting above, and the three SD mode `amp`s are rebalanced with it so
+the voice still peaks at its chart proportion.
+`tr808-reference.md` §3 gives the snappy filter
+as "2-pole HP 2.75 kHz Q 0.7". Keep that pole exactly and read it as a
+**band-pass** instead of a high-pass and it fits the measured noise spectrum
+to **1.9 dB weighted rms** against the high-pass's **5.2 dB** — as well as the
+best unconstrained single mode (2938 Hz Q 0.75, 1.90 dB) and within 0.1 dB of
+a two-mode cascade that would cost a spare mode and a path. So §3's numbers
+were right and only the numerator was wrong; contract 17.22 records that the
+schematic reading behind it is not settled.
+
+### 8.2 CB — the difference tone, against the recording's own floor
+
+§4.6(c) stands and is now bounded. Establishing the floor first, because
+"70 dB below" means nothing above an unknown noise floor (0.5 s Hann,
+2^18-point FFT, dB relative to the 824 Hz partial):
+
+| | |
+|---|---:|
+| reference unit's difference tone, 264.96 Hz | **−67.8 dB** |
+| recording's spectral floor, 230–290 Hz | median **−86.7 dB**, 90th pct −75.6 dB |
+| ours (rev 5), 260.0 Hz | **−25.6 dB** |
+
+The machine's line sits 18.9 dB above the median floor, so it is a real line
+and the 42.2 dB discrepancy is above the floor by a wide margin. A second
+sample set (undocumented provenance, so a cross-check only) agrees as a
+*bound* rather than a measurement: nothing within ±10 Hz of its own difference
+frequency rises above −69.7 dB. The
+mechanism is demonstrated in isolation in DR 0010: separately gated squares
+put the difference and sum tones at **−164 dB**, the arithmetic floor, where
+gating the sum puts them at −8 dB.
+
+### 8.3 BD — the pitch error, and the decay that followed from it
+
+**The DECAY control is not a fault and has not been changed.** §4.1's "decay
+is 45 % short" is withdrawn as a separate finding: the kit shipped
+`tr808-reference.md` §2's decay table (Q = 22.3 at 12 o'clock) together with
+Roland's chart's f0 = 56 Hz, and those two rows are incompatible. §2's τ
+column satisfies τ = Q/(π f0) to 1.5 % at f0 = 49.4 Hz and only to 12.8 % at
+56. Shipping that Q at 56 Hz gives τ = 127 ms where the same table says 144.
+Fixing f0 to §2's own 49.4 Hz restores τ = 143.7 ms with **Q untouched**
+(DR 0009).
+
+Also withdrawn: "**the real bass drum's first 4 ms has its energy at 250 Hz**"
+(§4.1.3). 4 ms at 44.1 kHz gives 250.6 Hz bins, so 251 Hz is bin index 1 and
+the apparent peak tracks the bin spacing. The attack difference is real and is
+established instead from **band energy over a stated interval**, filtered in
+the time domain and then integrated, which has no such limit:
+
+| % of energy in the first 4 ms | 20–80 | 80–150 | 150–300 | 300–600 Hz |
+|---|---:|---:|---:|---:|
+| reference unit (BD5050) | 0.6 | **41.2** | 52.3 | 5.8 |
+| ours, rev 5 | 97.5 | 2.7 | 0.2 | 0.2 |
+| ours, with §2's attack window | 73.4 | **22.3** | 4.2 | 0.1 |
+
+and from the harmonics, measured over the whole hit at 0.08 Hz resolution:
+the reference unit's h2 is **−44.0 dB** and h3 −52.8 dB against ours at −79.4
+and −94.5. The attack window closes about half of the band-energy gap. The
+rest is the **excitation shape** — the reference's pulse shaper, §2 — which
+this revision does not implement and which contract 17.20 records as the next
+thing to do.
+
+Pitch, re-measured with a damped-sinusoid fit 20 ms after onset over a 300 ms
+window rather than a peak of a windowed spectrum:
+
+| DECAY | 0.0 | 2.5 | 5.0 | 7.5 | 10.0 |
+|---|---:|---:|---:|---:|---:|
+| f0 (Hz) | 51.48 | 51.18 | **50.70** | 50.95 | 51.62 |
+| body mode τ (ms) | 14.5 | 47.3 | **178.0 ± 29.1** | 307.6 | 640.1 |
+
+§4.1's 49.8 Hz is superseded by 50.70 ± 0.02 at the 12-o'clock condition. The
+reference unit's τ is 23 % longer than the circuit table's 144 ms; that is
+inside the ±50 % on Q that §12 calls normal between units, and the kit keeps
+the reference's number with the gap tracked as contract 17.21 rather than
+tuned away.
+
+### 8.4 What changed in the kit, and what did not
+
+| | rev 5 | rev 6 | authority |
+|---|---|---|---|
+| SD snappy filter | HP 2750 Hz Q 0.7 | **BP** 2750 Hz Q 0.7 | measured; §3's pole kept, numerator amended |
+| SD snappy level | SNAPPY ≈ 4.4 | SNAPPY 5.0 on the measured curve | measured (knob curve) |
+| CB oscillators | one gate on the sum | **one gate each** | verified in a source, §9 |
+| CB band-pass | 900 Hz Q 4 (chosen) | **1100 Hz Q 2.8** (fitted) | measured; closes 17.16 |
+| CB tail | τ 30 ms | **τ 100 ms** | measured (τ 98 ms) |
+| BD f0 | 56 Hz (chart) | **49.4 Hz** (circuit) | verified in a source, §2 |
+| BD Q / DECAY law | §2's table | **§2's table, unchanged** | — |
+| BD attack window | absent | **130 Hz Q 6 for 4 ms** | verified in a source, §2 |
+| tom pitch drop | absent | **×1.7, accent-scaled, 60 ms** | verified in a source, §4 |
+| excitation shape | impulse | **impulse** — 17.20 | not done |
+
+### 8.5 Amendments to `tr808-reference.md` that this section forces
+
+Beyond §7's list, which stands:
+
+- **§2** — the "What to implement (BD)" line says f0 = 56 Hz, which
+  contradicts §2's own derivation of 49.4 Hz four paragraphs above it and is
+  incompatible with §2's own decay table. Amended.
+- **§3** — the snare's noise path is a **band-pass** on the stated pole, not
+  a high-pass. §7 asked for "a low-pass or band-pass around 4 kHz" as an
+  addition; it is not an addition, it is the numerator.
+- **§9 / §18** — the cowbell band-pass open item is closed at 1100 Hz Q 2.8,
+  and §9's "each oscillator has its own transistor gate" is now load-bearing
+  rather than descriptive.
+
+*Measured 2026-09-18 against `sounds-tr808-fischer` @ `85fbecf`, renders from
+`model/drums_fx.py` at contract revision 6. Script: `model/drum_fit.py`,
+validated by `model/test_drum_fit.py`.*

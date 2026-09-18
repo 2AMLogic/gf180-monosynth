@@ -16,8 +16,8 @@ The Python model IS the specification. This script
 Exit status, as verify_ladder.py: 0 identical, 1 differed, 2 did not run.
 
   --inject NAME     compile with -DINJECT_BUG_<NAME> (DRUM_ENV_FLOOR, DRUM_LEVEL_TRIG,
-                    DRUM_LFSR_TAP, DRUM_TAP_NOSAT, DRUM_LAST_PATH, MODAL_NUM_HOLD,
-                    MODAL_EXC_NOCLEAR, ...)
+                    DRUM_LFSR_TAP, DRUM_TAP_NOSAT, DRUM_LAST_PATH, DRUM_SQ_LONE,
+                    MODAL_NUM_HOLD, MODAL_EXC_NOCLEAR, ...)
   --jitter K        apply each frame's writes K clocks after its tick (the timing
                     contract's negative control)
   --expect-fail     exit 0 only if the comparison gave 1
@@ -43,7 +43,8 @@ def stimulus(short: bool = False):
     kit = dx.kit_808()
     hits, writes = [], []
     f = 10
-    # 1. every stop soloed at accent 1.0 -- the last stop drives the last used path (CB, path 12)
+    # 1. every stop soloed at accent 1.0 -- the last stop drives the last used paths (CB, 12 and 13,
+    #    one per oscillator since DR 0010), and the BD and toms carry the coefficient sequences of 15.7
     for s in range(8):
         hits.append((f, s, 1.0)); f += int(0.12 * S * SR) + 1
     # 2. the same stop hit in consecutive frames fires once; 1-0-1 fires twice; a rewrite of 1 does not
@@ -57,14 +58,16 @@ def stimulus(short: bool = False):
     # 4. a bar of the groove with accents, the OH -> CH choke, and the BD retuned while it rings
     bpm = 140.0 if not short else 400.0
     hits += dx.pattern_hits(dx.PATTERN_808, bpm=bpm, bars=1, start_s=f / SR)
-    for i, (q, _) in enumerate(((62.0, "long"), (5.2, "short"))):          # retune the BD every half bar
+    for i, q in enumerate((dx.bd_decay_q(9.0), dx.bd_decay_q(1.0))):      # retune the BD every half bar
         fr = f + int((0.6 + 0.9 * i) * SR * 60 / bpm)
-        writes += [(fr, a, v) for a, v in dx.mode_writes(dx.M_BD, 56.0, q, 0.0)[:2]]
+        # BD_HZ_CHART is used here only as A DIFFERENT FREQUENCY to retune to while the mode
+        # rings -- it is not the kit's f0, which is the circuit's 49.4 Hz (DR 0009)
+        writes += [(fr, a, v) for a, v in dx.mode_writes(dx.M_BD, dx.BD_HZ_CHART, q, 0.0)[:2]]
     f += int(60.0 / bpm * 4 * SR) + int(0.05 * SR)
     # 5. register extremes on the last three paths and the spare mode, every stop again at accent 2.0:
     #    a tap of the ringing BD into an unstable mode (the state rails, the body word saturates),
     #    two full envelopes on one path (envsum 65534), att 7, nl = TANH on a raw source, the last
-    #    path index in use
+    #    path index in use, and EVERY lone-square source index 0..5 (15.4) so no SQ decode is unreached
     ext = [(dx.A_PATH + 13, dx.path_word(dx.SRC_TAP + dx.M_BD, dx.ENV_FULL, dx.ENV_FULL, dx.NL_LIN, 0, dx.M_SPARE)),
            (dx.A_PATH + 14, dx.path_word(dx.SRC_SQSUM, dx.ENV_FULL, dx.ENV_FULL, dx.NL_TANH, 7, dx.DEST_MIX)),
            (dx.A_PATH + 15, dx.path_word(dx.SRC_NOISE, dx.E_OH, dx.E_CH, dx.NL_SWING, 0, dx.DEST_MIX)),
@@ -73,6 +76,14 @@ def stimulus(short: bool = False):
     writes += [(f, a, v) for a, v in ext]
     hits += [(f + 2, s, 2.0) for s in range(8)]
     f += int(0.08 * S * SR)
+    # 5b. every lone-square index in turn on path 15, each through the swing VCA into the mix:
+    #     src 5..10 must each decode to its own oscillator, which INJECT_BUG_DRUM_SQ_LONE breaks
+    for i in range(6):
+        writes.append((f, dx.A_PATH + 15,
+                       dx.path_word(dx.SRC_SQ + i, dx.ENV_FULL, nl=dx.NL_SWING, dest=dx.DEST_MIX)))
+        f += int(0.006 * S * SR) + 1
+    writes.append((f, dx.A_PATH + 15, dx.path_word(dx.SRC_OFF, dx.ENV_FULL)))
+    f += int(0.01 * S * SR)
     # 6. every envelope at its extremes: rate 0 (one LSB per frame), rate 65535, hold 255, 3 bursts at
     #    period 511, peak 0 and FULL, choke by its own stop; then hits
     for e in range(dx.N_ENV):

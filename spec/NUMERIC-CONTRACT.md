@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 5 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 6 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
@@ -10,7 +10,7 @@ TR-808-shaped set of eight stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 5,
+through the two-key process this fleet uses; until then it is revision 6,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -227,7 +227,7 @@ sequenced in `rtl-sketch/voice_dp.v` (one multiplier, one divider, the ladder
 inside) measures 150 cycles in its worst frame — three reciprocals, three
 squares, the drum filter of `docs/ARCHITECTURE.md` on — and 66 in a steady one
 (`tb_synth_top.v`); that figure is the chip with the *placeholder* drum
-sources, not the drum section of 15 (17.20).
+sources, not the drum section of 15 (17.23).
 
 ---
 
@@ -1091,7 +1091,7 @@ stage above. It carries the placeholder drum section of
 `sample = sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`, two shifts and two
 rails rather than the one exact sum of 12 — and with `dvol = 0`, or a silent
 drum section, that is this section's sample bit for bit, which is what
-`rtl-sketch/verify_voice.py` checks. Closing that gap is 17.20. In rev 1
+`rtl-sketch/verify_voice.py` checks. Closing that gap is 17.23. In rev 1
 the ladder's output was 16 bits and clamp 5 was where four of the eight
 audition patches clipped; with the width, the VCA after the filter and the
 volume, the float-versus-fixed gap on `growl-bass` is −32 dB instead of
@@ -1155,7 +1155,7 @@ is no other observable state.
 | LFSR state | 1 | 15.4: frame 0's noise word is 1 |
 | modal bank `y1[m]`, `y2[m]`, `exc[m]`, `h1[m]`, `h2[m]` | 0 | `ModalFx.reset()` |
 | output sample register | 0 | |
-| control parser / queue | idle, empty | on hardware reset only: the RESET write leaves the link and its queue alone (5.4) | |
+| control parser / queue | idle, empty | on hardware reset only: the RESET write leaves the link and its queue alone (5.4) |
 
 Consequences: from reset the voice outputs 0 every frame until programmed —
 the envelope holds at 0 by the release branch, `vol` is 0, and a zero-state
@@ -1325,7 +1325,15 @@ Four source values are computed per frame, all Q1.15 signed:
   staircase, ±32766. The oscillators free-run and are never reset by a
   stop.
 - **SQPAIR**: squares 4 and 5 at ±16383 each, ±32766: the 808's trimmed
-  oscillators 5 and 6, the cowbell's pair (reference 9).
+  oscillators 5 and 6 summed *before* any gate. Retained for compatibility;
+  the reference kit no longer uses it (15.7, DR 0010).
+- **SQ i**, `src = 5 + i`, i = 0..5: square i **alone** at ±16383, the same
+  step as SQPAIR's terms, so `SQ 4 + SQ 5` is SQPAIR term for term and
+  splitting a voice into two paths costs no level. This is what the 808
+  actually presents to its gates: reference 9 — "each oscillator has its own
+  transistor gate (Q15, Q14)" — so a nonlinearity belongs on each square
+  separately. `nl(a) + nl(b)` and `nl(a + b)` are not the same function, and
+  the difference is audible (DR 0010).
 - **PULSE**: the constant 32767. Shaped by an envelope it is the trigger
   pulse of the bridged-T voices.
 
@@ -1336,7 +1344,8 @@ Sixteen paths, in order (`DrumsFx.frame`). Path p's word gives `src`,
 
 ```
 s   =  NOISE            src = 1        SQSUM  src = 2        PULSE  src = 3        SQPAIR  src = 4
-       sat16(y1[m] >> 3) src = 16 + m  (TAP m, m = 0..11)     0      otherwise (0 = OFF, 5..15, 28..31)
+       SQ i  src = 5 + i (i = 0..5, one square alone at +-16383)
+       sat16(y1[m] >> 3) src = 16 + m  (TAP m, m = 0..11)     0      otherwise (0 = OFF, 11..15, 28..31)
 s'  =  s                              nl = 0  LIN
        tanh( sat24( u << 5 ) )        nl = 1  SWING, u = s << 2 if s > 0 else s >> 3
        tanh( sat24( s << 5 ) )        nl = 2, 3  TANH
@@ -1437,14 +1446,15 @@ says so:
 
 | stop | what | modes (num) | envelopes | sourced | chosen |
 |---|---|---|---|---|---|
-| 0 BD | PULSE × 0.1 ms exponential → mode 6 (56 Hz, Q 22.3, decay mid); PULSE × 1 ms rectangle → MIX at 0.06 (the click) | 6 (RAW) | 0, 1 | f0, Q, the 1 ms pulse, the click leak | the 0.1 ms kick as the pulse shaper's rising edge (reference 2, "what to implement"); no attack shift, no sigh, no tone filter (17.14) |
-| 1 SD | PULSE × 0.1 ms → modes 7 (173 Hz, Q 16.3) and 8 (336 Hz, Q 9.9); NOISE × 15 ms → mode 3 (HP 2.75 kHz, Q 0.7) | 7, 8 (RAW), 3 (HP) | 2, 3 | both f0/Q, the noise HP, τ 15 ms | both bodies from the pulse, not the cascade (17.15); SNAPPY 0.5, TONE = amp ratio 0.004 : 0.0041 |
-| 2 LT, 3 HT | PULSE × 0.1 ms → mode 9 (90 Hz, Q 25) / 10 (185 Hz, Q 25) | 9, 10 (RAW) | 4, 5 | f0, Q | no diode pitch fall, no pink-noise rumble (17.14) |
+| 0 BD | PULSE × 0.1 ms exponential → mode 6 (**49.4 Hz**, Q 22.3, DECAY 5.0); PULSE × 1 ms rectangle → MIX at 0.06 (the click); the host's 4 ms attack window retunes mode 6 to 130 Hz / Q 6 and back (15.7.1) | 6 (RAW) | 0, 1 | f0 **and** Q **and** the attack window, all reference 2 | the 0.1 ms kick as the pulse shaper's rising edge (reference 2, "what to implement"); no sigh, no tone filter (17.14) |
+| 1 SD | PULSE × 0.1 ms → modes 7 (173 Hz, Q 16.3) and 8 (336 Hz, Q 9.9); NOISE × 15 ms → mode 3 (**BP** 2.75 kHz, Q 0.7) | 7, 8 (RAW), 3 (**BP**) | 2, 3 | both f0/Q, the snappy filter's pole, τ 15 ms | both bodies from the pulse, not the cascade (17.15); the snappy filter's **numerator**: reference 3 calls it a high-pass and the machine measures a band-pass on the same pole (17.22); SNAPPY level set to the knob's own curve at 5.0 |
+| 2 LT, 3 HT | PULSE × 0.1 ms → mode 9 (90 Hz, Q 25) / 10 (185 Hz, Q 25); the host's diode pitch drop sweeps f0 from ×1.7 down over 60 ms, scaled by accent (15.7.1) | 9, 10 (RAW) | 4, 5 | f0, Q, **the pitch drop** (reference 4) | no pink-noise rumble (17.14) |
 | 4 CH, 5 OH | SQSUM → mode 0 (BP 7117 Hz, Q 6, amp 0); TAP 0, SWING × envelope → mode 2 (HP 11.7 kHz, Q 2.5) / mode 1 (HP 7.8 kHz, Q 2.5); CH chokes OH | 0 (BP), 1, 2 (HP) | 6 (20 ms), 7 (150 ms, choke 4) | oscillators, BP, HPs, CH τ, the choke | OH τ 150 ms (DECAY mid) |
 | 6 CP | NOISE → mode 4 (BP 1071 Hz, Q 1.6, amp 0); TAP 4, TANH × (3 bursts τ 4 ms every 480 frames + tail τ 47 ms at 0.32) → MIX | 4 (BP) | 8, 9 | BP, three bursts, τ 47 ms | period 480 = 10 ms, tail −10 dB (17.17) |
-| 7 CB | SQPAIR, SWING × (τ 5 ms at 0.5 + τ 30 ms at 0.5) → mode 5 (BP 900 Hz, Q 4) | 5 (BP) | 10, 11 | oscillators 540/800 Hz, two-slope envelope | BP centre 0.9 kHz, Q 4 (17.16) |
+| 7 CB | **SQ 4 and SQ 5 on two separate paths**, each SWING × (τ 5 ms at 0.5 + **τ 100 ms** at 0.5) → mode 5 (BP **1100 Hz, Q 2.8**) | 5 (BP) | 10, 11 | oscillators 540/800 Hz, two-slope envelope, **one gate per oscillator** (reference 9, DR 0010) | nothing: the BP centre was 17.16 and is now fitted to a recording (1100 Hz Q 2.8), and the tail is the measured 98 ms |
 
-Mode 11 is spare (zero). Levels are balanced by `drums_fx_render.py
+Fourteen of the sixteen paths are used; mode 11 is spare (zero). Levels are
+balanced by `drums_fx_render.py
 --balance` so that each voice alone at accent 1.0 peaks at Roland's chart
 proportions with the loudest at 0.5 × full scale on its bus
 (`test_kit_voices_sit_at_the_chart_levels`); the bodies' exciters are 0.25 so
@@ -1455,6 +1465,30 @@ one frame at accent 2.0 stay inside every width
 The reference host (`hit_writes`) writes a stop's accent and raises its
 bit in the hit's frame and drops the bit in the next; `pattern_hits` turns
 `engines.render_groove`'s step strings into hits.
+
+#### 15.7.1 Coefficient sequences (informative, the host's)
+
+Two of the reference's behaviours are changes **over time** to one mode's
+coefficients, not settings a register image can hold. The block already
+allows them — a host may retune any mode on any frame (15.6) — so they live
+in the reference host (`drums_fx.hit_writes`, `bd_attack_writes`,
+`tom_pitch_drop_writes`) and **Appendix G does not contain them**:
+
+- **The BD attack window** (reference 2, W14a §8.1 / SN p.6): while Q43 is on
+  it shorts R165, the foot resistance falls and f0 rises to ≈130 Hz at Q ≈ 6
+  for ≈4 ms. It is the *same* resonator retuned, so the host writes mode 6's
+  `a1`/`a2` at the hit and writes them back 192 frames (4 ms) later — four
+  writes per hit.
+- **The toms' diode pitch drop** (reference 4, SN text): with the germanium
+  diodes conducting the foot resistance collapses and f0 starts at up to
+  ×1.7 the small-signal value, relaxing back as the ring decays. It is
+  amplitude-dependent — "accent changes the pitch envelope" — so the excess
+  is scaled by the accent and swept over 60 ms in six steps, two writes each.
+
+A host that sequences coefficients itself passes `coef_seq=False` and gets
+the bare register image. Neither sequence changes the block, the buses or
+any width; both are visible to a bench only as ordinary register writes,
+which is why `verify_drums.py`'s stimulus carries them.
 
 ### 15.8 Reset
 
@@ -1532,7 +1566,8 @@ run that shows the bench can tell X from wrong from right.
 The drum section's are the same pattern: `modal_dp.v` carries `_SHIFT`,
 `_SAT`, `_PREEXC`, `_NUM_HOLD`, `_EXC_NOCLEAR`, and `drum_dp.v` `_ENV_FLOOR` (no `max(1, ·)`), `_LEVEL_TRIG`
 (level- not edge-triggered stops), `_LFSR_TAP`, `_TAP_NOSAT`, `_LAST_PATH`
-(the strawman's dropped last drum), and `tb_drums.v`'s `+jitter` applies a
+(the strawman's dropped last drum), `_SQ_LONE` (a lone-square source that
+returns the pair — revision 5's cowbell defect, 15.4), and `tb_drums.v`'s `+jitter` applies a
 frame's writes while the datapath is busy, which the comparison MUST see
 (the hold requirement of 15.6). Every one is required to fail by
 `rtl-sketch/test_rtl.py`.
@@ -1610,21 +1645,60 @@ record that extends this document; none may be resolved by picking a reading.
     specified.
 15. **The snare's cascade** (15.7): the 808 drives the high resonator from
     the low one's output ×1/38; the kit drives both from the pulse.
-16. **The cowbell's band-pass centre** (15.7): 0.9 kHz, Q 4 is chosen on
-    the reading that Roland's chart measures the cowbell's output *at* its
-    oscillators' periods; the reference records 0.9 kHz against Sound On
-    Sound's 2.64 kHz and could not settle it.
+16. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
+    DR 0010**: fitted to a recording of the reference unit, 16 identified
+    partials with the duty cycle and the two gates' relative level free:
+    **1100 Hz, Q 2.8**, rms residual 2.8 dB. Sound On Sound's 2.64 kHz is
+    refuted; the reference's own 0.9 kHz is ~200 Hz low with the Q too high.
 17. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
     and −10 dB are the reference's bounds, not measurements.
 18. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
     oscillators vary by tens of percent between units; the kit uses the
     schematic's nominal values. A host models a unit by writing `OSC_INC`.
 19. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
-    voice's reference) the combined render clips 68 samples where all
-    eight stops land accented under a bass note; at 0.30 it clips 24. The
+    voice's reference) the combined render clips 65 samples where all
+    eight stops land accented under a bass note; at 0.30 it clips 5, and
+    all eight stops in one frame at accent 1.4 clip 5 on their own (rev 5
+    measured 68 and 24; the kit's levels moved in rev 6, and the body bus
+    peaks 2.37 × full scale of the word's 8.0 where it peaked 2.8). The
     rail is the host's to manage (DR 0005); a reference value for the two
     gains is not decided.
-20. **The chip does not yet carry this drum section** (12, 15):
+20. **The excitation is an impulse where the machine's is a shaped pulse**
+    (15.5, 15.7). Every bridged-T voice is struck with `PULSE` under a
+    0.1 ms exponential — effectively an impulse — where the 808's pulse
+    shaper produces a positive kick at t = 0 and a clamped negative kick
+    1 ms later (reference 2, "what to implement"). Reference 2 gives the
+    recipe (a 1-pole high-pass with τ ≈ 0.1 ms and a one-sided clamp) and
+    this revision does not implement it. Two independent measurements say
+    this is the largest remaining difference: the reference unit's BD puts
+    41.2 % of its first 4 ms in 80–150 Hz against our 22.3 % *with* the
+    attack window of 15.7.1 and 2.7 % without it, and a discrimination
+    study over the whole kit finds the attack, not the body, carries most
+    of the separability on every voice — including after every fix this
+    revision makes. **This is the next thing to do to the drum section**,
+    and it is a change to the sources of 15.4, not to the kit.
+21. **What the kit still does not match on the reference unit** (15.7).
+    Recorded rather than tuned away, because the rule is that the
+    reference document wins over a single machine (17.18): the BD's body
+    rings at the circuit table's τ = 144 ms where the unit measures
+    178.0 ± 29.1 ms (+23 %, inside the ±50 % on Q that 15.7 says is normal
+    between units); the BD attack window closes about half of the first
+    4 ms band-energy gap and not all of it (20); the hats are ≈6 % bright
+    and their filters too selective; the clap's burst period is 10.0 ms
+    against the unit's 12.3 ms; the toms have no pink-noise rumble (14).
+22. **The snappy filter's numerator is the measurement's, not the
+    reference document's** (15.7). Reference 3 describes the snare's noise
+    path as a 2-pole **high-pass** at 2.75 kHz, Q 0.7. On that pole a
+    high-pass numerator is flat to Nyquist, and the reference unit's noise
+    — recovered as the residual after subtracting the two body modes —
+    peaks at 3–5 kHz and falls above, with 2.9 % of its energy above
+    12 kHz. The same pole read as a **band-pass** fits it to 1.9 dB
+    weighted rms against the high-pass's 5.2 dB, so rev 6 changes the
+    numerator and keeps the reference's f0 and Q exactly. Whether the
+    schematic supports that reading, or whether a further stage the
+    walk-through missed does the band-limiting, is not settled;
+    `docs/tr808-reference.md` §3 carries the amendment.
+23. **The chip does not yet carry this drum section** (12, 15):
     `rtl-sketch/synth_top.v` instantiates `drum_section_placeholder` — the
     modal bank alone on a single 19-bit bus, no sources of its own — and its
     master mix is the two-term `sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`
@@ -1682,6 +1756,36 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 6 (2026-09-18)** — the drum section measured against a real TR-808
+  (`docs/drum-verification.md`), and three faults fixed. **A PINNED TABLE
+  CHANGES: Appendix G (KIT808) is
+  `06f47f30…b869914a`, where rev 5 stated `819ef081…db66b3dc`, and it now
+  holds 100 writes rather than 99.** No other hash moves — NOTE_INC,
+  SINE_Q256, SINE_FULL1024, TANH16, TANH16_ROM, G_ROM128, K_ROM32 and
+  NOISE64 are byte-identical, and only `spec/reference/tables/kit808.hex`
+  is rewritten. Nothing about the *arithmetic* changes: no width, no bus,
+  no clamp, no formula, and every rev-5 reference sequence that does not
+  use the kit is unchanged. What changes is the kit's contents and one
+  source encoding:
+  - **15.4 gains `SQ i` (src 5..10)**, one square alone at ±16383, because
+    reference 9 says each of the cowbell's oscillators has its own gate and
+    `nl(a) + nl(b)` is not `nl(a + b)`. `drum_dp.v` carries the decode and
+    `_SQ_LONE` is the control that shows a bench sees it (DR 0010).
+  - **The cowbell** takes two separately-gated paths, its tail the measured
+    τ = 98 ms rather than 30, and its band-pass the fitted 1100 Hz / Q 2.8
+    rather than the chosen 900 Hz / Q 4, closing 17.16.
+  - **The snare's snappy filter keeps the reference's pole and changes its
+    numerator** to BP (17.22), and its level is set to the SNAPPY knob's own
+    measured curve at 5.0.
+  - **The bass drum's f0 becomes the reference circuit's 49.4 Hz** rather
+    than Roland's chart's 56 (DR 0009). Its **Q table is untouched** — the
+    kit already shipped reference 2's Q = 22.3, and that table's τ column is
+    only self-consistent at 49.4 Hz, so the "45 % short decay" was the pitch
+    error propagating through τ = Q/(π f0) and not a decay fault at all.
+  - **15.7.1 (new)**: the BD's 4 ms attack window and the toms' diode pitch
+    drop, as reference-host coefficient sequences. They are writes, not
+    hardware, and Appendix G does not contain them.
+  Open items 20–23 added, 16 closed. Not ratified.
 - **Rev 5 (2026-09-18)** — resolves 17.4 by DR 0008: the drum section
   (section 15, rewritten; `model/drums_fx.py`) and the modal bank as one
   instrument — eight edge-triggered stops with accents, twelve envelopes on
@@ -1890,57 +1994,57 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 
 | addr | value | register | | addr | value | register |
 |---:|---:|---|---|---:|---:|---|
-| 0x20 | 0x1184E | OSC_INC[0] | 0x40 | 0xF0 | ENV_CTL[0] |
-| 0x21 | 0x1F8A1 | OSC_INC[1] | 0x41 | 0x400000 | ENV_PEAK[0] |
-| 0x22 | 0x19F9C | OSC_INC[2] | 0x42 | 0x3025 | ENV_RATE[0] |
-| 0x23 | 0x2C9A9 | OSC_INC[3] | 0x44 | 0x30F0 | ENV_CTL[1] |
-| 0x24 | 0x44444 | OSC_INC[4] | 0x45 | 0xF5C29 | ENV_PEAK[1] |
-| 0x25 | 0x2E148 | OSC_INC[5] | 0x46 | 0xFFFF | ENV_RATE[1] |
-| 0xC0 | 0x11A9D23 | MODE_A1[0] | 0x48 | 0xF1 | ENV_CTL[2] |
-| 0xC1 | 0x324D110 | MODE_A2[0] | 0x49 | 0x400000 | ENV_PEAK[2] |
-| 0xC2 | 0x0 | MODE_AMP[0] | 0x4A | 0x3025 | ENV_RATE[2] |
-| 0xC3 | 0x1 | MODE_NUM[0] | 0x4C | 0xF1 | ENV_CTL[3] |
-| 0xC4 | 0xDA1B85 | MODE_A1[1] | 0x4D | 0x800000 | ENV_PEAK[3] |
-| 0xC5 | 0x355D5AE | MODE_A2[1] | 0x4E | 0x5B | ENV_RATE[3] |
-| 0xC6 | 0x7333 | MODE_AMP[1] | 0x50 | 0xF2 | ENV_CTL[4] |
-| 0xC7 | 0x2 | MODE_NUM[1] | 0x51 | 0x400000 | ENV_PEAK[4] |
-| 0xC8 | 0xECC30 | MODE_A1[2] | 0x52 | 0x3025 | ENV_RATE[4] |
-| 0xC9 | 0x37543CC | MODE_A2[2] | 0x54 | 0xF3 | ENV_CTL[5] |
-| 0xCA | 0xB0A4 | MODE_AMP[2] | 0x55 | 0x400000 | ENV_PEAK[5] |
-| 0xCB | 0x2 | MODE_NUM[2] | 0x56 | 0x3025 | ENV_RATE[5] |
-| 0xCC | 0x1728A19 | MODE_A1[3] | 0x58 | 0xF4 | ENV_CTL[6] |
-| 0xCD | 0x366ECC6 | MODE_A2[3] | 0x59 | 0xFFFFFF | ENV_PEAK[6] |
-| 0xCE | 0x570A | MODE_AMP[3] | 0x5A | 0x44 | ENV_RATE[6] |
-| 0xCF | 0x2 | MODE_NUM[3] | 0x5C | 0x45 | ENV_CTL[7] |
-| 0xD0 | 0x1E53ED0 | MODE_A1[4] | 0x5D | 0xFFFFFF | ENV_PEAK[7] |
-| 0xD1 | 0x31579F2 | MODE_A2[4] | 0x5E | 0x9 | ENV_RATE[7] |
-| 0xD2 | 0x0 | MODE_AMP[4] | 0x60 | 0x78200F6 | ENV_CTL[8] |
-| 0xD3 | 0x1 | MODE_NUM[4] | 0x61 | 0xB0A3D6 | ENV_PEAK[8] |
-| 0xD4 | 0x1F504B3 | MODE_A1[5] | 0x62 | 0x154 | ENV_RATE[8] |
-| 0xD5 | 0x3076E0C | MODE_A2[5] | 0x64 | 0xF6 | ENV_CTL[9] |
-| 0xD6 | 0x5BC | MODE_AMP[5] | 0x65 | 0x3851EB | ENV_PEAK[9] |
-| 0xD7 | 0x1 | MODE_NUM[5] | 0x66 | 0x1D | ENV_RATE[9] |
-| 0xD8 | 0x1FFE6F0 | MODE_A1[6] | 0x68 | 0xF7 | ENV_CTL[10] |
-| 0xD9 | 0x300158A | MODE_A2[6] | 0x69 | 0x800000 | ENV_PEAK[10] |
-| 0xDA | 0xBB | MODE_AMP[6] | 0x6A | 0x110 | ENV_RATE[10] |
-| 0xDB | 0x0 | MODE_NUM[6] | 0x6C | 0xF7 | ENV_CTL[11] |
-| 0xDC | 0x1FF8366 | MODE_A1[7] | 0x6D | 0x800000 | ENV_PEAK[11] |
-| 0xDD | 0x3005AFC | MODE_A2[7] | 0x6E | 0x2D | ENV_RATE[11] |
-| 0xDE | 0x106 | MODE_AMP[7] | 0x80 | 0x181C03 | PATH[0] |
-| 0xDF | 0x0 | MODE_NUM[7] | 0x81 | 0x3C1C23 | PATH[1] |
-| 0xE0 | 0x1FE5EB2 | MODE_A1[8] | 0x82 | 0x1C1C43 | PATH[2] |
-| 0xE1 | 0x3012282 | MODE_A2[8] | 0x83 | 0x201C43 | PATH[3] |
-| 0xE2 | 0x10D | MODE_AMP[8] | 0x84 | 0xC1C61 | PATH[4] |
-| 0xE3 | 0x0 | MODE_NUM[8] | 0x85 | 0x241C83 | PATH[5] |
-| 0xE4 | 0x1FFD807 | MODE_A1[9] | 0x86 | 0x281CA3 | PATH[6] |
-| 0xE5 | 0x3001EE0 | MODE_A2[9] | 0x87 | 0x1DE2 | PATH[7] |
-| 0xE6 | 0x12D | MODE_AMP[9] | 0x88 | 0x83CD0 | PATH[8] |
-| 0xE7 | 0x0 | MODE_NUM[9] | 0x89 | 0x43CF0 | PATH[9] |
-| 0xE8 | 0x1FF9A1F | MODE_A1[10] | 0x8A | 0x101DE1 | PATH[10] |
-| 0xE9 | 0x3003F74 | MODE_A2[10] | 0x8B | 0x3C5314 | PATH[11] |
-| 0xEA | 0x268 | MODE_AMP[10] | 0x8C | 0x143744 | PATH[12] |
-| 0xEB | 0x0 | MODE_NUM[10] | | | |
+| 0x20 | 0x1184E | OSC_INC[0] | | 0x40 | 0xF0 | ENV_CTL[0] |
+| 0x21 | 0x1F8A1 | OSC_INC[1] | | 0x41 | 0x400000 | ENV_PEAK[0] |
+| 0x22 | 0x19F9C | OSC_INC[2] | | 0x42 | 0x3025 | ENV_RATE[0] |
+| 0x23 | 0x2C9A9 | OSC_INC[3] | | 0x44 | 0x30F0 | ENV_CTL[1] |
+| 0x24 | 0x44444 | OSC_INC[4] | | 0x45 | 0xF5C29 | ENV_PEAK[1] |
+| 0x25 | 0x2E148 | OSC_INC[5] | | 0x46 | 0xFFFF | ENV_RATE[1] |
+| 0xC0 | 0x11A9D23 | MODE_A1[0] | | 0x48 | 0xF1 | ENV_CTL[2] |
+| 0xC1 | 0x324D110 | MODE_A2[0] | | 0x49 | 0x400000 | ENV_PEAK[2] |
+| 0xC2 | 0x0 | MODE_AMP[0] | | 0x4A | 0x3025 | ENV_RATE[2] |
+| 0xC3 | 0x1 | MODE_NUM[0] | | 0x4C | 0xF1 | ENV_CTL[3] |
+| 0xC4 | 0xDA1B85 | MODE_A1[1] | | 0x4D | 0x800000 | ENV_PEAK[3] |
+| 0xC5 | 0x355D5AE | MODE_A2[1] | | 0x4E | 0x5B | ENV_RATE[3] |
+| 0xC6 | 0x7333 | MODE_AMP[1] | | 0x50 | 0xF2 | ENV_CTL[4] |
+| 0xC7 | 0x2 | MODE_NUM[1] | | 0x51 | 0x400000 | ENV_PEAK[4] |
+| 0xC8 | 0xECC30 | MODE_A1[2] | | 0x52 | 0x3025 | ENV_RATE[4] |
+| 0xC9 | 0x37543CC | MODE_A2[2] | | 0x54 | 0xF3 | ENV_CTL[5] |
+| 0xCA | 0xB0A4 | MODE_AMP[2] | | 0x55 | 0x400000 | ENV_PEAK[5] |
+| 0xCB | 0x2 | MODE_NUM[2] | | 0x56 | 0x3025 | ENV_RATE[5] |
+| 0xCC | 0x1728A19 | MODE_A1[3] | | 0x58 | 0xF4 | ENV_CTL[6] |
+| 0xCD | 0x366ECC6 | MODE_A2[3] | | 0x59 | 0xFFFFFF | ENV_PEAK[6] |
+| 0xCE | 0x34B6 | MODE_AMP[3] | | 0x5A | 0x44 | ENV_RATE[6] |
+| 0xCF | 0x1 | MODE_NUM[3] | | 0x5C | 0x45 | ENV_CTL[7] |
+| 0xD0 | 0x1E53ED0 | MODE_A1[4] | | 0x5D | 0xFFFFFF | ENV_PEAK[7] |
+| 0xD1 | 0x31579F2 | MODE_A2[4] | | 0x5E | 0x9 | ENV_RATE[7] |
+| 0xD2 | 0x0 | MODE_AMP[4] | | 0x60 | 0x78200F6 | ENV_CTL[8] |
+| 0xD3 | 0x1 | MODE_NUM[4] | | 0x61 | 0xB0A3D6 | ENV_PEAK[8] |
+| 0xD4 | 0x1EDD6CC | MODE_A1[5] | | 0x62 | 0x154 | ENV_RATE[8] |
+| 0xD5 | 0x30CD4FE | MODE_A2[5] | | 0x64 | 0xF6 | ENV_CTL[9] |
+| 0xD6 | 0x592 | MODE_AMP[5] | | 0x65 | 0x3851EB | ENV_PEAK[9] |
+| 0xD7 | 0x1 | MODE_NUM[5] | | 0x66 | 0x1D | ENV_RATE[9] |
+| 0xD8 | 0x1FFEA42 | MODE_A1[6] | | 0x68 | 0xF7 | ENV_CTL[10] |
+| 0xD9 | 0x3001300 | MODE_A2[6] | | 0x69 | 0x800000 | ENV_PEAK[10] |
+| 0xDA | 0xD9 | MODE_AMP[6] | | 0x6A | 0x110 | ENV_RATE[10] |
+| 0xDB | 0x0 | MODE_NUM[6] | | 0x6C | 0xF7 | ENV_CTL[11] |
+| 0xDC | 0x1FF8366 | MODE_A1[7] | | 0x6D | 0x800000 | ENV_PEAK[11] |
+| 0xDD | 0x3005AFC | MODE_A2[7] | | 0x6E | 0xE | ENV_RATE[11] |
+| 0xDE | 0xEC | MODE_AMP[7] | | 0x80 | 0x181C03 | PATH[0] |
+| 0xDF | 0x0 | MODE_NUM[7] | | 0x81 | 0x3C1C23 | PATH[1] |
+| 0xE0 | 0x1FE5EB2 | MODE_A1[8] | | 0x82 | 0x1C1C43 | PATH[2] |
+| 0xE1 | 0x3012282 | MODE_A2[8] | | 0x83 | 0x201C43 | PATH[3] |
+| 0xE2 | 0xF2 | MODE_AMP[8] | | 0x84 | 0xC1C61 | PATH[4] |
+| 0xE3 | 0x0 | MODE_NUM[8] | | 0x85 | 0x241C83 | PATH[5] |
+| 0xE4 | 0x1FFD807 | MODE_A1[9] | | 0x86 | 0x281CA3 | PATH[6] |
+| 0xE5 | 0x3001EE0 | MODE_A2[9] | | 0x87 | 0x1DE2 | PATH[7] |
+| 0xE6 | 0x201 | MODE_AMP[9] | | 0x88 | 0x83CD0 | PATH[8] |
+| 0xE7 | 0x0 | MODE_NUM[9] | | 0x89 | 0x43CF0 | PATH[9] |
+| 0xE8 | 0x1FF9A1F | MODE_A1[10] | | 0x8A | 0x101DE1 | PATH[10] |
+| 0xE9 | 0x3003F74 | MODE_A2[10] | | 0x8B | 0x3C5314 | PATH[11] |
+| 0xEA | 0x42C | MODE_AMP[10] | | 0x8C | 0x143749 | PATH[12] |
+| 0xEB | 0x0 | MODE_NUM[10] | | 0x8D | 0x14374A | PATH[13] |
 
-SHA-256 of the 99 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc`
+SHA-256 of the 100 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `06f47f307efbd44317e2aa0fcba99cba96f7cf747cdeffdc6c471b94b869914a`
 
 <!-- END GENERATED APPENDICES -->

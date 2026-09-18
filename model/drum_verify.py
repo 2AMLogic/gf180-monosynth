@@ -98,8 +98,10 @@ SPLIT_HZ = {"BD": 200, "SD": 700, "LT": 400, "HT": 600,
             "CH": 9000, "OH": 9000, "CP": 2000, "CB": 1400}
 
 SPEC = {  # docs/tr808-reference.md section 12 + 14, at the chart's knob positions
-    "BD": dict(f0=56.0, tau_ms=127.0, chart_ms=300.0, note="attack ~130 Hz for 4 ms"),
-    "SD": dict(f0=173.0, tau_ms=30.0, chart_ms=60.0, note="+336 Hz mode, noise HP 2.75 kHz"),
+    # Contract revision 6 (DR 0009): the BD's f0 is the circuit's 49.4 Hz, not
+    # the chart's 56, and tau follows it -- 144 ms, reference 2's own table.
+    "BD": dict(f0=49.4, tau_ms=144.0, chart_ms=300.0, note="attack ~130 Hz for 4 ms (15.7.1)"),
+    "SD": dict(f0=173.0, tau_ms=30.0, chart_ms=60.0, note="+336 Hz mode, noise BP 2.75 kHz"),
     "LT": dict(f0=90.0, tau_ms=88.0, chart_ms=200.0, note="pink noise, 1-pole LP 400 Hz"),
     "HT": dict(f0=185.0, tau_ms=43.0, chart_ms=100.0, note="pink noise, 1-pole LP 400 Hz"),
     "CH": dict(f0=None, tau_ms=22.0, chart_ms=50.0, note="6 squares -> BP 7.1k -> HP 11.7k Q2.5"),
@@ -304,6 +306,14 @@ def measure(x: np.ndarray, sr: int, voice: str) -> dict:
     # noise/air above it. The magnitude centroid alone hides this -- a voice
     # with 98 % of its energy under 700 Hz can still show a 6.5 kHz centroid
     # because magnitude weighting counts a wide, quiet noise floor heavily.
+    #
+    # WITHDRAWN AS A MEASURE OF NOISE CONTENT (docs/drum-verification.md 8.0).
+    # `spectrum` windows the whole analysis span, so on a decaying one-shot
+    # this weights t = 10 ms by 0.0039 against t = 250 ms by 1.0 and reports
+    # the tail, not the energy: it read 1.2 % where the true share was 18.6 %.
+    # It is kept because the plots and the brightness rows use it and it is
+    # comparable within one voice. For "how much of this hit is noise", use
+    # model/drum_fit.noise_share, which is validated against known truth.
     P = S ** 2
     cut = SPLIT_HZ[voice]
     tot = P[(f > lo) & (f < hi)].sum()

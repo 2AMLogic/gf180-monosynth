@@ -450,7 +450,7 @@ repository's own cell model it **does not fit**, with Booth or without, and the
 8-mode variant is still at 111 %. That arithmetic subtracts two measured blocks
 and adds a third and has **not** been checked by synthesising the joined top —
 which cannot be done until `synth_top.v` actually instantiates `drum_kit`
-(contract 17.20). It is the first thing to measure after that, and it moves
+(contract 17.23). It is the first thing to measure after that, and it moves
 17.13 (8 vs 12 modes) from a budget preference to a constraint.
 
 On the 50 %-utilisation cell model the chip fitted with 23–32 % of the
