@@ -122,6 +122,18 @@ class Refused(Exception):
     outcome here, distinct from pass and from fail."""
 
 
+def _rel(p) -> str:
+    """A path for a human, and one that CANNOT raise. `relative_to` throws for
+    anything outside the repository, and every use of it here is inside a
+    REFUSAL message -- a formatter that raises turns a stated refusal into a
+    traceback, which is the one thing a refusal must never become."""
+    p = pathlib.Path(p)
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
+
+
 # ===========================================================================
 # 1. What is frozen. This table is the profile's source; `--render` executes it
 #    and writes the hashes, and nothing else may write into the cache.
@@ -366,7 +378,7 @@ def read_clip_file(path: pathlib.Path) -> tuple[np.ndarray, int]:
 # ===========================================================================
 def load_profile() -> dict:
     if not PROFILE_JSON.exists():
-        raise Refused(f"no frozen reference profile at {PROFILE_JSON.relative_to(ROOT)}")
+        raise Refused(f"no frozen reference profile at {_rel(PROFILE_JSON)}")
     d = json.loads(PROFILE_JSON.read_text(encoding="utf-8"))
     if d.get("schema") != SCHEMA:
         raise Refused(f"profile schema is {d.get('schema')!r}, this tool reads {SCHEMA!r}")
@@ -398,7 +410,7 @@ def load_clip(clip_id: str, profile: dict | None = None) -> tuple[np.ndarray, in
     if not p.exists():
         raise Refused(
             f"the frozen reference audio for {clip_id!r} is not in the cache "
-            f"({p.relative_to(ROOT)}). The profile is committed; the audio is not. "
+            f"({_rel(p)}). The profile is committed; the audio is not. "
             f"Re-render it on a host with the plugin: tools/refprofile.py --render")
     got_bytes = p.stat().st_size
     if got_bytes != meta["bytes"]:
@@ -429,7 +441,7 @@ def verify(profile: dict | None = None) -> tuple[int, list[str]]:
         return REFUSED, ["REFUSED  the profile holds no clips"]
     if not CACHE.exists():
         return REFUSED, [
-            f"REFUSED  no reference-audio cache at {CACHE.relative_to(ROOT)}: this host "
+            f"REFUSED  no reference-audio cache at {_rel(CACHE)}: this host "
             f"has never rendered the profile.",
             "         The profile is committed and the audio is not, by design. Every "
             "case that depends on it is a stated no-verdict here, which is the correct "
@@ -685,7 +697,7 @@ def cmd_list() -> int:
         return REFUSED
     b = prof.get("built", {})
     w = b.get("worktree", {})
-    print(f"profile   {PROFILE_JSON.relative_to(ROOT)}   schema {prof['schema']}")
+    print(f"profile   {_rel(PROFILE_JSON)}   schema {prof['schema']}")
     print(f"built     {b.get('at')} at {w.get('commit')} "
           f"({'DIRTY ' + str(w.get('uncommitted_sha256')) if w.get('dirty') else 'clean'})")
     print(f"probe     {prof.get('probe_level_dbfs')} dBFS, {prof.get('sr')} Hz")
