@@ -1,0 +1,43 @@
+,,,,,,,
+Instrument release scorecard v0.30,,,,,,,
+,,,,,,,
+Candidate / run,Not imported,,,,,,
+This is a new benchmark: zero imported results does not mean zero engineering progress.,,,,,,,
+,,,,,,,
+Measure,Current,,Batch,Planned,Scored,Within tolerance,Coverage
+Sound cases scored,0,,First 32,32,0,0,0
+Cases within tolerance,0,,Expansion 48,48,0,0,0
+Sound cases still unscored,100,,Holdout 20,20,0,0,0
+Release requirements evidenced,0,,Total,100,0,0,0
+Player release,PENDING,,,,,,
+,,,,,,,
+,,,,,,,
+Family,Planned,Scored,Pass,Fail,Unscored,Agreement,Coverage
+Drums,32,0,0,0,32,UNSCORED,0
+Mono,32,0,0,0,32,UNSCORED,0
+Filters,24,0,0,0,24,UNSCORED,0
+Ensemble,12,0,0,0,12,UNSCORED,0
+,,,,,,,
+,,,,,,,
+How the score works,,,,,,,
+Agreement = cases within all stated tolerances / valid measured cases. Always read it beside coverage.,,,,,,,
+This measures agreement with a chosen target. It is not a percentage of Moog authenticity or musical appeal.,,,,,,,
+Worst error / tolerance is the largest normalized error across every required measurement in that case.,,,,,,,
+"Enter VALID only after the reference, all measurements, thresholds and sensitive controls are qualified.",,,,,,,
+A result needs every required measurement plus a result link. Missing evidence stays unscored.,,,,,,,
+An accepted intentional difference changes the versioned target; keep the original reference deviation visible.,,,,,,,
+"First 32: 16 drum anchors, 8 mono anchors, 4 filter probes and 4 combined performances.",,,,,,,
+"Expand the development set to 80. Use the 20 reserved cases at release checkpoints, not for daily tuning.",,,,,,,
+Reserve exact holdout vectors before tuning. Reusing detailed holdout feedback makes them development data.,,,,,,,
+"Amber cells accept runner results. Keep raw WAVs, metric values, units, thresholds and hashes in each result.",,,,,,,
+No acoustic measurements have been imported into this workbook. The case definitions are proposed work.,,,,,,,
+Automate control gestures and sound matching first. Friends judge the remaining musical choices at the end.,,,,,,,
+,,,,,,,
+Next deliverables,,,,,,,
+1. Reconcile #73 claims with its diff; resolve #74 contracts and estimator conflicts.,,,,,,,
+2. Render the integrated engine and capture the first 32 scenarios through the intended control path.,,,,,,,
+3. Qualify and cache references; import one measured baseline with per-family results.,,,,,,,
+4. Fix the largest validated reference mismatches; rerun the same cases and report regressions.,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
