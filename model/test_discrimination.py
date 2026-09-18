@@ -1298,8 +1298,15 @@ def effect_sizes(X, clips, names, voice, mask):
                   if c.voice == voice and c.side != "real" and mask[i]])
     if len(r) < 2 or len(o) < 1:
         return {}
+    # THE DENOMINATOR IS THE MACHINE'S SPREAD OVER len(r) RECORDINGS, and for
+    # the single-knob voices len(r) is 2. A column that happens to be nearly
+    # constant across two recordings then has a near-zero sd and produces an
+    # effect size in the thousands -- the sixteen-sound run reported 4747 for
+    # the high conga's jitter bucket on exactly this. Refuse the column rather
+    # than report it: the spread must be resolvable, not merely non-zero.
     sd = X[r].std(0)
-    sd = np.where(sd < 1e-9, np.nan, sd)
+    floor = 0.05 if len(r) >= 4 else 0.20
+    sd = np.where(sd < floor, np.nan, sd)
     d = (X[o].mean(0) - X[r].mean(0)) / sd
     out = {}
     for g, cols in feature_groups(names).items():
@@ -1307,6 +1314,7 @@ def effect_sizes(X, clips, names, voice, mask):
         vals = vals[np.isfinite(vals)]
         if len(vals):
             out[g] = float(np.mean(np.abs(vals)))
+    out["_n_real"] = float(len(r))
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
@@ -1938,7 +1946,7 @@ def test_the_extra_columns_append_and_never_reorder_the_original_320():
     g = feature_groups(n1)
     assert sum(len(ix) for ix in g.values()) == len(n1)
     assert any(k.startswith("mpd.") for k in g) and any(k.startswith("cqt.") for k in g)
-    assert "jit" in g and "ms.scale-difference" in g
+    assert "jit.stability" in g and "jit.period" in g and "ms.scale-difference" in g
 
 
 def test_the_cross_validation_grouping_does_not_move_between_processes():

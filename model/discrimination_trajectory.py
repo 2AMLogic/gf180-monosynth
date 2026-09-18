@@ -280,3 +280,7 @@ def test_the_named_band_and_window_are_where_the_difference_is():
     k, w = np.unravel_index(int(np.argmax(np.abs(D))), D.shape)
     assert abs(cent[k] - 2000.0) / 2000.0 < 0.15, cent[k]
     assert w == 3, (w, ms[w])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

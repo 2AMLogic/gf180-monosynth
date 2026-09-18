@@ -409,7 +409,13 @@ def extra_group(nm: str) -> str | None:
     if nm.startswith("mpd"):
         return "mpd." + nm.split(".")[1]
     if nm.startswith("jit."):
-        return "jit"
+        # SPLIT ON PURPOSE. `period_ms`, `ncycles` and `valid` say what the
+        # dominant partial's FREQUENCY is -- a pitch error, which this study
+        # already measures and which has nothing to do with #56. The rest say
+        # how steady that partial is. Attributing them to one bucket would let
+        # a tuning error be reported as oscillator instability.
+        return ("jit.period" if any(k in nm for k in ("period_ms", "ncycles", "valid"))
+                else "jit.stability")
     if nm.startswith("cqt"):
         hz = float(nm[3:].split("Hz")[0])
         for lo, hi in ((0, 200), (200, 700), (700, 2000), (2000, 5000),

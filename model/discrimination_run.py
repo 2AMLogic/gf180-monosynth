@@ -300,13 +300,28 @@ def _feature_set_pass(a, refs, laws, cache, names, arms, curve_voices, extra, re
     out["ablations"] = abl
 
     print("\n== FD-mel (comparative; not FAD, not an absolute score) ==")
-    fd = fd_rows(refs, arms, cache, extra=extra)
-    for k, v in sorted(fd.items(), key=lambda kv: (kv[0].startswith("_"), 0)):
-        if not k.startswith("_"):
-            print(f"  {k:42s} {v:9.3f}")
-    print("  CAVEAT: rows whose arm covers fewer voices than `ours` are NOT on the same")
-    print("  scale as it -- the voice balance the construct needs is fixed only WITHIN a row.")
-    out["fd_mel"] = fd
+    if extra:
+        # REFUSED, not reported. The Frechet construct is NOT scale-free: it
+        # is computed on raw columns with no standardisation, so it is
+        # dominated by whichever column has the largest units. The added
+        # columns are in ppm (tens of thousands) and in cycle counts, against
+        # the log-mel columns' dB, and the first run of this produced
+        # 4.0e10 for `ours` against 5.5e9 for the reference's own subsets --
+        # a number about units, not about audio.
+        print("  REFUSED: FD-mel is not scale-free and the extra columns are in ppm and")
+        print("  counts against the log-mel columns' dB, so the distance would be reporting")
+        print("  units. Read the 'base' rows; there is no honest 'plus' row.")
+        out["fd_mel"] = {"_refused": "not scale-free across heterogeneous units"}
+        fd = None
+    else:
+        fd = fd_rows(refs, arms, cache, extra=extra)
+    if fd is not None:
+        for k, v in sorted(fd.items(), key=lambda kv: (kv[0].startswith("_"), 0)):
+            if not k.startswith("_"):
+                print(f"  {k:42s} {v:9.3f}")
+        print("  CAVEAT: rows whose arm covers fewer voices than `ours` are NOT on the same")
+        print("  scale as it -- the voice balance is fixed only WITHIN a row.")
+        out["fd_mel"] = fd
 
     print("\n== per-voice: knob-equivalent separation (arm 'ours', emulation) ==")
     main_s = out["arms"].get("ours", {})
