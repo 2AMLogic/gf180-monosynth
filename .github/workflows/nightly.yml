@@ -88,11 +88,35 @@ jobs:
       - run: python -m pip install --upgrade pip numpy scipy pytest
       - name: per-voice measurements against declared targets
         run: |
-          if [ -f model/sound_report.py ]; then
-            python model/sound_report.py --all --out nightly-report
-          else
+          if [ ! -f model/sound_report.py ]; then
             echo "model/sound_report.py not present yet -- see issue #44"; exit 0
           fi
+          mkdir -p nightly-report
+          python model/sound_report.py | tee nightly-report/sound-report.txt
+
+      # The report distinguishes [target] -- a document says so -- from [lock]
+      # -- this model at a named commit. A lock that moves is a regression; a
+      # target that misses is a defect. They are never mixed in a verdict, and
+      # this step exists so a lock moving cannot pass quietly.
+      - name: no locked property may have moved
+        run: |
+          if grep -qiE "\b(MOVED|REGRESS)" nightly-report/sound-report.txt; then
+            echo "a locked property moved -- see the report"; exit 1
+          fi
+
+      # Spot-check that the report can still go red. The full nine-injection
+      # sweep is roughly half an hour; two here, rotated, keeps the nightly
+      # honest without doubling its runtime. The full sweep belongs in the
+      # weekly tier.
+      - name: the report can still go red
+        run: |
+          python model/sound_report.py --inject sd-noise-6db  > /tmp/i1.txt 2>&1 || true
+          python model/sound_report.py --inject ladder-2pole  > /tmp/i2.txt 2>&1 || true
+          for f in /tmp/i1.txt /tmp/i2.txt; do
+            grep -qiE "\b(MISS|FAIL|MOVED)" "$f" || { echo "injection did not move the report: $f"; exit 1; }
+          done
+          echo "both injections moved the report"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: sound-report, path: nightly-report/, if-no-files-found: ignore }
