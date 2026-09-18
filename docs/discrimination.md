@@ -479,7 +479,7 @@ namespace is mathematically identical at the 1.2.3-era commit `8ea9b8d` and on
 | **output tap** | `y[3]`, **before** the averaging | `delay[5]`, **after** it |
 | arithmetic | integer, Q1.15 signal, 24-bit Q4.20 state | float32 SIMD |
 | **tanh** | **16-entry table over [0,4), linear interpolation**, max error **0.0060** | Padé rational, clamped at ±5, max error **1.5e-5** |
-| **tuning** | `g = 1 − exp(−2π f / f_os)`, no correction | **`fcr = 1.8730 fc³ + 0.4995 fc² − 0.6490 fc + 0.9988`**, Huovilainen's published tuning polynomial, applied to the exponent |
+| **tuning** | `g = 1 − exp(−2π f / f_os)`, no correction | **`fcr = 1.8730 fc³ + 0.4955 fc² − 0.6490 fc + 0.9988`**, Huovilainen's published tuning polynomial, applied to the exponent |
 | resonance law | `k = 4·res`, corrected per cutoff by DR 0006's own measured ROM | `4·res·acr`, `acr = −3.9364 fc² + 1.8409 fc + 0.9968`, Huovilainen's published polynomial |
 | **resonance range** | `res` clamps at 2.0 (the 17-bit `k` register); **res = 1 is the onset at every cutoff** (DR 0006) | `res` clamped to ≤ 0.9925 and reduced further above f_s/3: **it never reaches the onset and cannot self-oscillate** |
 | **signal scale into the tanh** | `gain = drive·0.13/0.05 = 2.6`, so full scale is 2.6 in tanh units | `thermal = 1/70`, so full scale is **0.0143** in tanh units |
