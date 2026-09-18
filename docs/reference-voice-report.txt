@@ -32,6 +32,16 @@ miniv3/narrow_rect        -1.2    -3.6    -7.5   -14.8   -33.5   -15.8   -12.8  
   miniv3/wide_rect       nulls at harmonics [7]   -> duty 14.3 % (or 85.7 %)
   miniv3/narrow_rect     nulls at harmonics [6]   -> duty 16.7 % (or 83.3 %)
 
+  NOTE ON THE ~52 % SQUARE (miniv3/square, h2 at -24.0 dB where ours is absent):
+  the Model D service manual records that R137 was HAND-SELECTED PER UNIT to trim
+  the square to 50 %. A reference showing 52 % is therefore modelling A UNIT OUT OF
+  TRIM, not the design intent, and our exact 50 % is arguably the more faithful
+  value. Carried as an open disagreement, not as our defect.
+
+  GENERALLY: where a reference emulation models UNIT VARIATION, a difference from it
+  is not automatically a defect in ours. That applies to the oscillator-drift targets
+  too, and probably to more of the measured spread than has been assumed.
+
 ====================================================================================================
 3. ALIASING: inharmonic energy, dB of total, at rising pitch
 ====================================================================================================
