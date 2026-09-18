@@ -44,6 +44,13 @@ jobs:
 
       # First on purpose: every node above F1 measures with these estimators,
       # so a suite built on untested analysers measures the analysers.
+      # Would merging this branch lose anything? Answered by MERGING it, not by
+      # diffing -- inferring from `git diff main branch` (two-dot) produced
+      # three false alarms, because everything main gained since the branch
+      # point shows up there as a deletion.
+      - name: the merge would not lose a file
+        run: python tools/check_stale_base.py --base origin/main --head HEAD
+
       - name: F3 -- measurement ground truth
         run: python -m pytest model/test_audio_measure.py -q
       - name: M2 -- the voice is musically a Minimoog
