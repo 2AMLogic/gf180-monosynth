@@ -153,3 +153,81 @@ linking. Sensitivity sweeps as a gate.
 
 Those five are the difference between a process that catches this class of
 error and one that relies on someone reading carefully at the right moment.
+
+---
+
+# The second batch: the apparatus, not the evidence
+
+The mechanisms above are about **evidence** — we validated against ourselves.
+A later day produced a different cluster, and it has its own root cause.
+
+## Root cause: preconditions assumed rather than asserted
+
+**We verified what a tool measures, but not that it was in a state to measure
+anything.** Every one of these is a correct instrument in a wrong state:
+
+| what happened | the precondition nobody asserted |
+|---|---|
+| u-he **Diva** contaminated every measurement it touched for hours | it was an **unlicensed demo** — 20 broadband clicks in 360 s, nothing for the first 167 s then clusters every ~33 s |
+| **Model D** renders exact digital silence | authorisation is not visible to the plugin in a host called "Python" |
+| **Surge** parameter 265 is "Unison Voices" — or **"High Cut"** | Surge **renames parameters 259–267 by oscillator type**, and the change is not in effect until a render. The pin would have put a **13.75 Hz high cut** on every measurement |
+| **Mini V3** measured at the wrong octave | `Range Osc1` had defaulted to the **sub-audio `Low`** setting |
+| all three plugins "stepped" identically at **94 Hz** | dawdreamer applies automation **per host block**; at the default 512 samples that is 93.75 Hz. A 16-sample block **reversed the conclusion** |
+| a Surge "square" reported **h2 = +79.6 dB as data** | the rig was not making the waveform it had been asked for |
+
+None of these is a measurement error in the sense the first section describes.
+The estimators were right. **The apparatus was not in the state the estimator
+assumed.**
+
+### The practice that works, because it worked six times
+
+**Every apparatus asserts its own preconditions at the point of use, and
+REFUSES rather than reports when they fail.**
+
+`REFUSED` has to be a first-class outcome, distinct from pass and from fail. A
+tool that cannot currently answer must say so; a tool that answers anyway is
+worse than one that is absent, because its output looks exactly like data.
+
+What caught each of the above was a precondition check at the point of use:
+the **parameter-name check** caught Surge's rename on the first run; a
+**plausibility guard** caught the +79.6 dB square; **`make srccheck`** caught
+an FPGA build that quoted utilization for an instrument it did not contain; a
+**pin read-back** caught Mini V3's range. None was caught by inspection.
+
+## Root cause: gates that cannot be satisfied
+
+**Three in a single day**, all written by the same author, all with the same
+shape — an assertion committed without checking the job asserting it could
+ever pass:
+
+- a CI step invoking `sound_report.py --all --out`, written **before the tool
+  existed**; the real interface is `--changed / --inject / --list-injections`
+- a fidelity warning that fired on **Foundation, Integration and Silicon**,
+  where it cannot be satisfied — a control link has no Minimoog to be compared
+  against
+- `compile_dag.py --check`, which embedded the commit SHA (so the README went
+  stale the instant anything merged) **and** failed on any RED or STALE node,
+  which the per-push job cannot refresh because those verifiers take hours
+
+**An unsatisfiable gate is worse than no gate**, because it trains everyone to
+ignore gates — including the ones that work.
+
+> **Practice: run a gate against the current state before committing it, and
+> require that it can pass.** If the job that runs it cannot reach the state
+> the gate demands, the gate belongs in a different job. `--check` asserts the
+> document is true; `--strict` asserts the project is healthy; only the nightly,
+> which can refresh slow evidence, is entitled to demand the second.
+
+## Publish the wrong-then-right rate
+
+One agent-session produced **five** measurements that were confidently wrong
+before they were right, every one caught by a control or a plausibility guard
+rather than by inspection.
+
+That is not a failure to hide. **A harness that has caught itself out five
+times is more trustworthy than one that has never noticed anything** — but only
+if the reader knows the rate.
+
+> **Practice: report the rate where the numbers are read**, not in a private
+> summary. It is how a reader calibrates how much weight any single figure can
+> carry.
