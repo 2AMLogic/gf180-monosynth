@@ -332,22 +332,164 @@ def attack_ms(x, sr: int, *, window_ms: float = 4.0,
     return am.Estimate(ms, True, "", dict(peak_index=pk, window_ms=window_ms))
 
 
-def tone_ratio_db(x, sr: int, hz_num: float, hz_den: float) -> am.Estimate:
-    """Level of the line at `hz_num` over the line at `hz_den`, in dB, by
-    coherent projection (`audio_measure.tone_amplitude`) at both frequencies.
+#: How far either side of a NOMINAL partial frequency a real one is looked for.
+#: 10 % is the TR-808's own component tolerance on an oscillator's f0
+#: (docs/tr808-reference.md 1.7) and the same figure `tol_frequency` uses, so
+#: the search covers exactly the range a unit is allowed to sit in.
+LINE_SEARCH_FRAC = 0.10
 
-    Ground truth: test_tone_ratio_db_of_two_known_sines."""
-    a = am.tone_amplitude(x, hz_num, sr)
-    b = am.tone_amplitude(x, hz_den, sr)
+#: How far above its own measured floor a reading has to sit before it is a
+#: measurement rather than the estimator. 6 dB, which is the margin
+#: `audio_measure.harmonic_signature` already uses for the same decision.
+FLOOR_MARGIN_DB = 6.0
+
+
+def find_line(x, sr: int, hz_nominal: float, *,
+              search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """The frequency of the real partial nearest `hz_nominal`, not
+    `hz_nominal`.
+
+    #108: `tone_ratio_db` probed the cowbell at 800 and 540 Hz. **The
+    machine's lines are 558.35 and 823.70 Hz.** Probing the same recording at
+    trims inside Roland's own +-10 % swings the reference value from 8.79 to
+    15.91 dB -- 7.1 dB against a 3.0 dB tolerance, and non-monotonically. The
+    unit we have happens to sit where nominal probing reads 15.15 against
+    15.21 on its true lines, which is luck and not method: a different 808, or
+    this one after a trim adjustment, moves the reference by twice the
+    tolerance with the instrument unchanged.
+
+    This is the same failure as `refine_f0` before #87 -- a rig ASSUMING a
+    frequency instead of measuring one. There, assuming pitch took a
+    per-period residual from 0.6 % to 25 % because Mini V3 played 0.14 cents
+    sharp.
+
+    Refuses when the band holds no line, rather than returning the nominal:
+    "there is no partial here" and "the partial is exactly where the chart
+    says" are opposite findings and must not share a return value."""
+    e = am.dominant_frequency(x, hz_nominal * (1 - search), hz_nominal * (1 + search), sr)
+    if not e.ok:
+        return am.Estimate(None, False,
+                           f"no line within +-{search*100:.0f} % of {hz_nominal:.1f} Hz: "
+                           f"{e.reason}", dict(nominal_hz=hz_nominal, **(e.detail or {})))
+    return am.Estimate(e.value, True, "",
+                       dict(nominal_hz=hz_nominal, found_hz=e.value,
+                            offset_pct=100.0 * (e.value / hz_nominal - 1.0),
+                            **(e.detail or {})))
+
+
+def _amplitude_at(x, sr: int, hz: float, label: str) -> am.Estimate:
+    """A WINDOWED coherent projection, which is the right primitive for a free
+    ring: `tone_amplitude`'s rectangular projection is exact only over a whole
+    number of periods, and a partial found by measurement never lands on one.
+    The window's coherent gain is divided out, so a ratio of two of these is
+    exact for partials further apart than its 8-bin main lobe."""
+    e = am.windowed_tone_amplitude(x, hz, sr)
+    if not e.ok:
+        return am.Estimate(None, False, f"{label} {hz:.2f} Hz: {e.reason}", e.detail)
+    return e
+
+
+def tone_ratio_db(x, sr: int, hz_num: float, hz_den: float, *,
+                  search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """Level of the partial NEAR `hz_num` over the partial NEAR `hz_den`, in
+    dB: both lines are found in the record and then measured between (#108).
+
+    The nominal frequencies are search centres, not probe points. On this unit
+    it changes the answer by 0.06 dB, which is exactly why it is worth doing
+    now, while it is a no-op, rather than after a reference swap makes it a
+    mystery.
+
+    Ground truth: test_tone_ratio_db_of_two_known_sines,
+    test_tone_ratio_db_finds_a_detuned_line_the_nominal_probe_misses."""
+    fn, fd = find_line(x, sr, hz_num, search=search), find_line(x, sr, hz_den, search=search)
+    if not fn.ok:
+        return am.Estimate(None, False, f"numerator: {fn.reason}", fn.detail)
+    if not fd.ok:
+        return am.Estimate(None, False, f"denominator: {fd.reason}", fd.detail)
+    a = _amplitude_at(x, sr, fn.value, "numerator")
+    b = _amplitude_at(x, sr, fd.value, "denominator")
     if not a.ok:
-        return am.Estimate(None, False, f"numerator {hz_num:.0f} Hz: {a.reason}", a.detail)
+        return a
     if not b.ok:
-        return am.Estimate(None, False, f"denominator {hz_den:.0f} Hz: {b.reason}", b.detail)
+        return b
     if a.value <= 0 or b.value <= 0:
         return am.Estimate(None, False, "a line measured at zero amplitude",
                            dict(num=a.value, den=b.value))
     return am.Estimate(20.0 * math.log10(a.value / b.value), True, "",
-                       dict(num=a.value, den=b.value))
+                       dict(num=a.value, den=b.value,
+                            num_hz=fn.value, den_hz=fd.value,
+                            num_nominal_hz=hz_num, den_nominal_hz=hz_den,
+                            num_offset_pct=fn.detail["offset_pct"],
+                            den_offset_pct=fd.detail["offset_pct"]))
+
+
+def difference_tone_db(x, sr: int, hz_hi: float, hz_lo: float, *,
+                       search: float = LINE_SEARCH_FRAC) -> am.Estimate:
+    """Level at the DIFFERENCE of the two real partials, over the upper one,
+    in dB.
+
+    The difference tone is not a line to be searched for -- the whole point of
+    the metric is that it should not be there -- so its frequency is DERIVED
+    from the two lines that were found rather than looked for as a peak. That
+    is still #108's fix: the frequency probed comes from measurement and not
+    from a chart. Searching for a peak here would be the opposite error,
+    because "no peak at the difference frequency" is the PASSING case and must
+    not come back as a refusal.
+
+    Ground truth: test_difference_tone_db_probes_the_measured_difference."""
+    fh, fl = find_line(x, sr, hz_hi, search=search), find_line(x, sr, hz_lo, search=search)
+    if not fh.ok:
+        return am.Estimate(None, False, f"upper partial: {fh.reason}", fh.detail)
+    if not fl.ok:
+        return am.Estimate(None, False, f"lower partial: {fl.reason}", fl.detail)
+    f_diff = fh.value - fl.value
+    if f_diff <= 0 or f_diff >= sr / 2:
+        return am.Estimate(None, False, "the difference frequency is outside (0, Nyquist)",
+                           dict(hi_hz=fh.value, lo_hz=fl.value, diff_hz=f_diff))
+    a = _amplitude_at(x, sr, f_diff, "difference tone")
+    b = _amplitude_at(x, sr, fh.value, "upper partial")
+    lo_a = _amplitude_at(x, sr, fl.value, "lower partial")
+    if not a.ok:
+        return a
+    if not b.ok:
+        return b
+    if not lo_a.ok:
+        return lo_a
+    if a.value <= 0 or b.value <= 0:
+        return am.Estimate(None, False, "a line measured at zero amplitude",
+                           dict(num=a.value, den=b.value))
+
+    # THE FLOOR, MEASURED (#92). Two partials 60 dB above the thing being
+    # looked for leak into its bin, and a projection that reports that leakage
+    # as a difference tone is the "25 dB of separation" failure again -- the
+    # rectangular projection this replaced read our render's difference tone at
+    # -41 dB where the windowed one reads -102. So the same two partials are
+    # resynthesised alone, at the amplitudes measured here, and projected at
+    # the same difference frequency: whatever that reads is leakage, because
+    # the synthetic signal has no difference tone in it at all.
+    n = len(x)
+    t = np.arange(n) / sr
+    leak = (b.value * np.sin(2 * math.pi * fh.value * t)
+            + lo_a.value * np.sin(2 * math.pi * fl.value * t))
+    fl_e = am.windowed_tone_amplitude(leak, f_diff, sr)
+    floor = float(fl_e.value) if fl_e.ok else 0.0
+    floor_db = 20.0 * math.log10(floor / b.value) if floor > 0 else float("-inf")
+    value = 20.0 * math.log10(a.value / b.value)
+    detail = dict(num=a.value, den=b.value, diff_hz=f_diff,
+                  hi_hz=fh.value, lo_hz=fl.value,
+                  hi_nominal_hz=hz_hi, lo_nominal_hz=hz_lo,
+                  floor_db=floor_db, headroom_db=value - floor_db,
+                  floor_margin_db=FLOOR_MARGIN_DB)
+    if value < floor_db + FLOOR_MARGIN_DB:
+        # `harmonic_signature` already does exactly this -- it returns None for
+        # any harmonic within 6 dB of its measured floor -- and that pattern is
+        # right. A row at the floor reports the estimator, not the signal.
+        return am.Estimate(None, False,
+                           f"the difference tone at {f_diff:.1f} Hz reads {value:.1f} dB, "
+                           f"within {FLOOR_MARGIN_DB:.0f} dB of the {floor_db:.1f} dB the "
+                           f"two partials leak into that bin by themselves: there is no "
+                           f"difference tone here to measure, only the window", detail)
+    return am.Estimate(value, True, "", detail)
 
 
 def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) -> am.Estimate:
@@ -920,6 +1062,12 @@ def _line_ratio(hz_num: float, hz_den: float, t1: float = 0.100):
     return f
 
 
+def _difference_tone(hz_hi: float, hz_lo: float, t1: float = 0.100):
+    def f(y, sr):
+        return difference_tone_db(window(y, sr, 0.0, t1), sr, hz_hi, hz_lo)
+    return f
+
+
 def _band_pair(band_a, band_b, t1: float | None = None):
     def f(y, sr):
         return band_pair_db(_energy_window(y, sr, 0.0, t1), sr, band_a, band_b)
@@ -996,8 +1144,12 @@ DRUM_PLAN = {
         ("decay", "ms", _t20_ms(0.002), tol_time),
     ],
     "CB": [
+        # Nominal frequencies, used as SEARCH CENTRES and not as probe points
+        # (#108). This machine's lines are 558.35 and 823.70 Hz; the difference
+        # tone is at their measured difference, not at the 260 Hz the chart
+        # implies.
         ("Partial balance", "dB", _line_ratio(800.0, 540.0), tol_db),
-        ("unwanted difference tone", "dB", _line_ratio(260.0, 800.0), tol_db),
+        ("unwanted difference tone", "dB", _difference_tone(800.0, 540.0), tol_db),
         ("decay", "ms", _t20_ms(0.005), tol_time),
     ],
     "CY": [
