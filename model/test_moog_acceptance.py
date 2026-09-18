@@ -647,7 +647,12 @@ def test_polyblep_suppresses_aliasing_at_every_register(shape, note):
         note 64  saw -20.8 -> -36.6 (15.9 dB)   square -22.5 -> -38.2 (15.7)
         note 88  saw -14.8 -> -31.0 (16.2 dB)   square -16.5 -> -32.1 (15.7)
 
-    All are at least 10 dB above the estimator's own -54 dB leakage floor."""
+    Every one is far above the estimator's own leakage floor, which is MEASURED
+    per call and reported as `detail['headroom_db']` -- the assertion below
+    reads that rather than a floor quoted here, because #119 moved the floor
+    from about -54 dB (Hann) to about -88 (Blackman-Harris) without moving any
+    of the numbers above, and a floor written into a docstring is wrong the
+    next time the window changes."""
     n = int(0.5 * SR)
     naive, f0 = _osc(shape, note, n, blep=False)
     blep, _ = _osc(shape, note, n, blep=True)
@@ -655,6 +660,9 @@ def test_polyblep_suppresses_aliasing_at_every_register(shape, note):
     b = am.inharmonic_fraction_db(blep, f0).require(f"{shape} note {note}, PolyBLEP")
     assert a - b >= 14.0, f"{shape} note {note}: naive {a:.1f}, PolyBLEP {b:.1f}"
     assert b < -28.0, f"{shape} note {note}: PolyBLEP leaves {b:.1f} dB"
+    head = am.inharmonic_fraction_db(blep, f0).detail["headroom_db"]
+    assert head > 10.0, \
+        f"{shape} note {note}: PolyBLEP's {b:.1f} dB is only {head:.1f} dB above its own floor"
 
 
 @pytest.mark.parametrize("note", [64, 88])
