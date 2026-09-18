@@ -231,3 +231,80 @@ if the reader knows the rate.
 > **Practice: report the rate where the numbers are read**, not in a private
 > summary. It is how a reader calibrates how much weight any single figure can
 > carry.
+
+---
+
+# The third batch: the root cause underneath the other two
+
+Both root causes above are instances of one thing, and naming it makes the fix
+generative instead of reactive.
+
+## Root cause: status is carried in prose, not in data
+
+**Every failure here had a cheap signal available that had the same SHAPE as the
+expensive answer, and nothing forced the distinction at the point of use.**
+
+- `grep -c` returned `1`, which is shaped like a finding. The match was a
+  comment saying the opposite of what was concluded.
+- A brief is prose, which is shaped like current truth. Three agents worked from
+  premises that had gone false underneath them.
+- `[verified: SN text; magnitude inferred]` is a comment, which is shaped like a
+  measurement. It shipped as `TOM_DROP_RATIO = 1.7`; the machine measures
+  **x1.063**, and the excess is **11.1x** too large.
+- A tolerance is a number, which is shaped like a justified threshold. Not one
+  of ours has a measured spread behind it.
+- A window is a choice, which is shaped like a convention. Two sides were
+  windowed differently and the difference was worth **6 dB against a 3 dB
+  tolerance**.
+- An uncommitted file is shaped like a saved file. Finished work was lost twice
+  in one session.
+
+## The evidence: what saved us has exactly one shape
+
+Six things caught errors in this session. Every one is **an artifact that
+carries its own status, plus a tool that refuses when the status is
+insufficient**:
+
+| what caught it | what it carried | what it refused |
+|---|---|---|
+| provenance block on every result | commit, dirty flag, input hashes | told a stale checkout from a capability gap -- 8 false refusals |
+| whole-batch base check | tree vs `origin/main` | blocked a coefficient change being scored against a modified tree |
+| `"valid": false` with **no** `error` key | validity, separately from value | stopped an artefact reading as a perfect zero |
+| estimator validation on known signals | the validated domain | **nine** wrong-then-rights in one agent, none caught by inspection |
+| injected controls | that the test can fail | a drive level overflowing the input by 0.34 dB |
+| the stale-tree banner | commits behind `origin/main` | a board read as current that was ten commits old |
+
+And every failure above is the **absence** of that pattern. That is the whole
+theory: not "be careful", but **put the status in the data and make the consumer
+refuse.**
+
+## The generative form: invariance over expected value
+
+An expected-value test catches the error you already know about. **An invariance
+test catches errors nobody has thought of**, because it asserts something that
+must hold *regardless of what the right answer is.*
+
+Prepending digital silence cannot change what a machine did in 1980. That one
+property, asserted, would have caught the 6 dB windowing bias without anyone
+knowing the correct band split. Scaling by a constant cannot change a *ratio*.
+Shifting a signal cannot change an onset-relative measure.
+
+**We keep adding a check after each failure.** That is reactive and the list
+grows forever. Asserting the invariant is generative: it catches the whole class,
+including the instances not yet hit.
+
+## What follows, mechanically
+
+1. **Constants carry provenance as data, not comments**, so "list every inferred
+   constant a failing case depends on" is a query rather than a grep.
+2. **Estimators declare their validated domain and refuse outside it.**
+   `tone_ratio_db` is exact on a stationary two-tone and loses **16 dB at 5 %
+   detuning** -- knowable, and therefore checkable.
+3. **Tolerances carry the measurement that justifies them**, or are marked as
+   guesses. Today they are all guesses.
+4. **Briefs carry machine-checkable preconditions**, not prose ones.
+5. **Uncommitted work in a worktree blocks reporting completion.**
+
+The test of whether this is working is not that the list of checks grows. It is
+that **the next unknown failure is caught by a check written before anyone knew
+about it.**
