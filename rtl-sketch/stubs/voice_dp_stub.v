@@ -17,9 +17,10 @@ module voice_dp #(
     input  wire        go,
     input  wire        wr_valid,
     input  wire        wr_flag,
-    input  wire [6:0]  wr_addr,
-    input  wire [23:0] wr_data,
-    input  wire signed [18:0] drum_bus,
+    input  wire [7:0]  wr_addr,
+    input  wire [31:0] wr_data,
+    input  wire signed [20:0] dmix,
+    input  wire signed [18:0] body,
     input  wire        drum_done,
     output reg  signed [15:0] sample,
     output reg         sample_valid,
@@ -42,7 +43,7 @@ module voice_dp #(
     reg signed [24:0] ma = 25'bx;
     reg signed [20:0] mb = 21'bx;
     reg [15:0] g = 16'bx;
-    reg signed [19:0] out_v = 20'bx;
+    reg signed [35:0] macc = 36'bx;   // tb_voice taps macc >>> 15 for the out_v column
     reg [23:0] level_a = 24'bx, level_f = 24'bx;
     reg [1:0]  seg_a = 2'bx, seg_f = 2'bx;
     integer i;

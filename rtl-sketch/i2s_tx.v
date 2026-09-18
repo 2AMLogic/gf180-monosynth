@@ -12,9 +12,14 @@
 // contract 13 is 1, provided the strobe precedes cycle 255 (the scheduler
 // guarantees it; tb_synth_top.v measures where the strobe lands).
 //
-// STATUS: REAL RTL (the sibling's, with its two recorded defects kept out);
-// tb_synth_top.v decodes SDATA as a DAC does and checks it against the
-// sample stream with D = 1, so this file is verified in this repository too.
+// STATUS: REAL RTL (the sibling's, with its two recorded defects kept out).
+// tb_top_bx.v / verify_synth_top.py decode SDATA as a DAC does -- from BCLK,
+// LRCLK and SDATA only -- and check every word against model/synth_top_model.py.
+// That is the verification of this file. tb_synth_top.v also decodes the wire,
+// but compares it against `dut.sample`, the core's OWN stream: circular, and
+// blind to a bit shift, a channel swap or a wrong D by construction. The three
+// INJECT_BUG_I2S_* controls below are exactly those three defects, and each is
+// demonstrated to turn verify_synth_top.py red.
 `default_nettype none
 module i2s_tx (
     input  wire        clk,
@@ -27,6 +32,10 @@ module i2s_tx (
     output reg         sdata
 );
     reg [15:0] held;                 // latest sample from the core (once per frame)
+`ifdef INJECT_BUG_I2S_DELAY
+    reg [15:0] held2;
+    always @(posedge clk) if (!rst_n) held2 <= 16'd0; else if (cyc == 8'd255) held2 <= held;
+`endif
     reg [15:0] cur;                  // the sample of this LRCLK period (L and R)
     reg [31:0] shifter;
     assign bclk  = cyc[1];
@@ -40,10 +49,24 @@ module i2s_tx (
                 if (cyc[6:2] == 5'd31) begin             // last BCLK of a slot = delay bit of the next slot
                     sdata <= 1'b0;
                     if (cyc[7]) begin                    // right slot ends: next period, fresh sample
+`ifdef INJECT_BUG_I2S_DELAY
+                        cur     <= held2;                // NEGATIVE CONTROL: one period too late (D = 2)
+                        shifter <= {held2, 16'd0};
+`elsif INJECT_BUG_I2S_SHIFT
+                        cur     <= held;                 // NEGATIVE CONTROL: every bit one BCLK late
+                        shifter <= {1'b0, held, 15'd0};
+`else
                         cur     <= held;
                         shifter <= {held, 16'd0};
+`endif
                     end else                             // left slot ends: right repeats the same sample
+`ifdef INJECT_BUG_I2S_SWAP
+                        shifter <= {held, 16'd0};        // NEGATIVE CONTROL: the right channel carries
+`elsif INJECT_BUG_I2S_SHIFT                              //   a different sample from the left
+                        shifter <= {1'b0, cur, 15'd0};
+`else
                         shifter <= {cur, 16'd0};
+`endif
                 end else begin
                     sdata   <= shifter[31];
                     shifter <= {shifter[30:0], 1'b0};

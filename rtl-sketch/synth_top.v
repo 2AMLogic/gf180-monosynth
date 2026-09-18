@@ -1,32 +1,42 @@
 // synth_top.v -- the chip: docs/ARCHITECTURE.md as RTL.
 //
-//   SPI pins -> spi_ctl (link, 4-deep write queue, drain at the tick)
-//            -> voice_dp (three oscillators, mixer, envelopes, cutoff ROMs,
-//                         the verified ladder_dp_n -- two filter contexts: the
-//                         voice's, and the drum filter's -- VCA, volume, master mix)
+//   SPI pins -> spi_ctl (link, 48-bit frames, 4-deep write queue, drain at the tick)
+//            -> SEC = 0: voice_dp (three oscillators, mixer, envelopes, cutoff
+//                        ROMs, the verified ladder_dp_n -- two filter contexts:
+//                        the voice's and the drum filter's -- VCA, volume,
+//                        the master mix)
+//            -> SEC = 1: drum_regs -> drum_kit (drum_dp + modal_dp), the REAL
+//                        drum engine of DR 0008
 //            -> i2s_tx  (BCLK / LRCLK / SDATA)
-//   and, on the drum bus, drum_section_placeholder (see below).
 //
 // WHAT IS REAL AND WHAT IS A PLACEHOLDER -- read this before quoting a number:
+//   There is no placeholder left in this file. drum_section_placeholder is
+//   gone; `drum_kit` is the engine verify_drums.py shows bit-exact against
+//   model/drums_fx.py, and drum_regs.v is its control image.
+//
 //   REAL, verified bit-exact against a model:  ladder_dp_n (inside voice_dp; each channel),
-//                                              modal_dp_rom (inside the drum placeholder)
-//   REAL, written to the contract; whether voice_dp is bit-exact against the
-//   model is verify_voice.py's finding, stated in ARCHITECTURE.md section 9:
-//                                              voice_dp, recip_div, spi_ctl (DR 0007), i2s_tx
-//                                              (the sibling's, checked here by tb_synth_top), this file
-//   PLACEHOLDER:                               drum_section_placeholder's SOURCES -- eight
-//                                              trigger bits that fire a decaying noise burst
-//                                              into the modal bank. The `drums` branch
-//                                              replaces that module; its register addresses
-//                                              0x40-0x7F are reserved for it (DR 0007).
+//                                              modal_dp and drum_dp (inside drum_kit)
+//   REAL, verified through the pins:           spi_ctl (verify_ctl.py: every write of both
+//                                              models' images arrives intact), this file and
+//                                              i2s_tx (verify_synth_top.py, which decodes the
+//                                              I2S wire and compares it against the MODEL)
 //
 // One clock (12.288 MHz, 256 cycles per 48 kHz frame), one reset (the pad,
 // synchronised), synchronous resets throughout; no derived clocks -- BCLK and
 // LRCLK are bits of the frame cycle counter. Frame schedule: ARCHITECTURE.md
 // section 5; `go` at cycle GO_CYCLE starts every block after the write drain.
+//
+// TWO SOFT RESETS, one per page, because there are two register images:
+// SEC = 0 address 0x23 resets the voice datapath (contract 14), SEC = 1
+// address 0xFF resets the drum section (contract 15.8). Neither touches the
+// link or the queue, so writes queued behind one still apply, in order.
 `default_nettype none
 module synth_top #(
-    parameter GO_CYCLE = 8
+    parameter GO_CYCLE = 8,
+    parameter ENVS  = 12,
+    parameter PATHS = 16,
+    parameter MODES = 12,
+    parameter NUMS  = 6
 )(
     input  wire clk,          // 12.288 MHz
     input  wire rst_n_pad,    // active-low reset from the MCU
@@ -61,116 +71,77 @@ module synth_top #(
         end
     end
 
-    // ---- the link and the write port ------------------------------------------------
-    wire        wr_valid, wr_flag;
-    wire [6:0]  wr_addr;
-    wire [23:0] wr_data;
+    // ---- the link and the write port (DR 0007 revision 2) ----------------------------
+    wire        wr_valid, wr_flag, wr_sec;
+    wire [7:0]  wr_addr;
+    wire [31:0] wr_data;
     wire        fresh, overflow;
     wire [2:0]  q_count;
     spi_ctl u_spi (.clk(clk), .rst_n(rst_n), .sck(sck), .mosi(mosi), .cs_n(cs_n), .miso(miso),
                    .tick(tick), .frame(frame), .overrun(overrun),
-                   .wr_valid(wr_valid), .wr_flag(wr_flag), .wr_addr(wr_addr), .wr_data(wr_data),
+                   .wr_valid(wr_valid), .wr_flag(wr_flag), .wr_sec(wr_sec),
+                   .wr_addr(wr_addr), .wr_data(wr_data),
                    .fresh(fresh), .overflow(overflow), .q_count(q_count));
-    // RESET (0x23) resets every datapath register of contract 14 and nothing on the link
-    wire soft_rst  = wr_valid && (wr_addr == 7'h23);
+
+    wire wr_voice = wr_valid && !wr_sec;                 // SEC = 0: the voice and master page
+    wire wr_drum  = wr_valid &&  wr_sec;                 // SEC = 1: the drum section's page
+    // RESET (SEC 0, 0x23) resets every datapath register of contract 14 and nothing on the link
+    wire soft_rst  = wr_voice && (wr_addr == 8'h23);
     wire rst_n_dp  = rst_n & ~soft_rst;
 
-    // ---- the drum bus: Q4.15, 19 bits, the ladder's output word (ARCHITECTURE.md 4) -------
-    wire signed [18:0] drum_bus;
-    wire        drum_done;
-    drum_section_placeholder u_drums (.clk(clk), .rst_n(rst_n_dp), .go(go),
-                                      .wr_valid(wr_valid), .wr_addr(wr_addr), .wr_data(wr_data),
-                                      .drum_bus(drum_bus), .drum_done(drum_done), .busy(drum_busy));
+    // ---- the drum section: its control image and the engine (DR 0008) ----------------
+    wire                  d_soft_rst;
+    wire        [7:0]     d_stops;
+    wire [8*16-1:0]       d_accent;
+    wire [6*24-1:0]       d_osc;
+    wire [ENVS*27-1:0]    d_ectl;
+    wire [ENVS*24-1:0]    d_peak;
+    wire [ENVS*16-1:0]    d_rate;
+    wire [PATHS*22-1:0]   d_path;
+    wire [MODES*26-1:0]   d_a1, d_a2;
+    wire [MODES*16-1:0]   d_amp;
+    wire [MODES*2-1:0]    d_num;
+    wire rst_n_drum = rst_n & ~d_soft_rst;
+    drum_regs #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES)) u_dregs (
+        .clk(clk), .rst_n(rst_n_drum), .wr_valid(wr_drum), .wr_addr(wr_addr), .wr_data(wr_data),
+        .soft_rst(d_soft_rst),
+        .stops(d_stops), .accent_bus(d_accent), .osc_inc_bus(d_osc),
+        .env_ctl_bus(d_ectl), .env_peak_bus(d_peak), .env_rate_bus(d_rate), .path_bus(d_path),
+        .a1_bus(d_a1), .a2_bus(d_a2), .amp_bus(d_amp), .num_bus(d_num));
+
+    wire signed [20:0] dmix;                 // the mix bus (15.5), 21 bits, exact
+    wire signed [18:0] body;                 // the body bus (15.6), 19 bits Q4.15
+    wire               mix_valid, body_valid;
+    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS)) u_drums (
+        .clk(clk), .rst_n(rst_n_drum), .frame_tick(go),
+        .stops(d_stops), .accent_bus(d_accent), .osc_inc_bus(d_osc),
+        .env_ctl_bus(d_ectl), .env_peak_bus(d_peak), .env_rate_bus(d_rate), .path_bus(d_path),
+        .a1_bus(d_a1), .a2_bus(d_a2), .amp_bus(d_amp), .num_bus(d_num),
+        .mix_out(dmix), .mix_valid(mix_valid), .body_out(body), .body_valid(body_valid));
+
+    // `drum_done` is the handshake of ARCHITECTURE 4.4: cleared at `go`, set only
+    // when THIS frame's two buses are on the wires. The master mix waits for it.
+    reg drum_done, drum_run;
+    assign drum_busy = drum_run;
+    always @(posedge clk) begin
+        if (!rst_n_drum) begin drum_done <= 1'b0; drum_run <= 1'b0; end
+        else begin
+            if (go) begin drum_done <= 1'b0; drum_run <= 1'b1; end
+            else if (body_valid) begin drum_done <= 1'b1; drum_run <= 1'b0; end
+        end
+    end
 
     // ---- the voice, the ladder, the master mix -------------------------------------------
     wire signed [15:0] sample;
     wire        sample_valid;
     voice_dp u_voice (.clk(clk), .rst_n(rst_n_dp), .go(go),
-                      .wr_valid(wr_valid), .wr_flag(wr_flag), .wr_addr(wr_addr), .wr_data(wr_data),
-                      .drum_bus(drum_bus), .drum_done(drum_done),
+                      .wr_valid(wr_voice), .wr_flag(wr_flag), .wr_addr(wr_addr), .wr_data(wr_data),
+                      .dmix(dmix), .body(body), .drum_done(drum_done),
                       .sample(sample), .sample_valid(sample_valid), .busy(voice_busy),
                       .mixed(), .ae(), .fe(), .cut(), .k_eff(), .y19());
 
     // ---- I2S -------------------------------------------------------------------------------
     i2s_tx u_i2s (.clk(clk), .rst_n(rst_n), .cyc(cyc), .sample_valid(sample_valid), .sample(sample),
                   .bclk(bclk), .lrclk(lrclk), .sdata(sdata));
-endmodule
-
-
-// drum_section_placeholder -- the drum path of ARCHITECTURE.md section 4 with
-// PLACEHOLDER SOURCES and the REAL modal bank.
-//
-//   sources (PLACEHOLDER): eight trigger bits at 0x40; a 0->1 write fires a
-//     16-bit envelope (32767, then -1/8 per frame) that signs an LFSR: a
-//     decaying noise burst, roughly the model's 1.6 ms strike. No multiplier,
-//     no per-drum tuning, no mix of its own -- the `drums` branch owns all of
-//     that, and docs/area-budget.md's drum_src_seq strawman (89,004 um^2) is
-//     the expected size of the real thing.
-//   bodies (REAL): modal_dp_rom, bit-exact against model/modal_fixed.py, 15
-//     cycles, preset from 0x41 (eight stored bars, gen_modal_rom.py).
-//
-// ORDER IS A CORRECTNESS PROPERTY of the schedule (ARCHITECTURE.md section
-// 5): the excitation the bank receives in frame f is the sources' output for
-// frame f, and the bank's output for frame f is the drum bus of frame f.
-// Running the bank before the sources would feed it frame f-1's pulse -- a
-// one-frame offset that "works" and is wrong. Two things this module honours
-// that the drum branch's block must too: (1) modal_dp_rom reads `exc` on
-// every one of its 15 cycles, so the excitation is registered before
-// sample_valid and held until y_valid (`exc` changes only at the next `go`);
-// (2) drum_done is cleared at `go` and set only when THIS frame's bus is on
-// drum_bus, and the voice's master mix waits for it rather than assuming it.
-module drum_section_placeholder (
-    input  wire        clk,
-    input  wire        rst_n,
-    input  wire        go,
-    input  wire        wr_valid,
-    input  wire [6:0]  wr_addr,
-    input  wire [23:0] wr_data,
-    output reg  signed [18:0] drum_bus,     // Q4.15; the placeholder fills it from the bank's Q1.15 word
-    output reg         drum_done,
-    output wire        busy
-);
-    reg [7:0]  trig, trig_q;
-    reg [2:0]  preset;
-    reg [15:0] env;
-    reg [15:0] lfsr;
-    reg signed [15:0] exc;
-    reg        m_sv;
-    reg [1:0]  st;
-    wire signed [15:0] m_y;
-    wire        m_yv;
-    assign busy = (st != 2'd0);
-    wire fire = |(trig & ~trig_q);
-    modal_dp_rom #(.PRESETS(8)) u_modal (.clk(clk), .rst_n(rst_n), .sample_valid(m_sv), .exc(exc),
-                                         .preset(preset), .y_out(m_y), .y_valid(m_yv));
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            trig <= 0; trig_q <= 0; preset <= 0; env <= 0; lfsr <= 16'hACE1; exc <= 0; m_sv <= 0; st <= 0;
-            drum_bus <= 0; drum_done <= 0;
-        end else begin
-            m_sv <= 1'b0;
-            case (st)
-                2'd0: if (go) begin                                  // 1. sources (placeholder)
-                    drum_done <= 1'b0;
-                    trig_q <= trig;
-                    env  <= fire ? 16'h7FFF : (env - (env >> 3));
-                    lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
-                    st <= 2'd1;
-                end
-                2'd1: begin                                          // 2. excite the bodies, this frame
-                    exc <= lfsr[0] ? $signed(env) : -$signed(env);
-                    m_sv <= 1'b1; st <= 2'd2;
-                end
-                default: if (m_yv) begin                             // 3. the drum bus is this frame's
-                    drum_bus <= {{3{m_y[15]}}, m_y}; drum_done <= 1'b1; st <= 2'd0;
-                end
-            endcase
-            if (wr_valid) case (wr_addr)                             // 0x40-0x7F: the drum branch's map
-                7'h40: trig   <= wr_data[7:0];
-                7'h41: preset <= wr_data[2:0];
-                default: ;
-            endcase
-        end
-    end
 endmodule
 `default_nettype wire

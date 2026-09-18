@@ -1,7 +1,7 @@
 # 0007: The control interface — SPI transport, register-write semantics, applied at the frame tick
 
-- **Status**: proposed
-- **Date**: 2026-09-17
+- **Status**: proposed, **revision 2** (2026-09-18: the frame is 48 bits, not 32)
+- **Date**: 2026-09-17, revised 2026-09-18
 - **Decided by**: block agent, from the product constraints of DR 0002 (an MCU is the client), the key model of DR 0003, the operator's proposal in gf180-polysynth issue 7 and the analysis posted there, and the measurements in `docs/area-budget.md`
 - **Closes**: contract open items 17.3 (physical layer and every encoding), 17.8 (power-on defaults), 17.10 (the widths of `cut_lo`, `cut_hi`, `track_hz`)
 
@@ -56,31 +56,68 @@ is adopted except its transport and its CS framing.
 |---|---|
 | Transport | SPI slave, **mode 0** (CPOL = 0, CPHA = 0): MOSI sampled on the rising edge of SCK, MISO changes on the falling edge, MSB first |
 | Pins | `SCK`, `MOSI`, `CS_N` (active low) in; `MISO` out. Four pins. |
-| Transaction | exactly **32 bits** between a falling and a rising edge of `CS_N`. A transaction with any other bit count is **discarded** — no partial or over-long write is ever applied, and the stream cannot lose byte alignment (a UART can, and needs the status-bit scheme of the sibling's 10.2 to recover). |
+| Transaction | exactly **48 bits** (six bytes) between a falling and a rising edge of `CS_N`. A transaction with any other bit count is **discarded** — no partial or over-long write is ever applied, and the stream cannot lose byte alignment (a UART can, and needs the status-bit scheme of the sibling's 10.2 to recover). Revision 1 specified 32; section 2 has the measurement that changed it. |
 | Sampling | the receiver is **synchronous to the 12.288 MHz core clock**: `SCK`, `MOSI` and `CS_N` pass through two-flop synchronisers and edges are detected in the core domain. There is no second clock domain and no CDC. |
-| SCK | **≤ 2.0 MHz guaranteed** (the design's limit is f_core / 4 = 3.072 MHz with a 50 % duty cycle; the guaranteed figure leaves margin for duty-cycle distortion and the synchroniser). One transaction is therefore ≥ 16 µs. |
+| SCK | **≤ 2.0 MHz guaranteed** (the design's limit is f_core / 4 = 3.072 MHz with a 50 % duty cycle; the guaranteed figure leaves margin for duty-cycle distortion and the synchroniser). One transaction is therefore ≥ 24 µs. |
 | CS_N | must be high for **≥ 4 core cycles (≥ 0.33 µs)** between transactions; the MCU's SPI peripheral does this by default. |
-| Rate | at 2 MHz, one write per 16 µs — 0.77 frames. The whole voice image (34 writes; 40 with the master and drum-filter registers) takes 0.54–0.64 ms; a paraphonic chord (three SET_INC and a GATE_ON) 64 µs. |
+| Rate | at 2 MHz, one write per 24.3 µs — 1.17 frames. The voice image with the master and drum-filter registers (41 writes) takes 1.0 ms; the reference drum kit (100 writes, contract Appendix G) 2.4 ms. Both are written once at boot; the figure that matters for playing is the chord's — three SET_INC and a GATE_ON, 97 µs. |
 | MISO | during every transaction the chip shifts out a **32-bit status word** (section 4), loaded at the falling edge of `CS_N`. A host that does not want it leaves `MISO` unconnected. |
 
-### 2. The write: one transaction, one register
+### 2. The write: one transaction, one register — REVISION 2
 
 ```
-bit 31        30 ... 24        23 ... 0
- F            A[6:0]           D[23:0]
- flag         address          data, MSB first, right-aligned
+byte 0                 byte 1           bytes 2..5
+bit 47   46 ... 41  40    39 ... 32        31 ... 0
+ F       000000     SEC   A[7:0]           D[31:0]
+ flag    reserved   page  address          data, MSB first, right-aligned
 ```
 
-- `A` selects a register or an action (section 3). `D` is 24 bits; a
-  register narrower than 24 bits takes the low bits and the rest of `D`
+- `SEC` selects the **page**: 0 the voice and the master (section 3 below),
+  1 the drum section, whose map is contract 15.1's, unchanged. Read
+  `{SEC, A}` as a 9-bit address split so that neither field straddles a byte.
+- `A` selects a register or an action within the page. `D` is 32 bits; a
+  register narrower than 32 bits takes the low bits and the rest of `D`
   **MUST be zero** (the implementation ignores them; the contract's "any
   register value is legal, nothing is rejected" holds for the bits that
   exist).
 - `F` is the **jump** bit of SET_INC (5.2) and is reserved, MUST be zero, on
-  every other address.
-- Addresses 0x00–0x3F are the voice and the master; 0x40–0x7F are the drum
-  section and are **owned by the drum branch**; this record only reserves
-  them and fixes that they decode the same way.
+  every other address. Bits 46..41 are reserved and MUST be zero.
+- On page 0, `A[7]` is reserved and MUST be zero. Page 0's map is unchanged
+  from revision 1 except that 0x40–0x7F, which revision 1 reserved for drums,
+  are now ordinary reserved addresses — the drums have their own page — and
+  0x2C is the new `BVOL`.
+
+#### Why 48 bits and not 32 — the measurement
+
+Revision 1's frame was written before the drum section existed, and reserved
+0x40–0x7F for it: **64 addresses for a block that needs 117.** Contract 15.1
+had meanwhile specified the drum image as an 8-bit address space with values
+up to 32 bits wide. The two are not compatible, and nothing noticed, because
+every bench in this repository drives the register *write port* and not the
+link. `rtl-sketch/verify_ctl.py` is the bench that drives the link; run
+against revision 1 it reports, of the **155 register writes
+`model/voice_fx.py` and `model/drums_fx.py` perform for one patch and the
+reference kit**:
+
+| corrupted | how |
+|---:|---|
+| **118** | there is no drum page: every drum write aliases onto a voice address |
+| **67** | the address does not fit in 7 bits — `A_PATH` = 0x80, `A_MODE` = 0xC0, `A_RESET` = 0xFF |
+| **26** | the datum does not fit in 24 bits — `ENV_CTL` is 27 bits, `MODE_A1` and `MODE_A2` are 26 |
+| 37 | survive |
+
+The narrowest frame that carries a 27-bit datum and a 9-bit address is 37
+bits, so the frame had to grow. 48 was chosen over 40 because it is six whole
+bytes: `A` is one byte and `D` is a 32-bit big-endian word, which is what
+contract 15.1 already says the drum image is, so **neither model's address map
+moves** and Appendix G's SHA-pinned kit still applies unchanged. A 40-bit
+frame would have saved 66 flops (section 9) at the cost of a 9-bit address and
+a 30-bit datum straddling byte boundaries in the host's packing, and would
+have made contract 15.1's "values up to 32" false.
+
+`rtl-sketch/stubs/spi_ctl_dr7rev1.v` is revision 1's receiver, kept as a
+standing negative control: `verify_ctl.py --link dr7rev1` reproduces the table
+above at any time.
 
 ### 3. Register map
 
@@ -103,6 +140,7 @@ carries 24 bits and the register keeps its own width.
 | 0x1D | `GAIN` | 20 | SET_LADDER gain | 0 |
 | 0x1E | `OGAIN` | 20 | SET_LADDER ogain | 0 |
 | 0x28 | `DCUT` | 16 | the drum filter's cutoff, integer Hz, clamped to 30..21 600 like the voice's; no envelope, no tracking | 0 (30 Hz) |
+| 0x2C | `BVOL` | 16 | the **body** bus's level at the master mix, Q0.15 (contract 12; `DVOL` is the mix bus's). The drum section has had two buses since DR 0008 and the output stage has always named two gains; revision 1 had only one address for them | 0 |
 | 0x29 | `DK` | 17 | the drum filter's resonance, `4·res` in Q3.14, compensated by the same kc ROM at `DCUT` | 0 |
 | 0x2A | `DGAIN` | 20 | the drum filter's input gain, Q4.16 | 0 |
 | 0x2B | `DOGAIN` | 20 | the drum filter's output gain, Q4.16 | 0 |
@@ -111,8 +149,19 @@ carries 24 bits and the register keeps its own width.
 | 0x22 | `TRIG` | — | both envelopes `seg ← ATTACK`, level and gate unchanged; D ignored | |
 | 0x23 | `RESET` | — | every datapath register of contract 14 ← its reset value; D ignored. **The link and the write queue are not touched**: writes queued behind a RESET in the same frame still apply, in order, after it (the sibling's rule, 10.5; it is what makes 4.3's "every write complete during frame f MUST be applied" true through a RESET). | |
 | 0x3F | `NOP` | — | no effect; exists so the host can read the status word without changing anything | |
-| 0x03, 0x07, 0x0B, 0x1B, 0x1F, 0x24–0x27, 0x2C–0x3E | reserved | | ignored, no effect | |
-| 0x40–0x7F | drum section | | reserved for the `drums` branch; decoded by the drum block from the same `A`/`D`/`F` | |
+| 0x03, 0x07, 0x0B, 0x1B, 0x1F, 0x24–0x27, 0x2D–0x3E, 0x40–0xFF | reserved on page 0 | | ignored, no effect | |
+
+**Page 1 (`SEC` = 1) is the drum section**, and its map is contract 15.1's,
+address for address and bit for bit: `0x00` STOPS, `0x10 + s` ACCENT,
+`0x20 + i` OSC_INC, `0x40 + 4e` ENV_CTL / ENV_PEAK / ENV_RATE, `0x80 + p`
+PATH, `0xC0 + 4m` MODE_A1 / MODE_A2 / MODE_AMP / MODE_NUM, `0xFF` RESET.
+`rtl-sketch/drum_regs.v` holds that image and drives `drum_kit`'s buses.
+
+**There are two soft resets, one per page**, because there are two register
+images: page 0's `0x23` resets the voice datapath (contract 14), page 1's
+`0xFF` resets the drum section (contract 15.8). Neither touches the link or
+the queue, so writes queued behind either still apply, in order, after it. A
+host that wants the whole chip silent sends both.
 
 ### 4. The status word (MISO)
 
@@ -121,7 +170,7 @@ transaction, whatever the transaction writes:
 
 ```
 bits 31:24  ID       0x4D ('M')            constant; the host checks the link at boot
-bits 23:20  VERSION  0x1                   this record's register map
+bits 23:20  VERSION  0x2                   this record's register map (revision 2; revision 1 read 0x1)
 bits 19:16  FLAGS    [3] overrun   the datapath was still busy at a frame tick (sticky; a defect, never expected)
                      [2] queue     the write queue was non-empty when the word was loaded
                      [1] overflow  a write was dropped because the queue was full (sticky, cleared by this load)
@@ -150,10 +199,11 @@ which the core accepts its last unit. For this link:
   starts at cycle 8, `synth_top`'s `GO_CYCLE`). A write accepted in the tick
   cycle or later belongs to the new frame and waits for the next tick.
 - **The queue cannot overflow within the specification**: at SCK ≤ 2 MHz a
-  32-bit transaction plus the CS_N gap takes ≥ 16.3 µs, so at most two
-  writes complete in any 20.83 µs frame, against a depth of four. A host
-  outside the specification that does overflow it loses the write and sets
-  the sticky `overflow` flag; nothing else is disturbed.
+  48-bit transaction plus the CS_N gap takes ≥ 24.3 µs, longer than the
+  20.83 µs frame, so **at most one** write completes in any frame, against a
+  depth of four. (Revision 1's 32-bit frame allowed two.) A host outside the
+  specification that does overflow it loses the write and sets the sticky
+  `overflow` flag; nothing else is disturbed.
 - Each write is applied exactly once and atomically — it names one register
   or one action, so atomicity is a single register write.
 
@@ -239,8 +289,84 @@ model would need a translation layer between the model's writes and the
 packets in both directions — in the firmware and in the testbench — and
 the translation would be where the timing was lost.
 
+### 9. Where the drum image is kept, and what the frame cost — revision 2
+
+Widening the frame was only half the defect. `drum_kit.v` takes its entire
+control image as **input ports**, and until revision 2 nothing drove them but
+a testbench reading a file: there was no storage on the chip for a write to
+land in. Both halves are decided here.
+
+**The image is flops, all of them writable**, in `rtl-sketch/drum_regs.v`.
+Measured with yosys generic `synth` (no liberty; the `synth_count.sh` flow —
+these are **cell counts, not µm²**, and no gf180 liberty was available in the
+environment that produced them, so no area figure is quoted):
+
+| | cells | of which flops |
+|---|---:|---:|
+| `drum_regs` (the drum image) | 2 598 | **2 276** |
+| `spi_ctl`, 48-bit frame | 760 | 317 |
+| `spi_ctl`, 32-bit frame (revision 1) | 624 | 251 |
+| `synth_top`, whole hierarchy | 48 348 | 7 860 |
+
+So the wider frame costs **+136 cells and +66 flops**, and the drum image is
+**2 276 of the chip's 7 860 flops — 29 %**. In this library every enabled bit
+is a flop plus a `mux2`, so the routed cost is larger than the flop count
+alone suggests; that number belongs to whoever runs the flow with the PDK
+installed, and it is a number this project had not been counting at all.
+
+**Rejected: a ROM of the 808 kit with a sparse writable overlay.** It is the
+obvious saving — `kit_808()` writes the same 100 values every time — and it
+is rejected on a precedent this record already set. Section 6 refused
+non-zero power-on defaults because they "would put a second, silent copy of
+the default patch in metal beside the one in the MCU's flash, to drift
+apart"; a kit ROM is exactly that, one order of magnitude larger, and DR 0008
+section 5 says in terms that the kit is "a table, not hardware" and that
+"fitting a measured unit is a table change". DR 0003's division — the chip is
+the mechanism, the host is the policy — decides it.
+
+**Not rejected, not taken here: an SRAM or a small coefficient ROM read per
+step.** `modal_dp_rom.v` already demonstrates the shape (the bank reads one
+coefficient per cycle from a ROM, in the cycle before the multiplier needs
+it), and the drum datapath is sequenced over 12 modes, 12 envelopes and 16
+paths, so it could read its image a word at a time instead of seeing all
+2 276 bits at once. That is a change to `drum_kit.v` / `drum_dp.v` /
+`modal_dp.v`, which are another agent's files, so it is recorded as the next
+decision rather than made here. The measurement above is what it has to beat.
+
+**Write atomicity is the drain, and it is measured.** Queued writes are
+applied at cycles 2..5 and `go` is at cycle 8, so no register the drum engine
+reads can change between `frame_tick` and `body_valid`: the buses are stable
+for the whole pass by construction, which is the same guarantee DR 0008
+section 2 asks for. A coefficient *pair* split across two frames (`MODE_A1`
+in one, `MODE_A2` in the next) does leave one frame running on a mixed pair —
+that is 4.3's ordering rule working as written, the same as a chord
+straddling a tick. `verify_synth_top.py` retunes the bass drum while it rings,
+one coefficient per frame, on purpose, and the chip stays bit-exact against
+the model through it.
+
 ## Alternatives considered
 
+- **Keeping the 32-bit frame and splitting wide writes** (a `DATA_HI` latch
+  consumed by the next write, or two transactions per wide register).
+  Rejected: it breaks 4.3's "each write is applied exactly once and
+  atomically". A pair that straddles a tick would apply a coefficient with a
+  stale high byte — for `MODE_A1` that is not a 20.8 µs skew, it is an
+  arbitrary pitch, and possibly `r > 1` and a diverging resonator. The queue
+  would also have to know which addresses are wide, which is the
+  address-dependent length table this record rejected below for smaller stakes.
+- **A 32-bit frame with an 8-bit flat address and a 24-bit datum.** Does not
+  exist: 1 + 8 + 24 = 33. Dropping `F` to make room only reaches 32 bits with
+  a 24-bit datum, which still cannot carry `ENV_CTL`'s 27.
+- **Paging the address space with a bank register.** Solves the address and
+  nothing else — `ENV_CTL` and the coefficients still do not fit in 24 bits —
+  and adds a mode bit the host must keep in step with the chip through a
+  reset, which is the slice-clock failure mode this record rejected once.
+- **A 40-bit frame, `{F, A[8:0], D[29:0]}`.** Cheapest that works: 66 flops
+  less than 48. Rejected on the host and the contract, not on the gates —
+  neither field is byte-aligned, so the firmware packs a 40-bit integer by
+  hand instead of writing a byte and a `uint32`, and `D` at 30 bits makes
+  contract 15.1's "values up to 32" untrue, which would move the drum model's
+  register map and with it Appendix G's SHA-pinned kit.
 - **SPI time-slice packets (issue 7) at 256 frames.** Kept: SPI, mode 0,
   CS framing, "the last bit before the boundary lands at the boundary".
   Rejected: the state model. It quantises live timing to 5.33 ms by
@@ -293,10 +419,18 @@ the translation would be where the timing was lost.
   section 4), so `DVOL` scales a word with headroom, not a clipped one.
 - The drum section decodes addresses 0x40–0x7F from the same port; what
   they mean is the `drums` branch's record.
-- RTL: `rtl-sketch/spi_ctl.v` (receiver, queue, status word, drain), driven
-  by `rtl-sketch/tb_synth_top.v` through the pins. Measured there:
-  pin-to-acceptance 3 cycles; a queued write is applied in cycle 2; the
-  status word reads back `0x4D110001` on the first transaction after reset.
+- RTL: `rtl-sketch/spi_ctl.v` (receiver, queue, status word, drain) and
+  `rtl-sketch/drum_regs.v` (the page-1 image), driven through the pins by
+  `rtl-sketch/tb_ctl.v` / `verify_ctl.py` and `rtl-sketch/tb_top_bx.v` /
+  `verify_synth_top.py`. Measured: pin-to-acceptance 3 cycles; every queued
+  write applied in cycle 2, before `go` at 8; the status word reads back
+  `0x4D210001` on the first transaction after reset (revision 1 read
+  `0x4D110001`); all 155 of the two models' writes arrive intact.
+- `verify_ctl.py`'s negative controls, each demonstrated to turn it red:
+  `SPI_ADDR7` (67 wrong addresses), `SPI_DATA24` (26 wrong data),
+  `SPI_NOSEC` (118 wrong sections), `SPI_ANYLEN` (2 mis-sized transactions
+  accepted), `SPI_DRAIN_LATE` (155 writes applied at cycle 10, after `go`),
+  and `--link dr7rev1` (118 corrupted).
 - Board: the 12.288 MHz core clock cannot come from the MCU's own crystal
   (USB needs 48 MHz and 48 : 12.288 = 125 : 32), so it is a separate
   oscillator or crystal on the board; that is ARCHITECTURE.md's clock

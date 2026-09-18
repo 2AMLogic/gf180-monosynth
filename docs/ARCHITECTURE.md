@@ -44,7 +44,7 @@ flowchart LR
 
         subgraph D["drum section — the 808 half"]
             direction TB
-            SRC["sources (PLACEHOLDER)<br/>drum branch: envelopes, noise,<br/>pitched pulses"] -- "excitation, held 15 cycles" --> MB["modal bank (REAL)<br/>modal_dp_rom · 15 cycles<br/>the tuned bodies"]
+            SRC["drum_dp (REAL)<br/>8 stops · 12 envelopes · 16 paths<br/>48 cycles"] -- "excitation accumulated per mode" --> MB["modal bank (REAL)<br/>modal_dp · 12 modes · 38 cycles<br/>the tuned bodies"]
             MB --> DB["drum bus<br/>Q4.15, 19 bits"]
         end
 
@@ -74,7 +74,7 @@ master mix; that is what lets each sound like itself.
 | `voice_dp` | `rtl-sketch/voice_dp.v` | the whole voice of the contract: three oscillators with glide and PolyBLEP, mixer, two ADSRs, the cutoff path with the g and kc ROMs, the ladder (two contexts), the VCA, the volume, the master mix with the drum bus | real; **bit-exact against `model/voice_fx.py`** at the register port over 43 200 frames of three scenarios (`verify_voice.py`, section 9) |
 | `ladder_dp_n` | `rtl-sketch/ladder_dp_n.v` | Huovilainen's ladder, one datapath, NCH state sets; context 0 is the voice, context 1 the drum filter | real; bit-exact against `model/fixed.py` on every channel at NCH = 2 and 4, 19-bit output (section 9) |
 | `recip_div` | `rtl-sketch/recip_div.v` | the PolyBLEP reciprocal `floor(2^31 / m)` by restoring division, 19 cycles | real; covered by the voice's bit-exactness (every glide frame recomputes it) |
-| `drum_section_placeholder` | in `synth_top.v` | **PLACEHOLDER SOURCES**: eight trigger bits, one decaying noise burst; **REAL BODIES**: `modal_dp_rom`, eight stored bars | the `drums` branch replaces the sources; the bank is bit-exact against `model/modal_fixed.py` |
+| `drum_regs` + `drum_kit` | `drum_regs.v`, `drum_kit.v` | the drum section's register image (2 276 flops, contract 15.1) and the REAL engine: `drum_dp` (stops, envelopes, sources, 16 paths) + `modal_dp` (12 modes, 6 with numerators) | bit-exact against `model/drums_fx.py` (`verify_drums.py`), and the whole chip bit-exact at its pins (`verify_synth_top.py`) |
 | `i2s_tx` | `rtl-sketch/i2s_tx.v` | the contract's section 13 transmitter (the sibling's), driven by the frame counter | real; decoded by `tb_synth_top.v` as a DAC does, 2 657 words, 0 mismatches, D = 1 |
 | `synth_top` | `rtl-sketch/synth_top.v` | the frame counter, tick, go, reset synchroniser, RESET decode, the overrun flag, the instances | real |
 
@@ -87,7 +87,7 @@ is guarded the same way already.
 
 ## 3. The signal path, pin to pin
 
-1. **SPI → register.** A 32-bit transaction `{F, A[6:0], D[23:0]}` is accepted
+1. **SPI → register.** A 48-bit transaction `{F, 6'b0, SEC, A[7:0], D[31:0]}` is accepted
    at the synchronised `CS_N` rising edge (DR 0007 section 5) and queued. At
    the next tick the queue drains: each write lands on the register port
    `{wr_valid, wr_flag, wr_addr, wr_data}` in cycles 2..5, and `voice_dp` or
@@ -165,12 +165,29 @@ people want, and this is the honest way to give it:
   Q1.15, and its rail is the same designed mixer-overload rail the voice
   has (contract 12, clamp 2). A drum bus above 1.0 into the filter overdrives
   the filter, which is the effect.
+- **Which drum bus, now that there are two.** DR 0008 gives the section two
+  buses, `dmix` (21 bits) and `body` (19 bits), with a gain each. The drum
+  bus this bit routes is the two **already scaled and summed**:
+  `dacc = dmix·dvol + body·bvol` exactly, and the filter's input is
+  `sat16(dacc >> 15)`. The gains therefore balance the kit *before* the
+  filter, which is what you want — how hard the filter is driven depends on
+  the mix — and there is still exactly one rail at the output. In bypass the
+  master mix takes `dacc` at full width (contract 12 verbatim); with DFILT it
+  takes the filter's output word at unity, `d19 << 15`, and `DOGAIN` is that
+  path's level. Filtering one bus and not the other was considered and
+  rejected: the split between `dmix` and `body` is *how a voice is made*
+  (metallic voices versus resonators), not a send, and a routing bit that
+  filtered the hats but not the kick would be a surprise, not a feature.
 
 ### 4.2 The modal bank sits inside the drum path
 
 It is the tuned drum bodies, excited by the drum sources and summed into the
-drum bus — not a third parallel voice. The placeholder already has this
-shape: sources → excitation → `modal_dp_rom` → drum bus. If the concurrent
+drum bus — not a third parallel voice. **The placeholder is gone**: since
+2026-09-18 `synth_top.v` instantiates `drum_regs` + `drum_kit` (`drum_dp` +
+`modal_dp`), the engine `verify_drums.py` shows bit-exact against
+`model/drums_fx.py`, and `verify_synth_top.py` shows the whole chip bit-exact
+at the pins. The shape is unchanged: sources → excitation → modal bank → the
+two drum buses. If the concurrent
 TR-808 research (branch `docs/tr808-reference`) confirms that the bass drum,
 toms, congas, claves and rimshot are bridged-T resonators, then most of the
 808 *is* the modal bank and the sources are mostly excitation pulses plus the
@@ -224,12 +241,21 @@ enforces it with handshakes, not by counting cycles:
 - **the drum bus before anything that consumes it:** the drum filter (4.1)
   and the master mix wait for `drum_done`; they do not assume a cycle count,
   so the drum branch's block may take as long as the budget allows.
-- **excitation is held while the bank runs:** `modal_dp_rom` reads `exc` on
-  every one of its 15 cycles. The source MUST present the frame's excitation
-  from the cycle `sample_valid` is asserted until `y_valid`, and the
-  placeholder does so by registering it and changing it only at the next
-  `go`. Different modes of one body receiving different strikes is the
-  hazard.
+- **excitation is held while the bank runs.** The hazard is real and is
+  worth stating in its general form: `modal_dp_rom.v` (the placeholder's
+  bank, and the version on `main`) reads a single `exc` PORT on every one of
+  its 15 cycles, so a source that changed `exc` mid-pass would give different
+  modes of one body different strikes. **DR 0008 removed the port.** The
+  bank now used at the top (`modal_dp.v` on this branch) has a per-mode `exc`
+  REGISTER accumulated through `exc_we / exc_mode / exc_val` while the bank is
+  idle and consumed once, in that mode's own step — so the hazard cannot
+  occur by construction rather than by the source's good behaviour, and
+  `INJECT_BUG_MODAL_EXC_NOCLEAR` (consumed more than once) is the control:
+  it turns `verify_synth_top.py` red on 96 of 428 samples. The coefficient
+  buses must still be held for the whole pass, and they are: the write drain
+  runs at cycles 2..5 and `go` is at 8, so nothing the bank reads can change
+  between `frame_tick` and `body_valid`. `verify_drums.py --jitter` is the
+  control for that one.
 - **the voice's step 9 after its outputs:** the envelope updates and the
   glide slews run only after `ae`, `fe` and the oscillators' increments of
   this frame have been used; the reciprocal check at the start of the next
@@ -248,26 +274,28 @@ cycle numbers below are **measured** in `tb_synth_top.v` unless marked
 | 0 | tick: the write queue's occupancy is snapshotted; `frame` increments; the overrun flag checks that no block is still busy | `synth_top`, `spi_ctl` |
 | 2..5 | queued writes applied, one per cycle, in acceptance order (measured: cycle 2 with one write per frame; up to four) | `spi_ctl` → register port |
 | 8 | `go` | `synth_top` |
-| 8..9 | drum sources: envelopes, noise, this frame's excitation registered | drum section (placeholder: 2 cycles) |
-| 10..24 | modal bank, 15 cycles; drum bus valid, `drum_done` at 25 | `modal_dp_rom` |
+| 8..55 | drum sources: envelopes, noise, the six squares, 16 paths on one multiplier | `drum_dp` (measured: 48 cycles) |
+| 56..93 | modal bank, 12 modes; both drum buses valid and `drum_done` at 93 | `modal_dp` (measured: 3·12 + 2) |
 | 9..65 | voice: reciprocals for changed increments (0, 19, 38 or 57 cycles) | `recip_div` |
 | next 12..30 | oscillators: 3 × (window checks, 0–2 windows × 2 multiplies, mix multiply, phase advance) | `voice_dp` |
 | next 8 | envelope outputs, cutoff, g and kc interpolation, k·kc | `voice_dp` |
 | next 24 | **ladder context 0** (`mixed` in, `y19` out); in its shadow: envelope updates (2 multiplies), glide slews (0–6), drum-filter coefficients (3 multiplies, 4 ROM reads) | `ladder_dp_n`, `voice_dp` |
 | next 24 (DFILT only) | **ladder context 1** on `sat16(drum_bus)`; in its shadow: VCA and volume (2 multiplies) | `ladder_dp_n`, `voice_dp` |
 | next 3 | master mix multiply, `sat16`, `sample_valid` | `voice_dp` |
-| **64–70** | sample strobed: steady note, saw/saw/square, no glide, drum filter off | measured |
-| **87–93** | the same with the drum filter on | measured |
-| **148–150** | three squares gliding (three reciprocals per frame) with the drum filter on — the measured worst frame | measured |
+| **124** | worst sample-strobe cycle over the 2 040-frame `verify_synth_top.py` run — the real drum engine, the drum filter engaged for part of it | measured, `tb_top_bx.v` |
+| **154** | worst sample-strobe cycle over `verify_top.py`'s harder stimulus — three squares gliding (three reciprocals per frame) with the drum filter on and all eight stops struck; mean 132 | measured, `tb_synth_top.v` |
+| **93 / 94** | the drum buses ready (mean / worst), from cycle 0 | measured, `tb_synth_top.v` |
 | ~160 | *bound*: every oscillator gliding with two active PolyBLEP windows each, drum filter on | derived from the state machine |
 | 255 | I2S loads the sample strobed this frame; transmitted in period f+1 (D = 1) | `i2s_tx` |
 
-So the worst frame uses **150 of 256 cycles (59 %)**, leaving ~100 for the
-drum branch's sources on their own multiplier (the placeholder uses 2) — the
-sources only have to finish before the drum filter or the master mix needs
-the bus, which in the worst frame is at cycle ~120. The datapath was idle at
-every one of 2 657 measured ticks; the `overrun` status flag would report
-otherwise on silicon.
+So the worst frame measured uses **154 of 256 cycles (60 %)** with the REAL
+drum engine in place, not the placeholder: `drum_dp` and `modal_dp` finish at
+cycle 93 (worst 94) on their own multiplier, in parallel with the voice, and
+the master mix waits on `drum_done` rather than counting cycles. The datapath
+was idle at every one of 1 779 + 2 040 measured ticks across the two benches
+and `overrun` never set; the status flag would report otherwise on silicon.
+The drum engine, which used to be budgeted as "~100 cycles left for the drum
+branch", uses 85 of them and finishes before the voice needs it.
 
 The 24-cycle ladder is the contract's measured figure (`tb_cycles.v`); the
 15-cycle bank likewise (`tb_modal.v`).
@@ -363,12 +391,15 @@ proposed with this document:
 | 0x29 | `DK` | 17 | drum filter resonance, `4·res` Q3.14, kc-compensated at `DCUT` | 0 |
 | 0x2A | `DGAIN` | 20 | drum filter input gain, Q4.16 | 0 |
 | 0x2B | `DOGAIN` | 20 | drum filter output gain, Q4.16 | 0 |
-| 0x40 | `DRUM_TRIG` | 8 | **placeholder**: trigger bits; a 0→1 fires a burst | 0 |
-| 0x41 | `MODAL_PRESET` | 3 | **placeholder**: which stored bar | 0 |
+| 0x2C | `BVOL` | 16 | the body bus's level at the master mix, Q0.15 (contract 12) | 0 |
+
+Addresses 0x40–0xFF on page 0 are reserved. **The drum section is page 1**
+(`SEC` = 1), and its map is contract 15.1's unchanged — `drum_regs.v` decodes
+it. DR 0007 revision 2 has the frame and the measurement that forced it.
 | 0x42–0x7F | — | | reserved for the drum branch | |
 
 The status word on MISO is DR 0007 section 4: `{0x4D, 0x1, overrun,
-queue, overflow, fresh, frame[15:0]}`; `tb_synth_top.v` reads `0x4D110001`
+queue, overflow, fresh, frame[15:0]}`; `tb_ctl.v` reads `0x4D210001`
 on its first transaction (ID, version 1, `fresh` = 1, frame 1).
 
 ---
@@ -466,7 +497,7 @@ the MCU owns USB.
 
 **Not done, stated plainly:**
 
-- The drum sources are a placeholder; the drum bus width, ordering rule and
+- (Closed 2026-09-18: the drum sources are no longer a placeholder.) The drum bus width, ordering rule and
   excitation hold above are the interface the `drums` branch implements.
 - No placement, routing, STA, DRC, LVS or power of `synth_top`. Cell area
   only.
