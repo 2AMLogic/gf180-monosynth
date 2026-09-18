@@ -644,8 +644,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", type=pathlib.Path)
-    ap.add_argument("--ref", default="bd8/BD5050.WAV",
-                    help="the real recording the floor and the sweeps are taken on")
+    ap.add_argument("--ref", default="bd8/BD2550.WAV",
+                    help="the real recording the floor and the sweeps are taken on. "
+                         "NOT bd8/BD5050.WAV, which is the board's own BD reference: "
+                         "post-#132 its T20 is REFUSED (the record ends before the "
+                         "decay does) and D01A's decay metric is a no-verdict for the "
+                         "same reason. The decay sweep here needs a T20 to aim at.")
     a = ap.parse_args(argv)
 
     res: dict = {"scales": list(SCALES), "log_floor_rel": LOG_FLOOR_REL,
@@ -664,6 +668,29 @@ def main(argv=None) -> int:
         print(f"REFUSED: {exc}")
         return 2
     x = norm(rc.prepare(raw, sr))
+
+    # PRECONDITION, asserted at the point of use. The decay sweep perturbs the
+    # signal's OWN measured T20 by a stated percentage, so a reference whose
+    # T20 the estimator refuses cannot carry that sweep -- and #132's
+    # truncation guard refuses exactly the file the board uses for BD. Crashing
+    # with a traceback is not a verdict; REFUSED is.
+    import audio_measure as am
+    t20 = am.schroeder_t20(x, sr)
+    if not t20.ok:
+        print(f"REFUSED: {a.ref} has no usable T20, so the decay sweep has "
+              f"nothing to aim at -- {t20.reason}")
+        print("  files in bd8/ whose T20 the current estimator does accept:")
+        for q in sorted(REFDIR.glob("bd8/*.WAV")):
+            try:
+                z, zs = load_ref(f"bd8/{q.name}")
+            except Refused:
+                continue
+            zz = norm(rc.prepare(z, zs))
+            e = am.schroeder_t20(zz, zs)
+            if e.ok:
+                print(f"    bd8/{q.name}  T20 {e.value * 1000:.1f} ms")
+        return 2
+    res["reference_t20_ms"] = t20.value * 1000.0
 
     res["E1_determinism"] = e1_determinism()
     res["E2_E3_alignment"] = e2_e3_alignment(x, sr)
