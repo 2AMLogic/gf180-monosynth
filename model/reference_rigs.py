@@ -180,12 +180,24 @@ class OurLadder:
 
     @staticmethod
     def fcr(cut_hz: float, sr: float = SR) -> float:
-        """Huovilainen's published tuning polynomial, as Surge applies it and
-        we do not (DAFx-04; `sst-filters` VintageLadders.h, namespace Huov).
-        `fc` is the cutoff normalised to the BASE rate, not the oversampled
-        one, which is how both Surge and Csound's original evaluate it."""
+        """Huovilainen's published tuning polynomial (DAFx-04), which Surge
+        applies and we do not. `fc` is the cutoff normalised to the BASE rate,
+        not the oversampled one, which is how both Surge and Csound's original
+        evaluate it.
+
+        **The quadratic coefficient is 0.4955, and `sst-filters` ships
+        0.4995.** Surge's own comment in `VintageLadders.h` reads
+        `0.4955 * fc2` while the constant beside it is named `m04955` and
+        initialised to `0.4995f` -- and the cited source spells it `0.4955`.
+        So the paper's value is 0.4955 and Surge's shipping artefact is a
+        typo; this repository follows the paper, and
+        `docs/surge-source-notes.md` section 4 records why our value differs
+        from the code anyone comparing against Surge will be reading.
+
+        It changes nothing measured: at a 10 kHz cutoff the two differ by
+        1.7e-4 in an fcr of 0.9022, which is 0.003 cents."""
         fc = cut_hz / sr
-        return 1.8730 * fc ** 3 + 0.4995 * fc ** 2 - 0.6490 * fc + 0.9988
+        return 1.8730 * fc ** 3 + 0.4955 * fc ** 2 - 0.6490 * fc + 0.9988
 
     def _regs(self, res, cut, drive):
         ref = _REAL_LADDER(**self.cfg)

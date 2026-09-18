@@ -479,8 +479,30 @@ namespace is mathematically identical at the 1.2.3-era commit `8ea9b8d` and on
 | **output tap** | `y[3]`, **before** the averaging | `delay[5]`, **after** it |
 | arithmetic | integer, Q1.15 signal, 24-bit Q4.20 state | float32 SIMD |
 | **tanh** | **16-entry table over [0,4), linear interpolation**, max error **0.0060** | Padé rational, clamped at ±5, max error **1.5e-5** |
-| **tuning** | `g = 1 − exp(−2π f / f_os)`, no correction | **`fcr = 1.8730 fc³ + 0.4995 fc² − 0.6490 fc + 0.9988`**, Huovilainen's published tuning polynomial, applied to the exponent |
+| **tuning** | `g = 1 − exp(−2π f / f_os)`, no correction | **`fcr = 1.8730 fc³ + 0.4955 fc² − 0.6490 fc + 0.9988`**, Huovilainen's published tuning polynomial, applied to the exponent |
 | resonance law | `k = 4·res`, corrected per cutoff by DR 0006's own measured ROM | `4·res·acr`, `acr = −3.9364 fc² + 1.8409 fc + 0.9968`, Huovilainen's published polynomial |
+
+> **The `fcr` quadratic term is `0.4955`, and `sst-filters` ships `0.4995`.**
+> Surge's own comment in `VintageLadders.h` reads `0.4955 * fc2` and the
+> constant beside it is *named* `m04955` — but it is *initialised* to
+> `0.4995f`, in both the 1.2.3-era commit `8ea9b8d` and on `main`. The cited
+> source spells it **`0.4955`**, so the paper's value is 0.4955 and Surge
+> ships a typo: its comment and its constant name both agree with the paper
+> against its own code.
+>
+> **This repository implements 0.4955**, in `model/reference_rigs.py`'s
+> `OurLadder.fcr` and in the table above. It is recorded here because the next
+> person to compare our implementation against Surge's source will find our
+> value differing from the code in front of them and reasonably assume we are
+> wrong.
+>
+> **It changes nothing measured.** At a 10 kHz cutoff the two differ by
+> 1.7e−4 in an `fcr` of 0.9022 — **0.003 cents**. Every figure in §8.4 stands
+> as measured.
+>
+> Worth the line for its own sake: a reference can be **authoritative about
+> its intent and wrong in its artefact**, and the two have to be read
+> separately.
 | **resonance range** | `res` clamps at 2.0 (the 17-bit `k` register); **res = 1 is the onset at every cutoff** (DR 0006) | `res` clamped to ≤ 0.9925 and reduced further above f_s/3: **it never reaches the onset and cannot self-oscillate** |
 | **signal scale into the tanh** | `gain = drive·0.13/0.05 = 2.6`, so full scale is 2.6 in tanh units | `thermal = 1/70`, so full scale is **0.0143** in tanh units |
 | gain compensation | `ogain = (2V_T/v_pu)·(1 + 2·res)` at the output | `gComp = 0.5` inside the feedback, on the "Compensated" subtypes only |
