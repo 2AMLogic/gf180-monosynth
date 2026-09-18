@@ -1,0 +1,115 @@
+# The capability DAG's permanent regression gate -- docs/capability-dag.md.
+#
+# Every stamped node's test set runs here, on every push, with NO path filter.
+# The `moog-acceptance` workflow is path-filtered to model/, audition/ and
+# spec/, so an RTL or flow change cannot turn it red. A promise conditioned on
+# which directory you edited is not a promise.
+name: nodes
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+
+      # First on purpose: every node above F1 measures with these estimators,
+      # so a suite built on untested analysers measures the analysers.
+      - name: F3 -- measurement ground truth
+        run: python -m pytest model/test_audio_measure.py -q
+      - name: M2 -- the voice is musically a Minimoog
+        run: python -m pytest model/test_moog_acceptance.py -q
+      - name: everything else
+        run: python -m pytest model/ spec/ -q
+
+      # A green run must be capable of being red -- and this control has to
+      # test the SUITE, not the Python parser. An earlier version of this file
+      # renamed a parameter into `def rms(_unused=None, x)`, which is a syntax
+      # error: the module failed to import, pytest exited nonzero, and the
+      # control "passed" having proved only that Python rejects bad syntax.
+      # That is the same vacuous-control mistake PR #5 was opened to fix.
+      #
+      # So: each mutation must still COMPILE and still IMPORT, and only then is
+      # a failure evidence that the suite detects wrong arithmetic.
+      - name: the suite detects wrong arithmetic, not just bad syntax
+        run: |
+          python - <<'PY'
+          import importlib, pathlib, subprocess, sys
+          p = pathlib.Path("model/audio_measure.py")
+          orig = p.read_text()
+          # (label, exact source to replace, replacement) -- each is valid
+          # Python that returns a numerically wrong answer.
+          MUTANTS = [
+              ("rms inflated 5 %",
+               "return float(np.sqrt(np.mean(x * x))) if len(x) else 0.0",
+               "return float(np.sqrt(np.mean(x * x)) * 1.05) if len(x) else 0.0"),
+              ("T20 conversion off by 10 %",
+               "return TAU_TO_T20 * tau_s",
+               "return TAU_TO_T20 * tau_s * 1.10"),
+          ]
+          failures = []
+          for label, old, new in MUTANTS:
+              if old not in orig:
+                  failures.append(f"{label}: anchor text not found -- control is stale")
+                  continue
+              p.write_text(orig.replace(old, new, 1))
+              try:
+                  # 1. it must still be valid Python ...
+                  compile(p.read_text(), str(p), "exec")
+                  # 2. ... and must still import, or we are testing the parser
+                  r = subprocess.run([sys.executable, "-c",
+                                      "import sys; sys.path.insert(0,'model'); import audio_measure"],
+                                     capture_output=True)
+                  if r.returncode != 0:
+                      failures.append(f"{label}: mutant does not import -- tests the parser, not the suite")
+                      continue
+                  # 3. ... and NOW the suite must notice the wrong number.
+                  r = subprocess.run([sys.executable, "-m", "pytest",
+                                      "model/test_audio_measure.py", "-q"],
+                                     capture_output=True)
+                  if r.returncode == 0:
+                      failures.append(f"{label}: suite passed with wrong arithmetic")
+                  else:
+                      print(f"  caught: {label}")
+              finally:
+                  p.write_text(orig)
+          if failures:
+              sys.exit("negative control failed:\n  " + "\n  ".join(failures))
+          print("negative control OK -- wrong arithmetic turns the suite red")
+          PY
+
+  # RTL bit-exactness. Separate job because iverilog is slow: the ladder is
+  # ~1 min, the full voice is ~20 and does not belong on every push.
+  rtl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: F1 -- ladder bit-exact
+        run: python rtl-sketch/verify_ladder.py
+      - name: M1 -- one Moog voice bit-exact (quick set)
+        run: python rtl-sketch/verify_voice.py --set quick
+
+  # The full 255,060-frame voice run and the drum runs, on demand and nightly
+  # rather than per push.
+  rtl-full:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: M1 -- one Moog voice bit-exact (full)
+        run: python rtl-sketch/verify_voice.py --set full

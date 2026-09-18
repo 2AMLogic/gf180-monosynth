@@ -894,3 +894,44 @@ def test_natural_frequency_from_peak_matches_the_closed_form():
         assert peak > f0, f"the resonant peak {peak:.0f} Hz is not above f0 {f0}"
     with pytest.raises(InsufficientEvidence):
         am.natural_frequency_from_peak(1000.0, 0.7)
+
+
+# --- rms and peak themselves ------------------------------------------------
+# These exist because a mutation control caught the library out: inflating
+# `rms` by 5 % passed all sixty tests in this file. `rms` had no ground truth
+# of its own -- only `rms_envelope` did -- yet it underlies every envelope,
+# every level comparison and the `compare` level term. A 5 % level error is
+# about half a dB, which is audible and was invisible here.
+
+def test_rms_of_a_sinusoid_is_amplitude_over_root_two():
+    """The one closed form everybody knows, and the one that was missing."""
+    for amp in (0.1, 0.5, 1.0, 3.0):
+        # A whole number of cycles, so there is no partial-period bias.
+        n = am.SR_DEFAULT
+        x = amp * np.sin(2 * np.pi * 100.0 * np.arange(n) / am.SR_DEFAULT)
+        assert am.rms(x) == pytest.approx(amp / np.sqrt(2.0), rel=1e-4), amp
+
+
+def test_rms_of_a_constant_is_its_magnitude():
+    for c in (-2.0, -0.25, 0.0, 0.25, 2.0):
+        assert am.rms(np.full(1000, c)) == pytest.approx(abs(c), abs=1e-12), c
+
+
+def test_rms_of_a_square_wave_is_its_amplitude():
+    # np.sign() would return exactly 0 at the hundred zero crossings of a
+    # 50 Hz sine at 44.1 kHz, pulling the rms 0.1 % below the amplitude and
+    # failing this for a reason that says nothing about `rms`. Use a real
+    # two-valued square.
+    s = np.sin(2 * np.pi * 50.0 * np.arange(am.SR_DEFAULT) / am.SR_DEFAULT)
+    x = np.where(s >= 0.0, 0.7, -0.7)
+    assert am.rms(x) == pytest.approx(0.7, rel=1e-9)
+
+
+def test_rms_of_nothing_is_zero_not_a_crash():
+    assert am.rms(np.zeros(0)) == 0.0
+    assert am.rms(np.zeros(100)) == 0.0
+
+
+def test_peak_is_the_largest_magnitude_either_sign():
+    assert am.peak(np.array([0.1, -0.9, 0.5])) == pytest.approx(0.9)
+    assert am.peak(np.array([-0.1, 0.9, -0.5])) == pytest.approx(0.9)
