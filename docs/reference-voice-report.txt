@@ -25,7 +25,7 @@
   ours/sine                 0.18      2      0     2.0     ---  sine
   surge/saw                 0.04      2      1    89.2     ---  saw
   surge/square              0.04      2      2    50.0  50.0 %  pulse:50.0%
-  surge/pulse25             0.03      2      2    51.7  24.9 %  pulse:24.9%
+  surge/pulse25             0.03      2      2    51.7  25.0 %  pulse:25.0%
   surge/sine                0.00      2      0     1.6     ---  sine
   miniv3/tri                0.02      2      0     1.7     ---  tri
   miniv3/shark              0.02      2      3    23.4     ---  NOT VERIFIED -- 'shark' has no closed-form claim to check
@@ -67,7 +67,7 @@ ours/sine                  ---     ---     ---  -100.7     ---  -100.6     ---  
 surge/saw                 -5.8    -9.3   -11.8   -13.7   -15.3   -16.6   -17.8   -18.8
 surge/square               ---    -9.3     ---   -13.7     ---   -16.6     ---   -18.8
 surge/pulse25             -2.8    -9.3     ---   -13.7   -12.3   -16.6     ---   -18.8
-surge/sine                 ---     ---  -122.8  -122.5  -122.6  -123.0  -123.5  -124.0
+surge/sine                 ---     ---     ---  -122.5  -122.6  -123.0  -123.5  -124.0
 miniv3/tri               -29.9   -19.0   -35.9   -28.1   -39.4   -34.2   -42.0   -39.2
 miniv3/saw                -5.9    -9.4   -11.9   -13.8   -15.3   -16.6   -17.8   -18.8
 miniv3/square            -24.0    -9.6   -24.0   -14.2   -24.0   -17.5   -24.1   -20.2
@@ -82,13 +82,21 @@ miniv3/narrow_rect        -1.2    -3.6    -7.5   -14.8   -33.5   -15.8   -12.8  
   ours/square            period says  50.0 % (or  50.0 %);  nulls at harmonics [2, 4, 6, 8, 10] -> 50.0 %
   ours/pulse25           period says  25.0 % (or  75.0 %);  nulls at harmonics [4, 8] -> 25.0 %
   surge/square           period says  50.0 % (or  50.0 %);  nulls at harmonics [2, 4, 6, 8, 10] -> 50.0 %
-  surge/pulse25          period says  24.9 % (or  75.1 %);  nulls at harmonics [4, 8] -> 25.0 %
+  surge/pulse25          period says  25.0 % (or  75.0 %);  nulls at harmonics [4, 8] -> 25.0 %
   miniv3/square          period says  48.0 % (or  52.0 %);  nulls at harmonics [2] -> 50.0 %
-  miniv3/wide_rect       period says  29.0 % (or  71.0 %);  nulls at harmonics [7] -> 14.3 %
+  miniv3/wide_rect       period says  29.0 % (or  71.0 %);  nulls at harmonics [7] -> 14.3 %   <-- DISAGREE
   miniv3/narrow_rect     period says  17.0 % (or  83.0 %);  nulls at harmonics [6] -> 16.7 %
   Two independent measurements of the same quantity. The period can tell d from
   1 - d and the spectrum cannot, so the period is the answer and the nulls are
   the check.
+
+  WHERE THEY DISAGREE -- miniv3/wide_rect: the nulls read 14.3 %, the period 29.0 %.
+  Reading a duty from the nulls assumes the DIP AT HARMONIC m MEANS d = 1/m,
+  and that is only true when the null is exact. A 29.0 % rectangle has no
+  exact null at all; it has a deep dip where m*d is nearest an integer, and
+  the measured level there is what the 29.0 % duty predicts. The period is
+  the measurement; the null estimator is reporting 1/m and should be read as
+  'the deepest dip is at harmonic m', which is all it can see.
 
   NOTE ON THE ~52 % SQUARE (miniv3/square): the Model D service manual records
   that R137 was HAND-SELECTED PER UNIT to trim the square to 50 %. A reference
@@ -118,8 +126,8 @@ ours/square              -45.4   -43.4   -40.6   -37.0   -35.1   -32.0
 ours/tri               < -52.2   -78.0   -69.1   -59.8   -51.2   -42.2
 surge/pulse25          < -53.9   -70.1   -78.1   -74.5   -79.9   -87.3
 surge/saw              < -53.4   -69.5   -80.1   -74.3   -79.3   -88.6
-surge/sine             < -52.2 <-113.2 <-113.1 <-113.0 <-112.9 <-112.6
-surge/square           < -52.0   -68.3   -93.6   -73.4   -78.2   -92.6
+surge/sine             < -52.2 <-113.1 <-113.1 <-113.0 <-112.9 <-112.6
+surge/square           < -52.0   -68.3   -93.7   -73.4   -78.2   -92.6
   Only VERIFIED rows appear. A cell is blank where that pitch did not qualify.
   less negative = more inharmonic energy.
   '<' marks a cell within 3 dB of the IDEAL row at the same waveform and pitch --
@@ -142,10 +150,10 @@ surge/square           < -52.0   -68.3   -93.6   -73.4   -78.2   -92.6
   ours-miniv3/saw             >   9.2    19.8    18.7    18.8    18.9     ---
   ours-miniv3/square          >   6.9    19.9    18.7    18.7    17.9    17.7
   ours-miniv3/tri             >   0.0     2.3     0.5    -1.0     2.2     8.0
-  ours-surge/pulse25         >   7.4    25.9    37.0    36.2    44.1    56.9
+  ours-surge/pulse25         >   7.4    25.9    37.0    36.2    44.1    56.8
   ours-surge/saw             >   9.3    27.8    41.4    38.8    46.7    59.7
-  ours-surge/sine            >   1.6 >  58.1 >  58.0 >  57.9 >  57.8 >  57.5
-  ours-surge/square          >   6.6    24.9    53.0    36.4    43.2    60.6
+  ours-surge/sine            >   1.6 >  58.0 >  58.0 >  57.9 >  57.8 >  57.5
+  ours-surge/square          >   6.6    24.9    53.1    36.3    43.2    60.6
   positive = we carry MORE inharmonic energy than the reference.
   '>' marks a margin whose REFERENCE cell sat at the estimator's floor, so the
   true margin is at least that and the number is a lower bound, not a value.

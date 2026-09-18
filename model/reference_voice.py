@@ -273,15 +273,30 @@ def report_osc(rows):
     print("\n" + "=" * 100)
     print("2. WHICH RECTANGULAR IS OURS?  duty from the period, cross-checked by the nulls")
     print("=" * 100)
+    disagree = []
     for r in [r for r in at45 if r.get("verified") and r.get("duty_measured") is not None]:
         duty, present, absent = duty_from_harmonics(r)
         d = r["duty_measured"] * 100
+        off = (None if duty is None else
+               min(abs(duty * 100 - d), abs(duty * 100 - (100 - d))))
         print(f"  {r['device'] + '/' + r['wave']:22s} period says {d:5.1f} % "
               f"(or {100 - d:5.1f} %);  nulls at harmonics {absent[:6]}"
-              f" -> {'no null found' if duty is None else f'{duty * 100:.1f} %'}")
+              f" -> {'no null found' if duty is None else f'{duty * 100:.1f} %'}"
+              f"{'   <-- DISAGREE' if off is not None and off > 3.0 else ''}")
+        if off is not None and off > 3.0:
+            disagree.append((r, d, duty * 100))
     print("  Two independent measurements of the same quantity. The period can tell d from")
     print("  1 - d and the spectrum cannot, so the period is the answer and the nulls are")
     print("  the check.")
+    for r, d, nd in disagree:
+        print(f"\n  WHERE THEY DISAGREE -- {r['device']}/{r['wave']}: the nulls read"
+              f" {nd:.1f} %, the period {d:.1f} %.")
+        print(f"  Reading a duty from the nulls assumes the DIP AT HARMONIC m MEANS d = 1/m,")
+        print(f"  and that is only true when the null is exact. A {d:.1f} % rectangle has no")
+        print(f"  exact null at all; it has a deep dip where m*d is nearest an integer, and")
+        print(f"  the measured level there is what the {d:.1f} % duty predicts. The period is")
+        print(f"  the measurement; the null estimator is reporting 1/m and should be read as")
+        print(f"  'the deepest dip is at harmonic m', which is all it can see.")
     print("\n  NOTE ON THE ~52 % SQUARE (miniv3/square): the Model D service manual records")
     print("  that R137 was HAND-SELECTED PER UNIT to trim the square to 50 %. A reference")
     print("  showing 52 % is modelling A UNIT OUT OF TRIM, not the design intent, and our")
