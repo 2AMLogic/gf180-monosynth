@@ -84,6 +84,10 @@ fast-corner number.
 | filter state | 24-bit, **20 fraction bits**, in units of 2·Vt | 20 is the floor — below it the low-cutoff dead zone opens (at 16 bits a 40 Hz cutoff is 5.8 dB off) |
 | coefficients | Q0.16 | |
 | `tanh` table | **16 entries, edge-sampled, interpolated** — 256 ROM bits | 16 scores identically to 256 on every patch |
+| phase accumulator | 24-bit | |
+| PolyBLEP reciprocal | 16-bit mantissa + 16-bit reciprocal, computed at note-on; one 16×16 multiply per sample | set by tracking the float waveform inside Q1.15, not by aliasing — 8 bits already reach the float's suppression |
+| envelope | 24-bit level, Q0.16 rate, release `L −= max(1, (L·rate) >> 16)` | 20 is the floor for attack time; 24 keeps the release floor below −62 dBFS up to a 1 s release |
+| cutoff → `g` ROM | 128 × Q0.16, interpolated — 2 kbit | −0.6 % at 120 Hz, −0.05 % at 1 kHz |
 
 Holding state in units of 2·Vt rather than volts turns the paper's stage into
 `Y += g·(tanh(X) − tanh(Y))`: the `tanh` argument becomes the state itself and
@@ -141,6 +145,15 @@ for a held note and so computed at note-on.
 Note the square's correction has the **opposite sign** to the saw's — a square
 steps up at the wrap where a saw steps down. Getting this backwards measures
 5 dB *worse* than naive.
+
+In fixed point (`model/voice_fx.py`) the suppression is identical to float at
+every note measured (−42.7 / −36.6 / −31.0 dB at notes 40 / 64 / 88). The
+reciprocal's width turned out not to matter for aliasing at all — a constant
+per-note error is periodic with f0 and lands on the harmonics — so its 16 bits
+are set by waveform accuracy against the float instead. Note also that the
+float voice as auditioned (`engines.mono_note`) used the naive oscillators;
+`blep=True` is now an opt-in flag there, and the integer voice always
+band-limits.
 
 ---
 
@@ -205,8 +218,13 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   cycle sketches. They have never been compared against the reference model.
   The 20-cycle and 1,917-cell figures are real; "it computes the right thing"
   is not established.
-- **The reference model is not fully integer.** The ladder is; oscillators and
-  envelopes are still float, quantised at the filter input.
+- **The reference model's per-sample path is fully integer** (`model/voice_fx.py`),
+  but float still turns the patch's physical units into note-on register
+  values and ROM contents — Hz to phase increment, seconds to envelope rate,
+  the tanh / sine / `g` tables. In the product those are the host's job or a
+  ROM's, and neither is specified yet. Note-on retrigger semantics (legato,
+  envelope restart, phase reset) and the glide curve (the float model glides
+  geometrically, the integer one slews linearly) are undecided in both models.
 - **There is no numeric contract for this instrument.** The sibling repo has
   one for its four-voice engine; this block has none, so there is nothing for
   RTL to be bit-exact *against* yet.

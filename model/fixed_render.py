@@ -2,11 +2,10 @@
 """Render the monosynth patches with the FIXED-POINT filter, beside the float
 version, so the quantisation can be judged by ear rather than in decibels.
 
-Honest scope: the ladder is fully integer (state, coefficients, tanh ROM,
-saturation). The oscillators and envelopes are still float, quantised to Q1.15
-at the filter input -- oscillator phase is already an integer accumulator so
-that boundary is nearly exact, but the envelope multiply is not yet. Finishing
-those is the remaining work before this model can be the contract.
+Scope: this renders the fixed LADDER behind the float oscillators and
+envelopes, quantised to Q1.15 at the filter input -- the configuration the
+filter was sized in. The fully integer voice is `voice_fx_render.py`; this
+script is kept because it isolates the filter's own share of the difference.
 """
 import sys, wave
 from pathlib import Path

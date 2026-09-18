@@ -11,7 +11,7 @@ Being precise about this, because "synth" covers five different things:
 | | | |
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
-| 2 | Fixed-point model of the filter | **done** — `model/`, oscillators and envelopes still float |
+| 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer. Float remains only where the host computes note-on register values and ROM contents from physical units (Hz → increment, seconds → rate) |
 | 3 | RTL, bit-exact against (2) | **not started** — `rtl-sketch/` is an area sketch only, never simulated |
 | 4 | FPGA bitstream on real hardware | not started |
 | 5 | gf180mcu ASIC | not started |
@@ -84,6 +84,10 @@ in silicon; **not implemented**, and the filter's first open work item.
 | filter state | 24-bit, 20 fraction | 20 is the floor — below it the low-cutoff dead zone opens |
 | coefficient | Q0.16 | |
 | `tanh` table | **16 entries, edge-sampled, interpolated — 256 ROM bits** | 16 scores identically to 256 on every patch |
+| phase accumulator | 24-bit | unchanged from the audition |
+| PolyBLEP reciprocal | increment normalised at note-on to a 16-bit mantissa; 16-bit reciprocal; one 16×16 multiply per sample | width is set by tracking the float waveform inside Q1.15, **not** by aliasing — 8 bits already reach the float's suppression |
+| envelope | 24-bit level, Q0.16 rate; release is `L −= max(1, (L·rate) >> 16)` | 20 is the floor for attack-time accuracy; 24 keeps the release floor below −62 dBFS for releases up to 1 s. The `max(1, ·)` is what makes a note end |
+| cutoff → `g` | 128 entries × Q0.16, edge-sampled, interpolated — 2 kbit | −0.6 % at 120 Hz, −0.05 % at 1 kHz; 256 entries halve that for 2 kbit more |
 
 Area follows the table directly. The same sketch synthesises to **6,165 cells
 with a 256-entry table and 1,917 with a 16-entry one**. Against
@@ -110,6 +114,79 @@ extra state bits moves it, because it was never a precision problem. Gain
 staging is now an open design decision: a ladder saturating on purpose is the
 sound, but it should be a designed output stage, not an accident.
 
+### The rest of the voice, measured
+
+`model/voice_fx.py` puts integer oscillators, PolyBLEP, mixer, two ADSRs and
+the cutoff-coefficient ROM in front of the ladder. Three things were measured
+before the widths above were chosen (`model/voice_fx_sweep.py`).
+
+**Aliasing.** Inharmonic energy of a sawtooth, same measurement as DR 0001:
+
+| note | f0 | naive | float PolyBLEP | fixed PolyBLEP |
+|---:|---:|---:|---:|---:|
+| 28 | 41 Hz | −38.0 dB | −53.9 dB | −53.9 dB |
+| 40 | 82 Hz | −27.7 dB | −42.7 dB | −42.7 dB |
+| 64 | 330 Hz | −20.8 dB | −36.6 dB | −36.6 dB |
+| 88 | 1319 Hz | −14.8 dB | −31.0 dB | −31.0 dB |
+| 100 | 2637 Hz | −11.9 dB | −28.5 dB | −28.5 dB |
+
+Fixed point loses nothing. The surprise is *why* the reciprocal width does not
+matter for this number: a reciprocal error is constant for a held note, so the
+waveform error it causes is periodic with f0 and lands on the harmonics — it is
+invisible to an aliasing measure even at 4 bits. The 16-bit width is set by a
+different requirement, tracking the float PolyBLEP inside the Q1.15 LSB (71 LSB
+of error at 8 bits, 8 at 12, ≤ 2.5 at 16).
+
+**The envelope dead zone.** An exponential release that subtracts a fraction of
+the level each frame stops when that fraction truncates to zero — the same
+failure as the filter's low-cutoff dead zone, and in an envelope it means the
+note never ends. `max(1, ·)` on the step turns the tail below that floor into
+one LSB per frame, so the level reaches exactly zero; the floor's height is the
+release time constant in frames over 2^bits, so it is a width question:
+
+| level bits | floor, 0.1 s release | floor, 0.6 s release | 0.9 s attack error |
+|---:|---:|---:|---:|
+| 16 | −35 dBFS | −19 dBFS | −24 % |
+| 20 | −59 dBFS | −43 dBFS | −2.9 % |
+| **24** | **−83 dBFS** | **−67 dBFS** | **−0.2 %** |
+
+At 24 bits every release reaches exactly zero at about the time the float
+reaches −90 dB. No stair-stepping is measurable: the largest relative step in
+the Q0.15 output is one LSB.
+
+**Against the float voice**, per patch. The float voice as auditioned uses
+naive oscillators — the PolyBLEP in `dsp.py` had never been wired in — so the
+like-for-like reference is `mono_note(blep=True)`, added here (off by default
+so the audition renders do not change).
+
+| patch | vs float | float clipped like fixed | clipped % | front end alone |
+|---|---:|---:|---:|---:|
+| bass-classic | −30.0 dB | −38.9 dB | 1.7 % | −53.5 dB |
+| bass-octave | −29.1 dB | −38.4 dB | 3.0 % | −58.0 dB |
+| lead-line | −19.5 dB | −19.5 dB | 0 | −47.2 dB |
+| lead-glide (glide off) | −22.7 dB | −22.7 dB | 0 | −52.2 dB |
+| filter-sweep | −27.3 dB | −27.3 dB | 0 | −31.7 dB |
+| pluck-seq | −25.3 dB | −25.3 dB | 0 | −47.5 dB |
+| growl-bass | −13.4 dB | −31.2 dB | 8.7 % | −43.5 dB |
+| self-osc-whistle | −27.8 dB | −27.8 dB | 0 | −49.6 dB |
+
+"Front end alone" is the integer voice against the float front end driving the
+integer ladder — what this conversion cost, separated from what the ladder
+already cost. Reading the rest: the two bass patches and `growl-bass` are the
+**hard clip** at the ladder output (the float peaks at 1.22× and 1.99× full
+scale); everything else is the **ladder's** own fixed-vs-float figure, which
+`fixed_render.py` measured before any of this. The filter sweep's front-end
+share is the one that is not negligible: sub-1 % rounding of the envelope
+times moves a resonance-0.92 peak in time. With glide on, `lead-glide`
+measures +0.6 dB — uncorrelated — because the float glides geometrically and
+the integer voice slews the increment linearly, and that trajectory
+difference shifts every sample after it. That is a modelling choice to make in
+a decision record, not a quantisation effect.
+
+**Not decided by either model:** note-on retrigger semantics. Both render each
+note independently and sum the overlaps; a hardware voice is one state machine
+that retriggers.
+
 ## A note worth keeping: table sample points
 
 Interpolating a lookup table requires its values at bin **edges** (`i/N`).
@@ -125,7 +202,7 @@ locks it.
 | | |
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
-| `model/` | The fixed-point filter, its sizing sweep, and regression tests |
+| `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
 | `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
 | `spec/decision-records/` | Why things are the way they are |
 
@@ -141,5 +218,9 @@ a note on; `[` `]` sweep the cutoff, `-` `=` resonance, `;` `'` drive. A MIDI
 device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 
 ```bash
-.venv/bin/python -m pytest model/ -q
+.venv/bin/python -m pytest model/ -q                  # 34 tests
+.venv/bin/python model/voice_fx_render.py             # eight patches, integer voice, beside float
+afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
+afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
+afplay model/audio/voice_fx/00-aliasing-naive-vs-blep.wav
 ```

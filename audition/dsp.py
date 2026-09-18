@@ -66,24 +66,27 @@ def osc(shape: str, ph: np.ndarray) -> np.ndarray:
 # fraction of a cycle. dt is constant for a held note, so 1/dt is computed once
 # at note-on (or read from the same ROM that supplies the increment) rather
 # than divided per sample.
-def _blep(t: np.ndarray, dt: float) -> np.ndarray:
-    """Correction to subtract from a naive ramp at its wrap."""
+def _blep(t: np.ndarray, dt) -> np.ndarray:
+    """Correction to subtract from a naive ramp at its wrap. `dt` is a float,
+    or a per-sample array of the same length as `t` (portamento)."""
+    dt = np.asarray(dt, dtype=np.float64)
     c = np.zeros_like(t)
     a = t < dt
-    ta = t[a] / dt
+    ta = t[a] / (dt if dt.ndim == 0 else dt[a])
     c[a] = ta + ta - ta * ta - 1.0
     b = t > 1.0 - dt
-    tb = (t[b] - 1.0) / dt
+    tb = (t[b] - 1.0) / (dt if dt.ndim == 0 else dt[b])
     c[b] = tb * tb + tb + tb + 1.0
     return c
 
 
-def osc_bl(shape: str, ph: np.ndarray, inc: int) -> np.ndarray:
+def osc_bl(shape: str, ph: np.ndarray, inc) -> np.ndarray:
     """Band-limited saw/square/pulse. `inc` is the phase increment that
-    produced `ph`; triangle and sine need no correction (sine is already
-    band-limited, triangle's slope discontinuity is far weaker)."""
+    produced `ph` -- an int, or a per-sample int array; triangle and sine need
+    no correction (sine is already band-limited, triangle's slope
+    discontinuity is far weaker)."""
     t = ph.astype(np.float64) / (1 << PHASE_BITS)
-    dt = inc / (1 << PHASE_BITS)
+    dt = np.asarray(inc, dtype=np.float64) / (1 << PHASE_BITS)
     if shape == "saw":
         return (2.0 * t - 1.0) - _blep(t, dt)
     if shape in ("square", "pulse25"):
