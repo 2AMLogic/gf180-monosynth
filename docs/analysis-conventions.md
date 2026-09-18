@@ -270,3 +270,269 @@ Our windows are 100–150 ms (7–10 Hz bins), where this is a non-issue — but
 metric taken over a 15 ms rimshot window would be, and the choice should be made
 per-window rather than globally.
 
+---
+
+## 4. Decay time
+
+### Is Schroeder backward integration the right instrument for a drum tail?
+
+**[S] The T20 construction we use is the standard one, verbatim.** Two independent
+reference implementations agree with `audio_measure.schroeder_t20` on every
+detail:
+
+- `python-acoustics`' `t60_impulse` uses `sch = cumsum(signal[::-1]**2)[::-1]`,
+  normalised to its maximum and read in dB, with **T20 evaluated from −5 dB to
+  −25 dB and multiplied by 3**; T30 from −5 to −35 (×2); EDT from 0 to −10 (×6).
+  Band filtering before integration is an **8th-order Butterworth** octave or
+  third-octave band-pass.
+  ([acoustics/room.py](https://raw.githubusercontent.com/python-acoustics/python-acoustics/master/acoustics/room.py))
+- `pyroomacoustics`' `rt60` uses the same backward cumulative sum and starts the
+  fit at "the −5 dB headroom point", `i_5db = min(where(energy_db < -5.0))`,
+  extrapolating to −60 dB.
+  ([pyroomacoustics/experimental/rt60.py](https://raw.githubusercontent.com/LCAV/pyroomacoustics/master/pyroomacoustics/experimental/rt60.py))
+
+**[S]** The method is defined for rooms — ISO 3382-1 (performance spaces), -2
+(ordinary rooms), -3 (open-plan offices) — and the −5 dB start exists to skip the
+direct sound and early reflections.
+([Reverberation](https://en.wikipedia.org/wiki/Reverberation))
+
+**[R] Using it on a synthetic drum tail is a borrowing, and it is a reasonable
+one, for a reason the docstring already gives:** for a single damped sinusoid the
+backward-integrated curve's slope gives exactly `ln(10)·tau`, so T20 degenerates
+to the physical time constant when the signal is a single exponential and
+degrades gracefully when it is not. Nothing about the construction is
+room-specific. **I found no source endorsing it for instrument decay and none
+forbidding it.**
+
+**[R] What the instrument literature uses instead, where a single mode is
+involved,** is a least-squares fit of an exponential-plus-noise model to the
+envelope, or a linear regression on the log envelope over a stated dB range.
+(Karjalainen, Antsalo, Mäkivirta, Peltonen and Välimäki, *Estimation of Modal
+Decay Parameters from Noisy Response Measurements*, AES 2002, is the paper I
+would cite — **I could not reach it; the Aalto host refused the connection.
+Unsourced.**)
+
+### Three failure modes of our T20, measured
+
+**[M] The noise-floor failure is guarded and the guard works.** Adding a noise
+floor to a 40 ms-tau decay (exact T20 = 92.10 ms):
+
+| floor | −100 | −80 | −70 | −60 | −50 | −40 dB |
+|---|---:|---:|---:|---:|---:|---:|
+| T20 | 92.11 | 92.11 | 92.15 | 92.57 | 97.18 | 1293.94 ms |
+| error | 0.0 % | 0.0 % | +0.1 % | +0.5 % | **+5.5 %** | **+1305 %** |
+| residual | 0.08 | 0.08 | 0.08 | 0.13 | 0.58 | **11.02 dB** |
+
+The −40 dB case is refused by `_t20_ms`'s `MAX_T20_RESIDUAL_DB = 6.0`. The −50 dB
+case is not, and is 5.5 % wrong — inside our 50 % time tolerance, so harmless
+here, but it is the mechanism that produced the 4.5-second rimshot T20 that
+`prepare()`'s docstring records.
+
+**[M] The truncation guard does not do what it says.** `schroeder_t20` refuses
+when `tail_db > hi_db - margin_db` (i.e. when the curve's last value is above
+−35 dB), on the stated reasoning that "a decay cut while it is still sounding …
+cannot keep going afterwards". **On a clean, noiseless record that test is nearly
+vacuous**, because the backward integral of *any* finite record falls towards
+−∞ at its last sample regardless of where it was cut:
+
+| record length | 300 ms | 200 | 150 | 100 | 50 ms |
+|---|---:|---:|---:|---:|---:|
+| T20 | 92.11 | 91.90 | 89.65 | **75.19** | **40.74 ms** |
+| error | 0.0 % | −0.2 % | −2.7 % | **−18.4 %** | **−55.8 %** |
+| `tail_db` (the guard) | −122.8 | −101.0 | −90.2 | −79.3 | −68.1 dB |
+
+**A 55.8 % error passes a guard that wants −35 dB and is seeing −68 dB.** The
+guard only bites when there is a noise floor to stop the integral falling. This
+is a real defect, it is not the one #101 found, and it matters directly: the
+`prepare()` docstring notes that three reference recordings are editor-trimmed at
+20–40 ms. **[R] The right guard is a length criterion — refuse unless the record
+extends some multiple of the fitted T20 past the −25 dB point — not a level
+criterion on `tail_db`.** In room acoustics the equivalent problem is solved by
+Lundeby's iterative truncation-point method; I could not source it.
+
+**[M] On a genuinely two-exponential envelope, T20 reports the slow component.**
+A 40 ms head plus a 300 ms tail at various tail amplitudes:
+
+| tail amplitude | 0.50× | 0.20× | 0.05× |
+|---|---:|---:|---:|
+| T20 | 660.6 ms | 606.4 ms | 234.5 ms |
+| residual | 0.59 | 2.93 | 3.76 dB |
+
+All three pass the 6 dB residual guard, and all three report something between 2.5×
+and 7× the head's decay. **[R] That is not a bug — it is what backward integration
+means — but "T20" and "how long the drum sounds" are then different quantities, and
+our tolerance of 50 % on time is doing a lot of work to hide the difference.**
+
+---
+
+## 5. Aliasing measurement
+
+**This section is the least sourced in the document.** With WebSearch exhausted I
+could not reach any virtual-analog paper's text. What follows is one bibliographic
+record and then measurement and reasoning.
+
+**[S] The canonical reference exists and is:** Vesa Välimäki and Antti Huovilainen,
+*Antialiasing Oscillators in Subtractive Synthesis*, IEEE Signal Processing
+Magazine **24**(2), 116–125, 2007.
+([Aalto research portal](https://research.aalto.fi/en/publications/antialiasing-oscillators-in-subtractive-synthesis))
+**I could not fetch its text**, so nothing below about what it contains is sourced.
+
+**[R] What I believe the field does, offered as belief and not as fact:** the
+virtual-analog literature reports oscillator aliasing as a **noise-to-mask ratio
+(NMR)** in dB — aliased energy measured against a psychoacoustic masking threshold
+derived from the wanted harmonics, with values below roughly 0 dB taken as
+inaudible — and secondarily as an **A-weighted signal-to-noise ratio** measured by
+comparing against a bandlimited (additive or high-oversampled) reference at the
+same f0. Both differ from what we compute in the same way: they weight the aliased
+energy perceptually, and they are referenced to a *synthesised alias-free
+reference signal*, not to the total energy of the signal under test.
+
+**[M] Our two aliasing estimators have floors that swing by 60 dB with f0, and one
+of them reports a floor that is 35 dB worse than it needs to be.** On a purely
+additive, alias-free saw at 48 kHz over a 0.5 s record — where the true answer is
+"none" — the reading *is* the floor:
+
+| f0 | on a bin? | `inharmonic_fraction_db` | `foldback_alias_db` |
+|---|---|---:|---:|
+| 110.0 Hz | yes | **−112.92** | refused (image/harmonic collision) |
+| 111.0 Hz | no | **−53.39** | refused |
+| 111.3 Hz | no | −54.07 | refused (images cover the spectrum) |
+| 261.626 Hz | no | −55.87 | refused |
+| 440.0 Hz | yes | **−113.21** | **−126.44** |
+| 441.0 Hz | no | **−53.38** | **−65.11** |
+
+**A 1 Hz change in f0 moves the floor by 60 dB.** The docstring's stated "about
+−54 dB" floor is the honest off-bin figure and is correct as far as it goes; what
+it does not say is that the same estimator reads −113 dB when f0 happens to land
+on a bin centre, which is not a better measurement, it is the same measurement
+with the leakage removed by coincidence. **[R] A floor quoted as a constant is the
+#92 failure again.**
+
+**[M] The floor is a window choice, and the better window is already in the file.**
+`inharmonic_fraction_db` calls `spectrum`, which applies a Hann window.
+`audio_measure._bh4` (4-term Blackman-Harris, written for
+`windowed_tone_amplitude`) is 35 dB better at the same guard width, and **changes
+the measured aliasing figure by 0.00 dB**:
+
+| f0 | window | guard | floor | naive saw reads | headroom |
+|---|---|---:|---:|---:|---:|
+| 441 Hz | Hann | ±5 | −53.38 | −19.53 | 33.8 dB |
+| 441 Hz | Hann | ±9 | −65.61 | −19.55 | 46.1 dB |
+| 441 Hz | **Blackman-Harris** | ±5 | **−88.44** | −19.53 | **68.9 dB** |
+| 441 Hz | **Blackman-Harris** | ±9 | **−94.78** | −19.55 | **75.2 dB** |
+
+**[R] Recommendation: (a) window with `_bh4`, not Hann; (b) measure the floor for
+every reported number by running the same estimator, at the same f0 and record
+length, over a synthesised alias-free saw, and report floor and headroom beside
+the value.** The repository already does exactly (b) in one place —
+`harmonic_signature` measures a floor at four off-harmonic offsets and returns
+`None` for any harmonic within 6 dB of it. That pattern is right and is not
+applied to the aliasing estimators.
+
+**[M] `foldback_alias_db` is usable over a narrow band of f0 only.** It refused at
+110, 111, 111.3, 261.6, 1000 and 2000 Hz — for collisions, occupancy, or too few
+images — and succeeded at 440/441 Hz. That is correct behaviour (refusing beats
+guessing) but it means the metric exists for roughly a fifth of the musical range
+at these settings, and a comparison built on it cannot be swept across pitch.
+
+---
+
+## 6. Sustained tones: harmonics, cutoff, resonance, pitch
+
+**[R] Little of this section is contested and little of it is written down.** The
+conventions below are, as far as I can tell, universal practice in audio
+measurement rather than anything specific to virtual analog:
+
+- **Steady-state, not transient.** Measure after the envelope has settled; state
+  the window.
+- **Stepped sine, not impulse, for anything nonlinear.** An impulse response
+  presumes linearity and cannot state the drive level it was taken at. Our
+  `tone_amplitude` docstring makes exactly this argument and
+  `reference_compare.py` follows it. **This is the single place where our practice
+  is clearly ahead of the casual norm**, which is to take one FFT of a sweep and
+  call it the filter's response.
+- **Cutoff as the −3 dB point relative to a stated passband reference**, and
+  resonance as either the peak height in dB above that reference or as
+  `f_peak / bandwidth`. **[R] The two definitions of Q are not interchangeable and
+  a measurement that does not say which it used is not reproducible.** `corner_3db`
+  takes `ref_band`; `bandwidth_q` and `resonant_peak` are separate functions,
+  which is the right shape.
+- **Pitch from a long window, not a short one.** Our `refine_f0` /
+  interpolated-zero-crossing approach is exact for a steady periodic signal and
+  is the conventional choice; `dominant_frequency`'s parabolic interpolation on
+  the log magnitude is the conventional FFT fallback and is accurate to a small
+  fraction of a bin for an isolated peak.
+
+**[R] One departure worth naming:** `harmonic_signature` reports harmonics in dB
+relative to the fundamental, with a measured floor. The more common report in the
+literature is a **THD** or **THD+N** percentage, or a harmonic-amplitude table
+relative to *full scale*. Per-harmonic dB-relative-to-fundamental is more
+informative and less comparable. Since our purpose is A/B against a named software
+reference rather than publication, **[R] keep it** — but a THD figure is cheap to
+add from the same numbers and would make the results legible to anyone outside
+this repository.
+
+---
+
+## 7. Analog drum machines and virtual analog specifically
+
+**[S] The TR-808 modelling literature exists and is by one group.** Kurt James
+Werner, Jonathan S. Abel and Julius O. Smith III published, all in 2014:
+
+- *A Physically-Informed, Circuit-Bendable, Digital Model of the Roland TR-808
+  Bass Drum Circuit* — DAFx-14, Erlangen
+- *The TR-808 Cymbal: a Physically-Informed, Circuit-Bendable, Digital Model* —
+  40th ICMC / 11th SMC, Athens
+- *More Cowbell: a Physically-Informed, Circuit-Bendable, Digital Model of the
+  TR-808 Cowbell* — AES 137th Convention, Los Angeles
+
+([author's publication list](https://ccrma.stanford.edu/~kwerner/))
+
+**I could not fetch any of the three PDFs** — the DAFx-14 host, the DAFx paper
+archive's per-year pages and the author's own paper directory all 404 from here.
+**So I cannot tell you what measurement methodology they used, and this document
+will not guess.** Getting these three PDFs is the single highest-value follow-up
+to this research, because they are the only published work that does precisely
+what we are doing — comparing a digital model of a TR-808 voice against the
+circuit — and if they state an alignment or windowing convention, that convention
+should simply be adopted.
+
+**[R] What I can say about their approach from general knowledge, flagged as
+unverified:** the "physically-informed" family models the circuit (bridged-T
+oscillator, envelope, VCA) rather than fitting the sound, and validates by
+comparison against SPICE simulation of the schematic and against recordings, with
+spectrogram overlays and partial-frequency tables rather than scalar error
+metrics. If that is right, then **there is no scalar-metric convention in this
+literature to copy** and our band-ratio/T20/partial-frequency scorecard is a local
+invention — a defensible one, but ours.
+
+**[R] On the Moog ladder,** the reference points are Stilson and Smith's *Analyzing
+the Moog VCF with Considerations for Digital Implementation* (CCRMA, 1996) and
+Huovilainen's *Non-Linear Digital Implementation of the Moog Ladder Filter*
+(DAFx-04). I fetched the former's PDF and it did not decode to text. **The
+methodological point I would expect from them, unverified:** the ladder's
+resonance and cutoff are **level-dependent by design**, so a transfer function is
+meaningless without a stated drive, which is the argument our `tone_amplitude`
+docstring already makes independently.
+
+---
+
+## 8. What we do → what the field does → change or keep
+
+Ordered by how much the change would move a number on the board.
+
+| # | what we do now | what the field does | verdict | reason |
+|---|---|---|---|---|
+| 1 | `prepare()` trims to `max(0, onset − 1 ms)`. The `max(0, …)` clamp fires on the Fischer references (onset at sample 7), so **the two sides are filtered with different amounts of pre-onset lead** | no stated convention found; the *requirement* is derivable: lead > filter `padlen` | **CHANGE** | **[M]** 10.2 dB of swing from prepended silence alone; #101 measured 6.07 dB on a real case against a 3.0 dB tolerance. Give both sides ≥ 10 ms of true lead, and **refuse** (not clamp) when a recording cannot supply it |
+| 2 | `padlen` assumed ~12–15 samples (#101, #103) | — | **CHANGE** | **[M]** that is the low/high-pass figure. Our band-pass is 4 sections → **27 samples, 0.562 ms @ 48 k**. Every lead budget derived from 0.3 ms is half what it should be |
+| 3 | `sosfiltfilt` with default `padtype='odd'` | `python-acoustics` defaults `bandpass` to **causal** (`zero_phase=False`) and only `octavepass` to zero-phase | **KEEP**, but record it | **[M]** once the lead exceeds `padlen`, `'odd'` and `padtype=None` are **identical**; causal is exactly invariant but answers a different question (|H|² vs |H|⁴ energy weighting). Fixing the lead makes the choice moot. `padtype` and achieved lead belong in the result record |
+| 4 | `schroeder_t20` guards truncation with `tail_db > −35 dB` | ISO 3382 T20 = −5 to −25 dB ×3, SNR-based guards; Lundeby truncation-point iteration | **CHANGE** | **[M]** the guard is nearly vacuous on a clean record: a 100 ms cut of a 92 ms T20 reads **−18.4 % error** while `tail_db` shows −79 dB. Add a **length** criterion: refuse unless the record runs ≥ 2× the fitted T20 past the −25 dB point |
+| 5 | `inharmonic_fraction_db` windows with Hann; floor documented as "about −54 dB" | alias-free synthesised reference at the same f0; NMR or A-weighted SNR **[R, unsourced]** | **CHANGE** | **[M]** the floor is **−53 dB off-bin and −113 dB on-bin** — a 60 dB swing, so it is not a constant. Swapping Hann for the `_bh4` already in the file moves the floor to **−88 dB and the answer by 0.00 dB**. Measure and report the floor per call, as `harmonic_signature` already does |
+| 6 | `band_energy` filters "because FFT bins are Hann-windowed and weight the tail" | Parseval over a **rectangular** FFT; IEC 61260 Butterworth filter banks for octave bands **[R, paywalled]** | **KEEP** (for our window lengths) | **[M]** the Hann observation is real and worth **55 dB** on a decaying signal — but it argues against the *window*, not the FFT; rectangular Parseval is exact (verified to 7 s.f.) and invariant to prepended silence to 0.44 dB. Keep the filter because a 15 ms window gives 67 Hz bins, which cannot place a 400 Hz split. **Fix the docstring's reasoning, and use rectangular Parseval for any window under ~50 ms** |
+| 7 | onset = first sample past **2 % of peak** | spectral-flux novelty + peak-picking, then `onset_backtrack` to the **preceding energy minimum** | **CHANGE the framing, keep the mechanism** | **[S]** librosa's default hop is 512 samples (23 ms at 22.05 k) — the standard detector is *coarser* than our threshold, so adopting it would be a downgrade for alignment. But `onset_backtrack`'s existence is the field telling us the same thing #101 did: **the window should open before the attack, not at it** |
+| 8 | 44.1 k references vs 48 k renders, never resampled | — | **KEEP** | every metric is a frequency, a time or a ratio. #101 measured the rate difference at < 0.36 dB. But **[M]** `padlen` in *milliseconds* differs between the two rates (0.612 vs 0.562 ms), so a lead budget must be stated in samples-per-rate or set generously in ms |
+| 9 | both sides peak-normalised | standard when comparing shape | **KEEP** | the Fischer set pinned LEVEL at maximum, so its inter-voice levels are not the machine's; original peak/RMS are already recorded |
+| 10 | stepped-sine transfer at a stated drive for the ladder | — | **KEEP** | **[R]** this is better than the casual norm (one FFT of a sweep) and is the only correct choice for a level-dependent filter |
+| 11 | attack = onset-to-peak of a short-time RMS envelope, per-voice window | MPEG-7 log-attack-time; Timbre Toolbox "weakest effort" thresholds **[R, unsourced]** | **KEEP**, state the window | the docstring already concedes the window-sized floor and `docs/drum-verification.md` already compares ratios rather than absolutes. That is the right handling of a known floor |
+| 12 | nothing in the result record states the windowing convention | — | **CHANGE** | #103 asks for exactly this. A number that cannot be re-derived can only be re-trusted |
+
