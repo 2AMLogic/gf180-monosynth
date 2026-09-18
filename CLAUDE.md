@@ -46,6 +46,21 @@ the host's block rate.
 
 This file is about how to work, not what to build.
 
+## Write Python, not bash
+
+**Anything with logic goes in Python.** Bash is for a single command with no
+branching, no arithmetic and no error handling. This is not style: the bash
+version of `tools/run_all.py` printed **`FAIL(??)` for a job that exited 1**,
+because `eval "cmd; exit 1"` exits the subshell before the wrapper can record
+the status — *an unknown rendered in the place where a result belongs.*
+
+The same session produced `exit=$?` after a pipe (capturing `tail`'s status,
+not the command's) **three separate times**, each one reporting success for a
+command that had failed.
+
+Python's `subprocess.run` cannot do either. Everything else here is Python and
+is tested; tooling should be too.
+
 ## Waiting is the expensive part, not the work
 
 Simulation here is slow: a bit-exact voice run is 255,060 frames and takes

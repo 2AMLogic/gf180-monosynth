@@ -32,7 +32,7 @@ graph LR
   subgraph foundation["Foundation"]
     F1["! Ladder bit-exact"]
     F2["✓ Modal bank bit-exact"]
-    F3["· Measurement ground truth"]
+    F3["! Measurement ground truth"]
   end
   subgraph minimoog["Minimoog voice"]
     M1["! One Moog voice bit-exact"]
@@ -75,7 +75,7 @@ graph LR
   I2 --> S3
   style F1 fill:#9A6510,color:#fff
   style F2 fill:#0E6B5E,color:#fff
-  style F3 fill:#3f8f5f,color:#fff
+  style F3 fill:#9A6510,color:#fff
   style M1 fill:#9A6510,color:#fff
   style M2 fill:#0E6B5E,color:#fff
   style M3 fill:#3f8f5f,color:#fff
@@ -96,7 +96,7 @@ graph LR
 |---|---|---|---|
 | `F1` | Ladder bit-exact | **STALE** | rtl-sketch/ladder_dp_n.v changed since node/F1-ladder was cut |
 | `F2` | Modal bank bit-exact | **STAMPED** | node/F2-modal (not re-run; verifier is slow) |
-| `F3` | Measurement ground truth | **GREEN** | 90 passed in 1.69s |
+| `F3` | Measurement ground truth | **STALE** | model/audio_measure.py changed since this was last run |
 | `M1` | One Moog voice bit-exact | **STALE** | rtl-sketch/voice_dp.v changed since node/M1-voice was cut |
 | `M2` | Matches our own spec | **STAMPED** | node/M2-minimoog |
 | `M3` | Matches software references **fidelity** | **GREEN** | 17 passed in 24.06s |
