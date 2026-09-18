@@ -26,7 +26,7 @@ the Minimoog half (§8).
 
 | | |
 |---|---|
-| model revision rendered | `d9921a4` + `model/drums_fx.py`, `model/modal_fixed.py` from `origin/drums` `1e638ac` (the drums merge into main was still in flight; see §9) |
+| model revision rendered | `d9921a4` + `model/drums_fx.py`, `model/modal_fixed.py` from `origin/drums` `1e638ac` (the drums merge into main was still in flight; see §9). **Superseded: contract revision 6 changed five of the eight voices** — the snare's noise band and level, the cowbell's gating, tail and band-pass, the kick's f0 and its attack window, and the toms' pitch drop (`docs/drum-verification.md` §8, DR 0009, DR 0010). Every number below describes the kit as it was before those, so **re-run this study before quoting it**. Its conclusion that the attack carries most of the separability is what makes contract 17.20 — the excitation shape — the next thing to do, and none of these changes touch that. |
 | reference | Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 **s/n 103852**, individual voice outputs, 16-bit/44.1 kHz |
 | unique source recordings | **68** (the 8 voices we implement), of 116 in the set |
 | unique knob settings | 68 — the corpus has **exactly one take per setting** |
