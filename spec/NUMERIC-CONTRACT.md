@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 2 — 2026-09-17 — status: PROPOSED. Not ratified.**
+**Revision 3 — 2026-09-17 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
@@ -9,7 +9,7 @@ ROM, two integer ADSRs and a VCA, producing one signed 16-bit sample per
 frame. It is written from the committed reference model and claims
 nothing the model does not do. It becomes the specification RTL is verified
 against only when ratified through the two-key process this fleet uses; until
-then it is revision 2, proposed, and the status line above must not be read as
+then it is revision 3, proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
 
@@ -25,7 +25,7 @@ read differently the code is what "bit-exact" means:
 | `model/modal_fixed.py` | the modal resonator bank — **proposed sizing, not ratified** (section 15) |
 
 Their tests (`model/test_voice_fx.py`, `model/test_fixed.py`,
-`model/test_modal_fixed.py`, `spec/reference/test_tables.py`, 63 tests) lock the sizing decisions; the RTL
+`model/test_modal_fixed.py`, `spec/reference/test_tables.py`, 68 tests) lock the sizing decisions; the RTL
 sketches `rtl-sketch/ladder_dp.v` and `rtl-sketch/modal_dp.v` are already
 bit-exact against `LadderFx` and `ModalFx` respectively
 (`rtl-sketch/test_rtl.py`). Every table in the appendices is regenerated from
@@ -201,7 +201,7 @@ measured sequenced ladder (`rtl-sketch/ladder_dp.v`) takes 24 of them per
 frame including both oversampling passes, fixed, worst case equal to mean
 (`rtl-sketch/tb_cycles.v`). Nothing in the sample sequence depends on the
 clock frequency; an implementation that needs fewer cycles MAY be clocked
-slower. *Informative:* revision 2 adds six multiplies per frame to the front
+slower. *Informative:* revision 3 adds six multiplies per frame to the front
 end — three glide slews, the kc interpolation, `k · kc` and the VCA — all on
 a shared multiplier.
 
@@ -229,28 +229,40 @@ product the host's job (5.5).
 | `inc_tgt[k]` | 24 u | osc | phase-increment target; `inc[k] = inc_acc[k] >> 8` is what the phase accumulator adds (6.7) | `OscFx.inc_tgt` |
 | `wave[k]` | enum | osc | one of saw, square, pulse25, tri, sine (encoding OPEN, 5.2) | `waves[k]` |
 | `w[k]` | 16 u | osc | mixer weight, Q0.15 | `weights[k]` |
-| `a_inc`, `d_dec`, `sus` | 24 u | env ×2 | attack increment, decay decrement, sustain level, Q0.24 | `AdsrFx` |
+| `a_inc`, `d_dec`, `sus` | 24 u | env ×2 | attack increment, decay decrement, sustain level, Q0.24 | `AdsrFx.a_inc`, `.d_dec`, `.sus` |
 | `rate` | 16 u | env ×2 | release rate, Q0.16 | `AdsrFx.rate` |
 | `gate` | 1 | voice | envelope gate (both envelopes) | `VoiceFx.gate` |
 | `glide` | 24 u | voice | glide rate, Q0.24, the ratio per frame minus 1; 0 = off (6.7) | `VoiceFx.glide` |
 | `vol` | 16 u | voice | output volume, Q0.15 (12) | `VoiceFx.vol` |
 | `cut_lo`, `cut_hi`, `track_hz` | 16 u *(proposed)* | voice | cutoff floor, ceiling and keyboard-tracking offset, integer Hz | `cut_lo`, `cut_hi`, `track_hz` |
-| `k` | 17 u | voice | ladder resonance, 4·res in Q3.14, before the compensation of 10.2 | `VoiceFx.k_reg` |
+| `k` | 17 u | voice | ladder resonance, 4·res in Q3.14, before the compensation of 10.2 | `LadderFx.regs`, `VoiceFx.k_reg` |
 | `gain` | 20 u | voice | ladder input gain, drive·2.6 in Q4.16 | same |
 | `ogain` | 20 u | voice | ladder output gain, (1+2·res)/2.6 in Q4.16 | same |
 
 The two envelopes are `amp` (section 9) and `filt` (section 10); each has its
 own `a_inc`, `d_dec`, `sus`, `rate`.
 
-The widths of `cut_lo`, `cut_hi` and `track_hz` are **proposed, not in the
-model**: the model holds them as unbounded integers. 16 bits unsigned is
-derived from the largest value any audition patch produces (`track_hz` =
-45 158 at MIDI note 127 with `track` = 0.9; `cut_hi` = 7000) and from the
-clamp in section 10, past which larger values change nothing. The sum in
+**Every conversion of 5.5 clamps its result to the width in this table**
+(`voice_fx.REG_BITS`, through `fixed.usat`), so the model never holds a value
+a register-limited implementation cannot, and the two cannot differ on any
+input a host might send. (Rev 2; this was OPEN 17.7. Where each clamp fires
+is recorded in 5.5.) Conversely the model accepts every value every register
+can hold — `test_every_legal_register_value_runs` walks the extremes of each
+through the per-sample path — so a legal write never makes the model raise
+or misbehave.
+
+The widths of `cut_lo`, `cut_hi` and `track_hz` are **proposed**: 16 bits
+unsigned is derived from the largest value any audition patch produces
+(`track_hz` = 45 158 at MIDI note 127 with `track` = 0.9; `cut_hi` = 7000),
+from full keyboard tracking (`track` = 1.0 at note 127 gives 50 175) and
+from the clamp in section 10, past which larger values change nothing. The
+model clamps to 16 bits; whether 16 is the width is still 17.10. The sum in
 section 10 MUST be computed exactly whatever the width. `k`, `gain` and
 `ogain` are the RTL's port widths, and the RTL is bit-exact against the model
-within them; the ladder runs on `k_eff`, which 10.2 saturates to `2^17 − 1`,
-and the model asserts `gain, ogain < 2^20`.
+within them; the model clamps to them (`LadderFx.regs`), the ladder runs on
+`k_eff`, which 10.2 saturates to `2^17 − 1`, and at every extreme of all three
+and of `g` every pre-saturation value in the ladder stays below 2^27, inside
+the datapath width of 11.4.
 
 State registers (not host-writable except by RESET): `phase[k]` (24),
 `inc_acc[k]` (32, section 6.7), `e[k]` and `r[k]` (section 6.6.1), `level`
@@ -282,9 +294,9 @@ OPEN**; the model names shapes by string. A proposed encoding is in section
 
 Any register value is legal; nothing is rejected for range. Consequences of
 out-of-range values follow from the formulas (an `inc` ≥ 2^23 is above
-Nyquist; weights summing above 32768 saturate in the mixer; `a_inc` = 0 holds
-the attack at its current level forever; `rate` = 0 releases at one LSB per
-frame).
+Nyquist; `inc` = 0 stalls its oscillator at DC, 6.3; weights summing above
+32768 saturate in the mixer; `a_inc` = 0 holds the attack at its current
+level forever; `rate` = 0 releases at one LSB per frame).
 
 ### 5.3 The unit of work: a sequence of writes to one voice
 
@@ -321,29 +333,62 @@ register values. These formulas are informative — the block never sees Hz,
 seconds or `res` — but a host that wants the model's sound uses them:
 
 ```
-inc[k]     = round(f0 · 2^(detune_k/12) · 2^24 / 48000)     f0 = 440 · 2^((note−69)/12)
-w[k]       = floor(mix_k / Σmix · 2^15)                     "floor-normalised": Σ w ≤ 32768
-a_inc      = ceil(2^24 / max(1, floor(attack_s · 48000)))
-sus        = round(sustain · (2^24 − 1))
-d_dec      = ceil((2^24 − 1 − sus) / max(1, floor(decay_s · 48000)))
-rate       = max(1, round((1 − exp(−4 / (release_s · 48000))) · 2^16))
-cut_lo/hi  = round(cutoff_lo/hi_hz)
-track_hz   = round(track · f0 · 4)
-k          = round(4 · res · 2^14)
-gain       = round(drive · 0.13 / 0.05 · 2^16)  = round(drive · 2.6 · 65536)
-ogain      = round(0.05 / 0.13 · (1 + 2 · res) · 2^16)
-glide      = round((2^(1 / (T_oct · 48000)) − 1) · 2^24)      T_oct = seconds per octave; 0 → 0, off (DR 0004)
-vol        = round(volume · 2^15)                             reference 0.45 → 14746 (DR 0005)
+fitN(v)    = clamp(v, 0, 2^N − 1)          N = the register's width in 5.1 (fixed.usat)
+inc[k]     = fit24( round(f0 · 2^(detune_k/12) · 2^24 / 48000) )      f0 = 440 · 2^((note−69)/12)
+w[k]       = fit16( floor(mix_k / Σmix · 2^15) )     "floor-normalised": Σ w ≤ 32768 for mix_k ≥ 0;
+                                                     Σmix = 0 gives every w[k] = 0
+a_inc      = fit24( ceil(2^24 / max(1, floor(attack_s · 48000))) )
+sus        = fit24( round(sustain · (2^24 − 1)) )
+d_dec      = fit24( ceil((2^24 − 1 − sus) / max(1, floor(decay_s · 48000))) )
+rate       = fit16( max(1, round((1 − exp(−4 / (release_s · 48000))) · 2^16)) )
+                                                     release_s ≤ 0 is instant: rate = 65535
+cut_lo/hi  = fit16( round(cutoff_lo/hi_hz) )
+track_hz   = fit16( round(track · f0 · 4) )
+k          = fit17( round(4 · res · 2^14) )
+gain       = fit20( round(drive · 0.13 / 0.05 · 2^16) )  = fit20( round(drive · 2.6 · 65536) )
+ogain      = fit20( round(0.05 / 0.13 · (1 + 2 · res) · 2^16) )
+glide      = fit24( max(1, round((2^(1 / (T_oct · 48000)) − 1) · 2^24)) )    T_oct = seconds per octave;
+                                                     T_oct ≤ 0 → 0, off; clamps below 1.7 µs per octave (DR 0004)
+vol        = fit16( round(volume · 2^15) )           reference 0.45 → 14746; clamps at volume ≥ 2 (DR 0005)
 ```
 
-Two of these can exceed their register: `a_inc` = 2^24 when the attack is
-shorter than two frames, and `rate` = 65536 when the release is shorter than
-about 7 µs. In both cases the value is outside the register width of 5.1. The
-observable difference between 2^24 and 2^24 − 1 for `a_inc` is nil (either
-completes the attack in one update from any level); for `rate`, 65535 reaches
-zero from full scale in 3 frames where 65536 takes 1. **OPEN 17.7**: the
-model's conversion should clamp to the register width so that the model and a
-register-limited implementation cannot differ even here.
+**Where the clamps fire.** (Rev 2; this was OPEN 17.7.)
+`test_every_host_conversion_fits_its_register` walks each conversion over
+its full plausible input domain — all 128 notes with detune −24..+24
+semitones, attack/decay/release 0..30 s, sustain 0..1, cutoff 0..65 535 Hz,
+`track` 0..1, `res` 0..1.5, `drive` 0..4, every mix on a quarter grid, every
+waveform — and pins the following:
+
+- `a_inc`: the raw value is 2^24, one bit too wide, for an attack of fewer
+  than **two frames**, `attack_s < 2/48000 = 41.67 µs` (`attack_s = 0`
+  included); it is clamped to 2^24 − 1. The clamp is unobservable: either
+  value completes the attack in one update from any level, so the register
+  stays 24 bits rather than growing a bit that changes no sample
+  (`test_attack_increment_clamps_below_two_frames`).
+- `rate`: the raw value is 2^16 — 1.0, which Q0.16 cannot hold — for
+  `release_s ≤ 4 / (17 ln 2 · 48000) = 7.072 µs`, a third of a frame, and
+  rev 1's model divided by zero at `release_s = 0`. It is clamped to 65535,
+  and `release_s ≤ 0` means instant, as the float model's `max(1e-9, ·)`
+  does. The cost of the clamp: full scale reaches zero in three updates
+  (16777215 → 256 → 1 → 0; 62.5 µs) where 1.0 would take one. A 17th bit
+  on every rate multiply, for a release nobody can hear, is not worth that
+  (`test_release_rate_clamps_below_seven_microseconds`).
+- `inc`: the raw value exceeds 24 bits only for an oscillator at or above
+  48 kHz, the sample rate — note 127 with a detune of +23.24 semitones or
+  more; it is clamped to 2^24 − 1, which is already above Nyquist (6.3).
+- `k` overflows 17 bits at `res ≥ 2.0`; `gain` overflows 20 bits at
+  `drive ≥ 6.152`; `sus` overflows at `sustain > 1`. None is inside the
+  range any audition patch uses (`res` ≤ 1.06, `drive` ≤ 3.6); all clamp.
+- `w[k]`: a mix summing to zero has nothing to normalise by and rev 1's
+  model divided by zero; every weight is 0.
+- `d_dec`, `cut_lo`, `cut_hi`, `track_hz` and `ogain` never clamp inside
+  their domains.
+- `glide` (rev 3) clamps only below 1.7 µs per octave, a ratio of 2 per
+  frame; `vol` clamps at a volume of 2.0 and above. Neither is inside any
+  host's plausible range.
+
+`a_inc` and `rate` are at least 1 by construction. `d_dec` is 0 only for
+`sustain = 1.0`, where DECAY ends at once because `level = FULL ≤ sus`.
 
 Default patch values, for reference (the `note_on` defaults): waves (saw,
 saw, square), detune (0, +0.07, −12) semitones, mix (1.0, 0.8, 0.5) → weights
@@ -377,8 +422,8 @@ block.
 
 Per oscillator: `phase` (24-bit unsigned), `inc_tgt` (24-bit unsigned),
 `inc_acc` (32-bit unsigned, Q24.8; `inc = inc_acc >> 8`), `wave`, and the
-PolyBLEP state `e` (signed, −16..+8 over all 24-bit `inc`; −4..+7 over
-NOTE_INC) and `r` (16-bit unsigned).
+PolyBLEP state `e` (signed, −15..+8 over all 24-bit `inc` ≥ 1 and 0 for
+`inc = 0`; −4..+7 over NOTE_INC) and `r` (16-bit unsigned).
 
 ### 6.2 Phase advance
 
@@ -403,11 +448,18 @@ and hash for hash, to gf180-polysynth's Appendix A. Detuned oscillators use
 — the host writes `inc` — so NOTE_INC pins the values a host MUST produce at
 zero detune and the tuning reference, no more.
 
-`inc` may hold any 24-bit value. `inc = 0` stalls the oscillator; the
-PolyBLEP is then identically zero (6.6.3) and `(e, r) = (−16, 65535)` by
-6.6.1. The model defines it — a patch with fewer than three oscillators
-leaves the rest at `inc = 0` and `w = 0` (`VoiceFx.patch_regs`) — which
-closes 17.9.
+`inc` may hold any 24-bit value. `inc = 0` stalls the oscillator at its
+current phase; the PolyBLEP is then identically zero (6.6.3) and the output
+is the naive waveform of that phase (6.4) — DC, not silence: from reset a
+stalled saw reads −32768 and a stalled square +32767. No host conversion
+produces it (NOTE_INC's smallest entry is 2858, and 0 needs an oscillator
+below 0.00143 Hz, a detune under −149 semitones at note 0), but it is the
+reset value (14) and a legal write, and
+`test_zero_increment_stalls_the_oscillator` checks it for every shape from
+several phases. Rev 1's model raised here; the prose was right and the model
+was wrong (resolved 17.9). A patch with fewer than three oscillators leaves
+the rest at `inc = 0` and `w = 0` (`VoiceFx.patch_regs`), so the reference
+sequences of the one-oscillator whistle patch exercise it.
 
 ### 6.4 Naive waveforms
 
@@ -469,11 +521,15 @@ r = min( floor(2^31 / m), 65535 )         16 bits
 
 So `inc = m · 2^e` with a 16-bit mantissa, and `r ≈ 2^31 / m`. The `min`
 fires only when `m = 2^15`, i.e. `inc` is a power of two, a 1-LSB error; no
-NOTE_INC entry is a power of two. **`inc = 0`** has `bit_length` 0, so
-`e = −16` and `m = 0`; the quotient of the division by zero is taken as +∞
-and the clamp fires: `r = 65535`. Neither value can reach a sample (6.6.3). Over NOTE_INC, `e` ranges −4..+7 and `r`
+NOTE_INC entry is a power of two. Over NOTE_INC, `e` ranges −4..+7 and `r`
 33209..62696. Example: `inc = 153791` (note 69) has 18 bits, `e = 2`,
 `m = 38447`, `r = floor(2147483648 / 38447) = 55855`.
+
+`inc = 0` has no mantissa: `(e, r) ← (0, 0)`, the reset values of section
+14, and no division is performed. Neither is observable — with `inc = 0`
+neither window of 6.6.3 can open, so `c = 0` whatever `(e, r)` hold — and an
+implementation whose divider yields something else for `m = 0` is still
+bit-exact.
 
 This is one integer division per increment change. *Informative:* a
 sequential divider takes 24 clocks of the 256-cycle frame; the specification
@@ -662,8 +718,9 @@ Notes that follow from the rule and are intentional:
 
 - `a_inc = 0` holds ATTACK forever at the current level; `d_dec = 0` holds
   DECAY forever unless `level ≤ sus` already; `rate = 0` releases at one LSB
-  per frame (2^24 frames = 350 s from full). None of these is reachable
-  through the host conversions of 5.5, which give every parameter at least 1.
+  per frame (2^24 frames = 350 s from full). The host conversions of 5.5
+  give `a_inc` and `rate` at least 1; they give `d_dec = 0` only for
+  `sustain = 1.0`, where DECAY ends at once because `level = FULL ≤ sus`.
 - SUSTAIN re-asserts `level ← sus` every frame, so a change of `sus` while
   sustaining moves the level in one frame (unlike gf180-polysynth's envelope).
 - In DECAY, if `sus` is above the current level the level jumps **up** to
@@ -1003,7 +1060,7 @@ is no other observable state.
 
 | Register | Reset | Notes |
 |---|---|---|
-| `phase[k]`, `inc_tgt[k]`, `inc_acc[k]`, `e[k]`, `r[k]` | 0 | `inc = 0` gives `c = 0` by 6.6.3; `(e, r)` are recomputed at the first change of `inc` |
+| `phase[k]`, `inc_tgt[k]`, `inc_acc[k]`, `e[k]`, `r[k]` | 0 | `inc = 0` gives `c = 0` by 6.6.3 and `(e, r) = (0, 0)` by 6.6.1; `(e, r)` are recomputed at the first change of `inc` |
 | `wave[k]`, `w[k]` | 0 | encoding of `wave` OPEN |
 | `level`, `seg` (both envelopes) | 0, ATTACK | |
 | `gate` | 0 | |
@@ -1092,6 +1149,13 @@ Table freshness: `spec/reference/gen_tables.py --check` MUST pass; it fails
 if any hash in the appendices, any image under `spec/reference/tables/`, or
 `rtl-sketch/tanh16.hex` is not what the model generates.
 
+Register widths: `test_every_host_conversion_fits_its_register` walks every
+conversion of 5.5 over its input domain and fails if any result leaves the
+width of 5.1; `test_every_legal_register_value_runs` walks the extremes of
+every register through the model and fails if any legal value raises or
+leaves the ranges stated here. A change to a width in 5.1 must change
+`voice_fx.REG_BITS` and both tests with it.
+
 ---
 
 ## 17. Open items
@@ -1099,12 +1163,12 @@ if any hash in the appendices, any image under `spec/reference/tables/`, or
 Everything this revision does not decide, in one place. Each needs a decision
 record that extends this document; none may be resolved by picking a reading.
 
-1. **Note-on retrigger semantics** (8.5) — **closed in revision 2 by
+1. **Note-on retrigger semantics** (8.5) — **closed in rev 3 by
    DR 0003**: GATE_ON and TRIG re-enter ATTACK from the current level; no
    phase or ladder reset; priority, single/multi trigger and paraphonic
    allocation are the host's, with the reference host's defaults informative
    (5.6).
-2. **Glide** (6.7) — **closed by DR 0004**: on the chip, constant rate,
+2. **Glide** (6.7) — **closed in rev 3 by DR 0004**: on the chip, constant rate,
    geometric in the increment (linear in pitch), the `glide` register.
 3. **Physical control layer** (5.4): UART event stream vs SPI time-slice
    packets (gf180-polysynth issue 7); with it, the encodings of `wave[k]` and
@@ -1112,19 +1176,23 @@ record that extends this document; none may be resolved by picking a reading.
    square 1, pulse25 2, tri 3, sine 4.
 4. **Modal bank** (15): sizing proposed, not ratified; trigger, excitation
    source, mixing and gain staging unspecified.
-5. **Resonance compensation above ~3 kHz** (11.5) — **closed by DR 0006**:
-   `K_ROM32` (10.2, Appendix E); `res = 1` is the onset within 0.39 %.
-6. **Output gain staging** (12) — **closed by DR 0005**: a 19-bit ladder
-   output, the VCA after the filter, the `vol` register and a hard rail.
-7. **Register-width clamps in the host conversion** (5.5): `a_inc = 2^24`
-   and `rate = 65536` are producible by the model's conversions and do not fit
-   the registers of 5.1; the model should clamp.
+5. **Resonance compensation above ~3 kHz** (11.5) — **closed in rev 3 by
+   DR 0006**: `K_ROM32` (10.2, Appendix E); `res = 1` is the onset within
+   0.39 %.
+6. **Output gain staging** (12) — **closed in rev 3 by DR 0005**: a 19-bit
+   ladder output, the VCA after the filter, the `vol` register and a hard
+   rail.
+7. **Register-width clamps in the host conversion** (5.5) — **resolved in
+   rev 2**: every conversion clamps to its register width; where each clamp
+   fires, and why `a_inc` and `rate` clamp rather than widen, is in 5.5. Rev
+   3 adds `glide` and `vol` to the clamped set.
 8. **Power-on control defaults** (14); `vol` resets to 0, so a bare GATE_ON
    is silent.
-9. **`inc = 0`** (6.3) — **closed in revision 2**: `(e, r) = (−16, 65535)`
-   by 6.6.1; the model defines it and one-oscillator patches exercise it.
+9. **`inc = 0`** (6.3) — **resolved in rev 2**: the oscillator stalls at DC
+   with `c = 0` and `(e, r) = (0, 0)` (6.6.1); model-checked for every shape.
 10. **Widths of `cut_lo`, `cut_hi`, `track_hz`** (5.1): 16 bits is proposed
-    from the audition patches, not measured against anything.
+    from the audition patches and full keyboard tracking (50 175 at note
+    127); the model clamps to it since rev 2, but the width is not decided.
 11. **Ratification itself.** This document is proposed. Ratification is the
     two-key act this fleet uses and is not claimed here.
 12. **Self-oscillation tuning** (11.5, DR 0006): the resonant frequency is
@@ -1139,12 +1207,28 @@ record that extends this document; none may be resolved by picking a reading.
 - **Rev 1 (2026-09-17)** — initial proposal, written from `model/voice_fx.py`
   and `model/fixed.py` as committed; appendices generated by
   `spec/reference/gen_tables.py`. Not ratified.
-- **Rev 2 (2026-09-17)** — DR 0003 (note-on: GATE_ON and TRIG, one
-  continuous voice, the reference host), DR 0004 (glide: constant rate on
-  the chip, the `glide` register), DR 0005 (gain structure: 19-bit ladder
-  output, the VCA after the filter, `vol`), DR 0006 (resonance compensation:
-  `K_ROM32`, Appendix E); `inc = 0` defined (6.3, 6.6.1). Every reference
-  sequence's values change. Rev 1 was proposed, not frozen, so its text is
+- **Rev 2 (2026-09-17)** — resolves 17.7 and 17.9. Every host conversion of
+  5.5 clamps to its register width of 5.1: `a_inc` to 2^24 − 1 below two
+  frames of attack; `rate` to 65535 at or below 7.072 µs of release and at
+  `release_s = 0`, which the rev-1 model divided by (a third raise the rev-1
+  prose had not recorded); also `inc` (≥ 48 kHz), `k` (`res` ≥ 2), `gain`
+  (`drive` ≥ 6.152), `sus` (`sustain` > 1), and a zero-sum mix, which also
+  divided by zero. `inc = 0` is defined and model-checked: the oscillator
+  stalls at DC, `(e, r) = (0, 0)` (6.3, 6.6.1) — here the rev-1 prose was
+  right and the model was wrong. The model names the ladder registers
+  (`LadderFx.regs`) and accepts them directly, and the whole control image
+  is walked at its extremes (5.1, 16). Five tests added (45). No table,
+  hash or reference sequence changed. Not ratified.
+- **Rev 3 (2026-09-17)** — resolves 17.1, 17.2, 17.5 and 17.6. DR 0003
+  (note-on: GATE_ON and TRIG re-enter ATTACK from the current level, one
+  continuous voice, no phase or ladder reset, the reference host), DR 0004
+  (glide: constant rate on the chip, the `glide` register), DR 0005 (gain
+  structure: 19-bit ladder output, the VCA after the filter, the `vol`
+  register, a hard rail), DR 0006 (resonance compensation: `K_ROM32`,
+  Appendix E, `k_eff` per frame). `glide` and `vol` join the clamped
+  conversions of 5.5 and the extremes walk of 16. One table added; every
+  reference sequence's values change (the chain order, the volume, the
+  compensation). Rev 1 and 2 were proposed, not frozen, so their text is
   revised rather than extended. Not ratified.
 
 ---

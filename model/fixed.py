@@ -60,7 +60,17 @@ def sat(v: int, bits: int) -> int:
     return lo if v < lo else (hi if v > hi else v)
 
 
+def usat(v: int, bits: int) -> int:
+    """Clamp to an unsigned register of `bits` bits, 0 .. 2^bits - 1. Every
+    host-side conversion (NUMERIC-CONTRACT.md 5.5) passes its result through
+    this, so the model can never hold a value the register of 5.1 cannot."""
+    hi = (1 << bits) - 1
+    return 0 if v < 0 else (hi if v > hi else v)
+
+
 class LadderFx:
+    K_BITS, GAIN_BITS = 17, 20      # register widths of k and of gain/ogain (contract 5.1)
+
     def __init__(self, state_bits=24, state_q=20, tanh_entries=128,
                  interp=True, volts_per_unit=0.13, oversample=2, out_bits=16):
         """`out_bits`: width of the saturated output word, Q(out_bits-16).15.
@@ -106,23 +116,41 @@ class LadderFx:
                 r = self.tbl[idx]
         return -r if neg else r
 
+    def regs(self, res: float, drive: float = 1.0) -> tuple[int, int, int]:
+        """The three ladder registers from the float controls -- the host's
+        conversion (contract 5.5) -- each clamped to its register width.
+
+        Widths, since the RTL has to carry them: k is 4*res in Q3.14 and needs
+        17 bits from res = 1.0 (the clamp fires at res = 2.0); gain =
+        drive*vpu/2Vt is 2.6*drive in Q4.16, 19 bits at drive 3 and 20 bits to
+        drive 6.15, where the clamp fires; ogain = 2Vt/vpu*(1+2*res) in Q4.16
+        is 17 bits to res 1.5. g is Q0.16 and reaches 61,659 at the 0.45*fs
+        cutoff clamp (bit 15 set above ~10.6 kHz, so it is NOT a signed 16-bit
+        quantity)."""
+        k = usat(int(round(4.0 * res * (1 << 14))), self.K_BITS)          # Q3.14
+        # Q1.15 audio -> state units (2*Vt). One constant: drive*vpu/(2*Vt).
+        gain = usat(int(round(drive * self.vpu / VT2 * (1 << COEF_Q))), self.GAIN_BITS)
+        # state units -> Q1.15 audio on the way out, with resonance gain comp
+        ogain = usat(int(round(VT2 / self.vpu * (1.0 + 0.5 * res * 4.0) * (1 << COEF_Q))),
+                     self.GAIN_BITS)
+        return k, gain, ogain
+
     def coefficients(self, cutoff_hz: np.ndarray, res: float, drive: float = 1.0,
-                     *, g_q16: np.ndarray = None, n: int = None, k_q14: np.ndarray = None):
+                     *, g_q16: np.ndarray = None, n: int = None,
+                     k: int = None, gain: int = None, ogain: int = None,
+                     k_q14: np.ndarray = None):
         """The four integers the loop actually runs on, from the float controls.
         Split out so a testbench can hand the RTL exactly what the model used.
 
         `g_q16`, when given, supplies the per-sample Q0.16 coefficient directly
         instead of converting `cutoff_hz` here with a float exp. `voice_fx.py`
         passes it from its own integer ROM so the cutoff-modulation path is
-        integer too. `k_q14`, when given, is the per-sample Q3.14 feedback
-        coefficient (the voice's resonance-compensated k, DR 0006) in place
-        of the constant 4*res; the RTL's k port is per-sample already.
-
-        Widths, since the RTL has to carry them: g is Q0.16 and reaches 61,659
-        at the 0.45*fs cutoff clamp (bit 15 set above ~10.6 kHz, so it is NOT a
-        signed 16-bit quantity); k is 4*res in Q.14 and needs 17 bits from
-        res = 1.0; gain = drive*vpu/2Vt is 2.6*drive in Q.16 (19 bits at drive
-        3); ogain = 2Vt/vpu*(1+2*res) in Q.16 is 17 bits to res 1.5."""
+        integer too. `k`, `gain`, `ogain`, when given, are used as the register
+        values instead of `regs(res, drive)` -- so a test can drive the loop
+        with any legal register contents, not only ones a patch produces.
+        `k_q14`, when given, is the per-sample Q3.14 feedback coefficient (the
+        voice's resonance-compensated k, DR 0006) in place of the constant k;
+        the RTL's k port is per-sample already."""
         fs = SR * self.os
         if g_q16 is not None:
             g_tab = np.asarray(g_q16, dtype=np.int64)
@@ -133,26 +161,27 @@ class LadderFx:
             g_tab = np.clip(
                 np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
                          * (1 << COEF_Q)), 1, (1 << COEF_Q) - 1).astype(np.int64)
+        rk, rgain, rogain = self.regs(res, drive)
+        k = rk if k is None else k
+        gain = rgain if gain is None else gain
+        ogain = rogain if ogain is None else ogain
         if k_q14 is not None:
             k = np.asarray(k_q14, dtype=np.int64)
             if n is not None:
                 assert len(k) == n, f"k_q14 has {len(k)} entries, need {n}"
-        else:
-            k = int(round(4.0 * res * (1 << 14)))      # Q3.14
-        # Q1.15 audio -> state units (2*Vt). One constant: drive*vpu/(2*Vt).
-        gain = int(round(drive * self.vpu / VT2 * (1 << COEF_Q)))
-        # state units -> Q1.15 audio on the way out, with resonance gain comp
-        ogain = int(round(VT2 / self.vpu * (1.0 + 0.5 * res * 4.0) * (1 << COEF_Q)))
         return g_tab, k, gain, ogain
 
     def process(self, x_q15: np.ndarray, cutoff_hz: np.ndarray, res: float,
-                drive: float = 1.0, *, g_q16: np.ndarray = None, k_q14: np.ndarray = None):
+                drive: float = 1.0, *, g_q16: np.ndarray = None,
+                k: int = None, gain: int = None, ogain: int = None,
+                k_q14: np.ndarray = None):
         """x_q15: int16 samples. Returns int16 when out_bits is 16, else int32
         (Q(OB-16).15, saturated to OB bits). Everything between is integer."""
         os_, SQ, SB, OB = self.os, self.SQ, self.SB, self.OB
         n = len(x_q15)
         g_tab, k_tab, gain, ogain = self.coefficients(cutoff_hz, res, drive,
-                                                      g_q16=g_q16, n=n, k_q14=k_q14)
+                                                      g_q16=g_q16, n=n, k=k, gain=gain,
+                                                      ogain=ogain, k_q14=k_q14)
         k_per_sample = np.ndim(k_tab) > 0
         k = None if k_per_sample else int(k_tab)
         out = np.empty(n, dtype=np.int16 if OB <= 16 else np.int32)

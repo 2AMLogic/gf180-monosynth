@@ -163,7 +163,7 @@ rest).
 
 ## Consequences
 
-- Contract 2, 5.1, 5.2, 5.5, 6.7 and 14 change; revision 2. `GLIDE_SAMPLES`
+- Contract 2, 5.1, 5.2, 5.5, 6.7 and 14 change; revision 3. `GLIDE_SAMPLES`
   and the Q24.8 linear slew are gone from the model.
 - Cost: one 32 × 24 multiply per oscillator per frame (three of the 256
   cycles, on the shared multiplier) and 24 + 3 × (24 + 32) register bits.

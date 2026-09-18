@@ -255,7 +255,7 @@ naive oscillators — the PolyBLEP in `dsp.py` had never been wired in — so th
 like-for-like reference is `mono_note(blep=True)`, added here (off by default
 so the audition renders do not change).
 
-| patch | vs float, rev 1 | vs float, rev 2 | with DR 0006's compensation |
+| patch | vs float, rev 1 | vs float, rev 3 | with DR 0006's compensation |
 |---|---:|---:|---:|
 | bass-classic | −30.0 dB | −38.9 dB | −26.8 dB |
 | bass-octave | −29.1 dB | −37.5 dB | −25.3 dB |
@@ -303,7 +303,7 @@ locks it.
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
 | `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
-| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 2, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
+| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 3, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
 | `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006) — all proposed |
 
 ## Playing it

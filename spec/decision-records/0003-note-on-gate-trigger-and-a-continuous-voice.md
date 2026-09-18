@@ -187,7 +187,7 @@ model's `KeyHost`.
   `VoiceFx.reset()`, envelopes with per-frame `gate` and `trig`,
   `render_mono_fx` through one voice with `KeyHost` — no more summing of
   overlapping notes. Contract 5.2, 5.3, 8.3, 8.5, 14 and 16 change; revision
-  2.
+  3.
 - The front-end RTL (not yet written) carries a TRIG path and the seg ←
   ATTACK on GATE_ON; nothing changes in the ladder.
 - Not modelled, and stated: the Minimoog's contour is an RC network, so its

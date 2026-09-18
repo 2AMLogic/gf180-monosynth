@@ -62,7 +62,7 @@ duration.
   soft clipper on a master output; an industry convention could not be
   established**, and the choice below is made on the stated grounds.
 
-### Measured, revision 2 model (`test_reference_volume_clips_no_audition_patch`, and the script in this record's history)
+### Measured, revision 3 model (`test_reference_volume_clips_no_audition_patch`, and the script in this record's history)
 
 | patch | ladder peak (× full scale) | output clip at `vol` 0.45 | output clip at rev 1's 0.9 | output peak at 0.45 |
 |---|---:|---:|---:|---:|
@@ -143,7 +143,7 @@ osc_k ─► × w_k ─► Σ ─► sat16 ─► ladder(gain, g, k_eff, ogain) 
 - At the reference `vol` the voice is 6 dB quieter than rev 1 and nothing
   clips; the float-versus-fixed gap on the bass and growl patches is now the
   ladder's own quantisation (`voice_fx_render.py`), not a clamp.
-- Contract 1, 2, 4.2, 9, 11.2, 11.4, 11.6, 12 and 14 change; revision 2.
+- Contract 1, 2, 4.2, 9, 11.2, 11.4, 11.6, 12 and 14 change; revision 3.
   The clamp list has six entries: oscillator `sat16`, mixer `sat16`, ladder
   `u` `sat24`, ladder `y[s]` `sat24`, ladder output `sat19`, output `sat16`.
 - `ladder_dp.v` gets a 19-bit `y_out` (parameter `OW`, 16 still available);

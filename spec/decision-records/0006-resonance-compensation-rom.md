@@ -138,7 +138,7 @@ contract's convention (3.9) forbids. The tests: the ring decays at `res =
 
 ## Consequences
 
-- Contract 2, 5.1, 10, 11.2, 11.5 and Appendix E change; revision 2. Two
+- Contract 2, 5.1, 10, 11.2, 11.5 and Appendix E change; revision 3. Two
   more multiplies per frame (the interpolation and `k · kc`) on the shared
   multiplier; 528 ROM bits.
 - The meaning of `res` changes above ~1 kHz: the same host value gives up

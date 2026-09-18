@@ -248,12 +248,12 @@ The honest list. Nothing below is in progress unless a linked PR says so.
   a circuit whose ROM reads were out of range — every output was X — and is
   withdrawn; the table above has the measured numbers.
 - **The numeric contract is proposed, not ratified.**
-  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 2)
+  [`spec/NUMERIC-CONTRACT.md`](../spec/NUMERIC-CONTRACT.md) (revision 3)
   writes the integer voice down section by section, pins its five tables by
   SHA-256 (`spec/reference/gen_tables.py --check` keeps them the model's),
   and lists in its section 17 what it deliberately leaves open: the physical
-  control layer, the modal bank's sizing, register-width clamps, power-on
-  defaults, and the self-oscillation tuning table. Until it is ratified, the filter and the modal bank
+  control layer, the modal bank's sizing, power-on defaults, the widths of
+  the cutoff registers, and the self-oscillation tuning table. Until it is ratified, the filter and the modal bank
   are bit-exact against their own models and the rest of the voice is
   bit-exact against `model/voice_fx.py` by inspection of the contract only —
   no RTL exists for it yet.

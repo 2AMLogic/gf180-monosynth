@@ -1,6 +1,6 @@
 """The contract's tables are the model's, and the hashes the contract states
-are the ones revision 2 was written with (revision 1's five, unchanged, plus
-K_ROM32 from DR 0006).
+are the ones revision 3 was written with (revision 1's five, unchanged
+through revision 2, plus K_ROM32 from DR 0006).
 
     .venv/bin/python -m pytest spec/reference -q
 
@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gen_tables as gt
 
-REV2 = {
+REV3 = {
     "NOTE_INC":      "e771e6b7b39d3941c471b772bfb5cdca398b78ee7fa964c3c90388d2cc888ba4",
     "SINE_Q256":     "66cfc2e50e0ea6c326d698bd2aa14cc8b67f8e518530c9bb9c3f8f62d0fd19a0",
     "SINE_FULL1024": "41a30c959df1413245a6817c2d398c9d571f33460b34634b433c0717fb3c52ea",
@@ -30,9 +30,9 @@ def test_committed_images_and_contract_match_the_model():
     assert gt.main(["--check"]) == 0
 
 
-def test_rev2_hashes_are_the_models():
+def test_rev3_hashes_are_the_models():
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
-    assert got == REV2
+    assert got == REV3
 
 
 def test_spot_values_the_contract_quotes():
