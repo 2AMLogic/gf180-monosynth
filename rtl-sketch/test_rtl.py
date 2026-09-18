@@ -12,7 +12,7 @@ import os, sys
 import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import verify_ladder, verify_modal, tanh_rom
+import verify_ladder, verify_modal, tanh_rom, verify_top, verify_voice
 
 needs_sim = pytest.mark.skipif(
     verify_ladder.tool("iverilog") is None or verify_ladder.tool("vvp") is None,
@@ -50,3 +50,29 @@ def test_modal_rtl_is_bit_exact(tmp_path):
 @pytest.mark.parametrize("bug", ["SHIFT", "SAT", "PREEXC"])
 def test_modal_negative_control_is_caught(bug, tmp_path):
     assert verify_modal.main(["--inject", bug, "--outdir", str(tmp_path)]) == 1
+
+
+@needs_sim
+@pytest.mark.parametrize("nch", [2, 4])
+def test_ladder_n_rtl_is_bit_exact_on_every_channel(nch, tmp_path):
+    """ladder_dp_n (the voice's two filter contexts, ARCHITECTURE.md section 4):
+    the same 28,800 samples driven to each channel in turn, every channel
+    identical to the model, 19-bit output. The committed tb_ladder_n.v read
+    120-bit words from the 128-bit vector file and could not pass; fixed."""
+    assert verify_ladder.main(["--nch", str(nch), "--outdir", str(tmp_path)]) == 0
+
+
+@needs_sim
+def test_top_level_schedule_link_and_i2s(tmp_path):
+    """synth_top through its pins: the status word reads back, the datapath is
+    idle at every tick, the I2S stream decodes to the sample stream with D = 1,
+    and the chip makes sound from the model's own register conversions."""
+    assert verify_top.main(["--outdir", str(tmp_path), "--frames", "800"]) == 0
+
+
+@needs_sim
+def test_voice_rtl_is_bit_exact(tmp_path):
+    """voice_dp against model/voice_fx.py at the register port: three
+    scenarios (a note from reset; every waveform with glide, high resonance
+    and drive; a paraphonic multi-trigger phrase), every sample identical."""
+    assert verify_voice.main(["--outdir", str(tmp_path)]) == 0

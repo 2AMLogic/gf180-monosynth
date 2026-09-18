@@ -21,7 +21,6 @@ for t in 7 9; do q --tag ladder16_${t}t --track $t --top ladder_dp $R/ladder_dp.
 q --tag ladder256_7t --top ladder_dp --chparam TANH_LOG2N=8 --chparam 'ROM_FILE="tanh256.hex"' $R/ladder_dp.v
 q --tag ladder16_7t_booth --top ladder_dp --booth $R/ladder_dp.v
 q --tag modal_7t_booth --top modal_dp --booth $R/modal_dp.v
-q --tag touch_7t --top touch_dp $R/touch_dp.v
 # section 2: N filter channels on one datapath
 for n in 1 2 4 8; do q --tag laddern${n}_7t --top ladder_dp_n --chparam NCH=$n $R/ladder_dp_n.v; done
 # section 3: the modal bank with its coefficients in a ROM / in host registers
@@ -45,6 +44,10 @@ q --tag mul_28x26_booth_7t --top mul --booth --chparam A=28 --chparam B=26 --chp
 q --tag mul_24x20_booth_7t --top mul --booth --chparam A=24 --chparam B=20 --chparam BSIGNED=0 $B/mul.v
 q --tag drumseq_7t --top drum_src_seq $R/drum_src_seq.v
 q --tag drumseq_7t_booth --top drum_src_seq --booth $R/drum_src_seq.v
+# the chip (docs/ARCHITECTURE.md): the top level with the verified ladder and modal bank, the voice, the link, I2S
+T="$R/synth_top.v $R/spi_ctl.v $R/voice_dp.v $R/recip_div.v $R/ladder_dp_n.v $R/i2s_tx.v $R/modal_dp_rom.v $R/modal_coef_rom_p8.v"
+q --tag top_7t --top synth_top $T
+q --tag top_7t_booth --top synth_top --booth $T
 python3 - <<'PY'
 import json, glob, os
 for f in sorted(glob.glob('../build/area/*/result.json')):

@@ -42,7 +42,6 @@ how the method was validated before anything else was measured:
 |---|---:|---:|---|
 | ladder, time-shared | 0.1136 mm² | **0.1136** (113,619 µm², 5,428 cells) | |
 | modal bank, 4 modes | 0.1505 | **0.1505** (150,510 µm², 7,327 cells) | |
-| touch, 8 pads | 0.0200 | **0.0200** (19,985 µm², 714 cells) | |
 | synth_core NV=4 | 0.3743 | **0.3743 flat**; **0.3960 hierarchical** | the given figure was a *flat* synthesis; keeping the hierarchy loses 5.8 % of cross-module optimisation. Section 1 is measured hierarchically because that is the only way to see inside. |
 
 What things cost in this library (liberty `area`, µm²), because it explains most of what follows:
@@ -297,8 +296,18 @@ measured, not scaled).
 | B | **Mono Moog + drums** | A + drum sources (strawman) + modal bank (ROM, 8) | 482,663 | **0.97** | **56** | 427,502 / 0.86 / 49 | polyphony, touch; the drum sources are an unverified strawman (below) |
 | C | **Paraphonic** — 4 oscillators, one filter | core NV=4 + ladder | 509,609 | **1.02** | **59** | 473,408 / 0.95 / 55 | independent filtering per note, drums |
 | D | **4-voice polyphonic** — 4 oscillators, 4 filters | core NV=4 + ladder NCH=4 | 582,222 | **1.16** | **67** | 546,054 / 1.09 / 63 | drums |
-| E | the premise: NV=4 + ladder + modal + touch | as given | 680,104 | 1.36 | 79 | 613,769 / 1.23 / 71 | independent filters, drum sources |
-| F | **everything** | NV=4 + ladder NCH=4 + modal (ROM 8) + drums + touch | 839,337 | **1.68** | **97** | 769,479 / 1.54 / 89 | nothing — and nothing else fits |
+| E | the premise: NV=4 + ladder + modal | as given, less the cut touch block (−19,985) | 660,119 | 1.32 | 76 | 593,784 / 1.19 / 69 | independent filters, drum sources |
+| F | **everything** | NV=4 + ladder NCH=4 + modal (ROM 8) + drums | 819,352 | **1.64** | **95** | 749,494 / 1.50 / 87 | nothing — and nothing else fits |
+| **G** | **the chip as built** — `synth_top`: SPI link, the paraphonic voice on one time-shared datapath (section 2.3's derivation, now measured), ladder NCH=2 (the voice's and the drum filter's contexts), modal (ROM 8), placeholder drum sources, I2S | measured in one synthesis, `ARCHITECTURE.md` section 10 | 663,267 | **1.33** | **77** | 602,611 / 1.21 / 70 | the real drum sources (+77,666 from the strawman: 1.48 mm², 86 %; Booth 1.35, 78 %) |
+
+Capacitive touch (19,985 µm²) was in rows E and F when this document was
+first written; it was cut on 2026-09-17 (`DESIGN.md` section 10), the block
+deleted, and both rows recomputed. Row G is the design this repository now
+carries, and it lands where section 2.3 said a time-shared voice would: the
+voice front end measures 313,615 µm² of own cells for three oscillators with
+glide, PolyBLEP, two envelopes, the cutoff ROMs, the VCA and the master mix —
+against 395,990 for four copies of the sibling's voice — and the whole chip
+with the verified ladder and bank is 0.663 mm² of cells.
 
 Then add what is not in any row:
 
@@ -311,18 +320,20 @@ Then add what is not in any row:
 **What fits.** A (0.49 mm²) fits with USB, an SRAM macro and room to spare —
 it is within a factor of 1.5–3 of the 10–20 % the project assumed. B and C (0.86–1.02) fit with USB
 at 60–75 % of the slot. D fits with USB only with Booth and at the edge (1.09 +
-0.26 = 1.35, 78 %). E and F do not fit once USB is added (E: 1.36 + 0.26 = 1.62
-= 94 % with no margin for the placer; F: over). None of these leaves room for
-an SRAM macro except A and, with Booth, B.
+0.26 = 1.35, 78 %). E and F do not fit once USB is added (E: 1.32 + 0.26 = 1.58
+= 91 % with no margin for the placer; F: over). None of these leaves room for
+an SRAM macro except A and, with Booth, B. G — the chip — fits at 77 % on this
+model, 70 % with Booth, and USB is not on the die (the MCU owns it); the
+routed calibration in `ARCHITECTURE.md` section 10 is the caveat on all of
+these percentages.
 
 **With the derived time-shared voice engine (section 2.3)** the picture
 changes: C becomes ≈ 297,000 µm² (0.59 mm², 34 %), D ≈ 369,000 (0.74, 43 %),
 and F ≈ 626,000 (1.25 mm², 72 %; ≈ 1.15 with Booth). That is the difference
 between "pick two" and "everything, with USB". It is also unbuilt.
 
-**The drum sources**, since row B and F depend on them: `rtl-sketch/drum_src_seq.v`
-is an *area strawman, verified against nothing* (the same status as
-`touch_dp.v`): eight edge-triggered stops, eight exponential-decay envelopes
+**The drum sources**, since rows B, F and G depend on them: `rtl-sketch/drum_src_seq.v`
+is an *area strawman, verified against nothing*: eight edge-triggered stops, eight exponential-decay envelopes
 through one time-shared shifter, a 23-bit LFSR, a swept-pitch sine kick via
 the contract's quarter-sine ROM, one 16 × 16 multiplier applying env × source
 in 8 cycles per frame, a saturating mix, and an enveloped-noise excitation for
@@ -352,7 +363,6 @@ Area difference, measured on every block, same corner:
 | ladder | 113,619 | 144,225 | 1.269 |
 | modal bank (ports) | 150,510 | 190,413 | 1.265 |
 | modal bank (ROM, 8) | 148,126 | 186,913 | 1.262 |
-| touch | 19,985 | 25,128 | 1.257 |
 
 **9-track costs +26–27 % on everything** — row F would be 2.13 mm² of core,
 larger than the slot. The speed side was not re-measured here (ABC under this
@@ -386,9 +396,10 @@ written, the core is 0.50 mm² of cells, not 0.37–0.40.
   is the ROM-as-logic and the Booth multiplier shown correct after mapping,
   on a tenth of the stimulus; the full 48,000-sample gate-level run costs
   about an hour per netlist and had not completed when this was committed.
-- **`drum_src_seq.v` is an area sketch**, unverified against any model, exactly
-  as `touch_dp.v` is. Its 0.089 mm² is a lower bound for "drum sources", not a
-  design.
+- **`drum_src_seq.v` is an area sketch**, unverified against any model. Its
+  0.089 mm² is a lower bound for "drum sources", not a design; the chip of
+  row G carries a smaller placeholder in its place until the `drums` branch
+  lands.
 - **The time-shared 4-voice engine (2.3) and the shared ladder/modal
   multiplier (3.2) are derived**, each from the difference of two
   measurements. They are labelled as such wherever they appear.
@@ -427,4 +438,15 @@ vvp -n build/p8.vvp +vec=build/modal_rom_vectors_p8.hex               # expect P
 Files added by this document: `rtl-sketch/ladder_dp_n.v`, `tb_ladder_n.v`,
 `modal_dp_rom.v`, `modal_dp_regs.v`, `modal_coef_rom_p{4,8,16}.v`
 (generated), `gen_modal_rom.py`, `tb_modal_rom.v`, `drum_src_seq.v`,
-`rtl-sketch/area/{synth_area.py,wrap_polysynth.py,run_all.sh}`.
+`rtl-sketch/area/{synth_area.py,wrap_polysynth.py,run_all.sh}`. Row G's
+sources are `ARCHITECTURE.md`'s (`synth_top.v` and the files it
+instantiates); `run_all.sh` measures them as `top_7t` and `top_7t_booth`.
+
+One correction to section 2.2, found while building row G: the committed
+`tb_ladder_n.v` read 120-bit vector words while `verify_ladder.py` had
+written 128-bit words since DR 0005, so the "NCH = 1, 2, 4 → 0 mismatches"
+claim above could not have been produced by the committed pair (run as
+committed, NCH = 2 reports 57,482 mismatches). The bench is corrected to the
+128-bit format with the `OW` parameter, and the claim is re-established at
+NCH = 2 and 4, 19-bit and 16-bit output (`verify_ladder.py --nch`,
+`test_rtl.py`).
