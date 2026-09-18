@@ -7,7 +7,7 @@
 #
 # This regenerates it on every push to main and commits the result, so the
 # README is a live view rather than a maintained artefact. Nobody updates it.
-name: dag
+name: dag and board
 
 on:
   push:
@@ -47,14 +47,21 @@ jobs:
           python tools/compile_dag.py --run || true   # a RED node is a result, not an error
           python tools/compile_dag.py
 
+      # The scorecard is a VIEW of docs/scorecard/results/, not a document.
+      # Regenerating it here means it is current the moment a case is measured,
+      # rather than current the moment somebody remembers to re-render it --
+      # which is how the roadmap went stale twice.
+      - name: regenerate the board
+        run: python tools/scorecard.py --markdown
+
       - name: commit if it moved
         run: |
-          if git diff --quiet -- README.md docs/dag-results.json; then
+          if git diff --quiet -- README.md docs/dag-results.json docs/scorecard/BOARD.md; then
             echo "the roadmap is unchanged"; exit 0
           fi
           git config user.name  "dag-bot"
           git config user.email "noreply@anthropic.com"
-          git add README.md docs/dag-results.json
+          git add README.md docs/dag-results.json docs/scorecard/BOARD.md
           git commit -m "[dag] regenerate the roadmap from evidence" \
                      -m "Automated. Status is derived by running each node's evidence, not asserted. See tools/compile_dag.py."
           git push
