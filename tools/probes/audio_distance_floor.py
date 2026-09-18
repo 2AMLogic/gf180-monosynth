@@ -477,6 +477,83 @@ def e5_tom(seconds_full: float = 1.2) -> dict:
                                               norm(rc.prepare(b, sr)))
     out["floor_1_sample_shift"] = distances(base, shift(base, 1))
     out["floor_1_sample_shift_first_60ms"] = distances(base[:n60], shift(base, 1)[:n60])
+    # The alignment floor on THE SAME SIGNAL as the defect. Comparing the tom's
+    # defect against a bass drum's shift sweep would be comparing two different
+    # signals' floors, which is the sort of cross-signal borrowing this
+    # repository has been bitten by before.
+    out["alignment_on_this_signal"] = {
+        f"{k} samples ({1000.0 * k / sr:.3f} ms)": distances(base, shift(base, k))
+        for k in (1, 4, 16, 48, 96, 240, 480)}
+    return out
+
+
+# ---------------------------------------------------------------------------
+# E8: the guard hypothesis, tested rather than asserted
+# ---------------------------------------------------------------------------
+def inject_hf_tone(x: np.ndarray, sr: int, dbfs: float = -40.0, hz: float = 12000.0):
+    t = np.arange(len(x)) / sr
+    return x + (10.0 ** (dbfs / 20.0)) * np.sin(2 * np.pi * hz * t)
+
+
+def inject_quantise(x: np.ndarray, sr: int, bits: int = 6):
+    q = 2.0 ** (bits - 1)
+    return np.round(x * q) / q
+
+
+def inject_tail_noise(x: np.ndarray, sr: int, dbfs: float = -45.0, t0: float = 0.25):
+    rng = np.random.default_rng(4242)
+    y = x.copy()
+    i = min(len(x), int(t0 * sr))
+    y[i:] = y[i:] + (10.0 ** (dbfs / 20.0)) * rng.standard_normal(len(x) - i)
+    return y
+
+
+def e8_blind_spot() -> dict:
+    """Does a spectral distance see a defect the BOARD's own metrics miss?
+
+    This is the positive case for adopting one as a guard, and it is the only
+    experiment here that could argue FOR adoption, so it is run on the board's
+    real estimator list rather than on a proxy. Our own BD render is the
+    subject; three defects are injected that a fixed-point drum machine can
+    actually have; and for each one both sides are reported -- what each of
+    `DRUM_PLAN["BD"]`'s three metrics reads against its own tolerance, and what
+    each distance reads against its own floor.
+
+    A defect that every per-property metric passes and every distance flags is
+    a blind spot the guard would have caught. A defect both miss is a blind
+    spot neither covers. Which of those we have is a measurement."""
+    import run_case as rc
+    a, sr = render_bd()
+    base = norm(rc.prepare(a, sr))
+    floor = distances(base, shift(base, 1))
+    out = {"floor_1_sample_shift": floor, "injections": {}}
+    for name, fn, note in (
+            ("hf_tone -40 dBFS 12 kHz", inject_hf_tone,
+             "a spurious tone: clock or LFO feedthrough, the classic mixed-signal defect"),
+            ("6-bit requantisation", inject_quantise,
+             "a fixed-point word narrowed: broadband noise correlated with the signal"),
+            ("tail noise -45 dBFS after 250 ms", inject_tail_noise,
+             "a noise floor that does not decay with the voice"),
+    ):
+        y = norm(fn(base, sr))
+        rec = {"note": note, "distances": distances(base, y), "per_property": {}}
+        for mname, units, est, tol in rc.DRUM_PLAN["BD"]:
+            ea, eb = est(base, sr), est(y, sr)
+            if not (ea.ok and eb.ok):
+                rec["per_property"][mname] = {
+                    "verdict": "no verdict",
+                    "reason": (ea.reason or eb.reason)}
+                continue
+            ref, got = float(ea.value), float(eb.value)
+            t, basis = tol(ref, {})
+            rec["per_property"][mname] = {
+                "units": units, "unperturbed": ref, "injected": got,
+                "error": abs(got - ref), "tolerance": t, "basis": basis,
+                "normalised": (abs(got - ref) / t) if t else None,
+                "verdict": "pass" if abs(got - ref) <= t else "FAIL"}
+        rec["all_per_property_pass"] = all(
+            v.get("verdict") == "pass" for v in rec["per_property"].values())
+        out["injections"][name] = rec
     return out
 
 
@@ -524,6 +601,45 @@ def e7_ceiling() -> dict:
     return out
 
 
+def e9_noise_floor() -> dict:
+    """How much of a LOG-domain distance is the reference's own noise floor?
+
+    Our renders lead with exact digital silence and decay to exact zero. The
+    Fischer recordings are a 1994 converter's output and do neither --
+    `run_case.prepare` already has to subtract their DC from the pre-onset
+    region. A log-magnitude distance compares every bin, including the ones
+    where our side is silence and theirs is a converter, and a decaying one-shot
+    spends most of its duration there.
+
+    Measured two ways on one real recording: against itself gated below -60 dBFS
+    of peak (the tail's noise removed, the voice untouched), and against itself
+    with everything after the voice replaced by exact digital silence."""
+    import run_case as rc
+    out = {}
+    try:
+        raw, sr = load_ref("bd8/BD5050.WAV")
+    except Refused as exc:
+        return {"refused": str(exc)}
+    x = norm(rc.prepare(raw, sr))
+    pk = float(np.abs(x).max())
+    for db in (-60.0, -50.0, -40.0):
+        g = x.copy()
+        g[np.abs(g) < pk * 10.0 ** (db / 20.0)] = 0.0
+        out[f"gated below {db:g} dBFS"] = distances(x, g)
+    z = x.copy()
+    i = min(len(z), int(1.0 * sr))
+    z[i:] = 0.0
+    out["tail after 1.0 s zeroed"] = distances(x, z)
+    # NOT a noise-floor estimate, and kept with that said out loud because it
+    # read -3.6 dBFS and looked like one. `run_case.prepare` has already
+    # trimmed the signal to 1 ms before the onset, so this window is the front
+    # of the strike, not the silence ahead of it. Measuring the references own
+    # converter noise means reading the RAW file before prepare() touches it.
+    out["first_1ms_rms_dbfs_NOT_a_noise_floor"] = float(
+        20.0 * np.log10(max(np.sqrt(np.mean(x[:int(0.001 * sr)] ** 2)), 1e-12) / pk))
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -556,6 +672,8 @@ def main(argv=None) -> int:
     res["E5_tom_pitch_drop"] = e5_tom()
     res["E6_exchange_rate"] = e6_exchange(x, sr)
     res["E7_ceiling"] = e7_ceiling()
+    res["E8_blind_spot"] = e8_blind_spot()
+    res["E9_noise_floor"] = e9_noise_floor()
 
     if a.json:
         a.json.write_text(json.dumps(res, indent=1, sort_keys=True))
@@ -632,9 +750,35 @@ def report(r: dict) -> None:
     e = r["E6_exchange_rate"]["equivalent_gain_db"]
     p(f"  equivalent gain (dB): " + "  ".join(f"{k}={e[k]}" for k in e))
 
+    p("\nE5a  the SAME tom render, misaligned by k samples")
+    p(HEAD)
+    for k, v in r["E5_tom_pitch_drop"]["alignment_on_this_signal"].items():
+        p(_row(k, v))
+
     p("\nE7  ceiling: different voices of the same machine")
     p(HEAD)
     for k, v in r["E7_ceiling"].items():
+        if isinstance(v, dict):
+            p(_row(k, v))
+        else:
+            p(f"  {k:<34s} {v}")
+    p("\nE8  does a distance see a defect the BOARD's three BD metrics miss?")
+    b = r["E8_blind_spot"]
+    p(HEAD)
+    p(_row("FLOOR 1-sample shift", b["floor_1_sample_shift"]))
+    for k, v in b["injections"].items():
+        p(_row(k, v["distances"]))
+        p(f"      board's own metrics all pass: {v['all_per_property_pass']}")
+        for mn, mv in v["per_property"].items():
+            if mv.get("verdict") in ("pass", "FAIL"):
+                p(f"        {mn:<22s} {mv['unperturbed']:>10.4f} -> {mv['injected']:>10.4f} "
+                  f"{mv['units']:<3s} err {mv['error']:.4f} / tol {mv['tolerance']:.4f} "
+                  f"= {mv['normalised']:.3f}  {mv['verdict']}")
+            else:
+                p(f"        {mn:<22s} {mv['verdict']}: {mv['reason']}")
+    p("\nE9  how much of a log-domain distance is the recording's own noise floor?")
+    p(HEAD)
+    for k, v in r["E9_noise_floor"].items():
         if isinstance(v, dict):
             p(_row(k, v))
         else:
