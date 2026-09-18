@@ -643,6 +643,274 @@ about it from evidence.
 
 ---
 
-## 6. Not yet written
+## 6. The alignment problem, which gates everything else
 
-*(placeholder — §7 and §9 follow)*
+[§2.1](#21-the-floor-is-alignment-and-it-is-enormous) measured the shift floor
+on a bass drum. Here it is on the **tom render the defect actually lives on**,
+so the comparison is same-signal: **[measured]**
+
+| shift | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
+|---|--:|--:|--:|--:|--:|
+| 1 sample | 0.021 ms | 0.0061 | 0.0036 | 0.0112 | 0.0067 |
+| 4 samples | 0.083 ms | 0.0238 | 0.0079 | 0.0378 | 0.0212 |
+| 16 samples | 0.333 ms | 0.0930 | 0.0157 | 0.1334 | 0.0630 |
+| 48 samples | 1.000 ms | 0.2456 | 0.0311 | 0.3404 | 0.1300 |
+| **96 samples** | **2.000 ms** | **0.3787** | 0.0442 | **0.5021** | 0.1861 |
+| 240 samples | 5.000 ms | *0.2031* | *0.0279* | *0.3447* | *0.1364* |
+| 480 samples | 10.000 ms | 0.3274 | 0.0380 | 0.4735 | 0.1800 |
+
+**Two milliseconds of onset disagreement reads 0.379 on `mss_l1`. The entire
+tom pitch-drop defect reads 0.322 to 0.385.** On the same signal, with the same
+metric. **[measured]** And the sweep is again non-monotone: 5 ms reads *less*
+than 2 ms, and 10 ms reads less than 2 ms too.
+
+**This is a precondition, and it is not currently met.** **[inference]**
+`run_case.prepare` aligns by a 2 %-of-peak threshold crossing with a 1 ms lead.
+That is adequate for the board's estimators, every one of which is a frequency,
+a time *interval*, or a ratio — all invariant to a shifted origin.
+A whole-file spectral distance is invariant to none of them. Between our render
+and a real recording, the true alignment disagreement is at least the
+difference between a digital onset and a 1994 converter's rise, and
+`audio_measure.py` puts its own onset estimator at "about 10 ms and no better".
+
+**Before any spectral distance could be read at all, alignment would have to be
+done by cross-correlation to sample accuracy and the residual reported on the
+record** — and on two *different instruments* playing the same nominal sound,
+it is not obvious that a sample-accurate alignment even exists to be found.
+That is an open question, not a solved engineering step. **[inference]**
+
+### And a second precondition: the reference has a noise floor and we do not
+
+Our renders lead with exact digital silence and decay to exact zero. The Fischer
+recordings are a 1994 converter's output and do neither — `run_case.prepare`
+already has to subtract their DC from the pre-onset region, and
+`docs/bd-repeatability-measurement.md` found a 4-sample head trim moving the
+shipped band split by 0.568 dB.
+
+One real recording against **itself** with everything below a threshold zeroed —
+a change that removes no voice and is inaudible: **[measured]**
+
+| gate | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
+|---|--:|--:|--:|--:|
+| below −60 dBFS of peak | 0.0043 | 0.0801 | 0.0808 | **0.2514** |
+| below −50 dBFS | 0.0205 | 0.3470 | 0.3518 | 0.8020 |
+| below −40 dBFS | 0.0637 | 0.7090 | 0.7249 | 1.3452 |
+| tail after 1.0 s zeroed | 0.0143 | 0.0584 | 0.0717 | 0.4197 |
+
+**Removing inaudible material below −60 dBFS moves the DAC mel loss by 0.251 —
+as much as the entire constructed machine-repeatability floor (0.268).**
+**[measured]** A decaying one-shot spends most of its duration below −60 dB of
+its own peak, and a log-domain distance weights every bin equally, so the metric
+is substantially reading the region where the drum is already over.
+
+`mss_l1` is almost immune (0.0043), for the same reason it is almost blind to an
+8 dB partial imbalance: linear magnitude is dominated by the loudest content.
+**The linear form is robust to the noise floor and blind to the high band; the
+log forms see the high band and are dominated by the noise floor. There is no
+setting of this knob that is right for both.** **[inference]**
+
+---
+
+## 7. The guard hypothesis, tested
+
+Everything above argues against a spectral distance as a **target**. The
+coordinator's counter-position — *"if every per-property metric passes and a
+spectral distance is large, we are missing a property"* — is a different claim
+and deserves its own experiment rather than an opinion.
+
+So: three defects a fixed-point drum machine can actually have, injected into
+our own BD render, with **the board's real `DRUM_PLAN["BD"]` estimators run on
+each** and each distance reported against its own floor. **[measured]**
+
+| injected defect | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` | board's 3 metrics |
+|---|--:|--:|--:|--:|---|
+| *floor: 1-sample shift* | 0.0040 | 0.0036 | 0.0081 | 0.0086 | — |
+| −40 dBFS 12 kHz tone *(clock/LFO feedthrough)* | 0.0860 | 0.1751 | 0.2101 | **0.6066** | **all pass** |
+| 6-bit requantisation *(a narrowed word)* | 0.2949 | 1.4460 | 1.4835 | **2.0473** | **all pass** |
+| −45 dBFS tail noise after 250 ms | 0.4173 | 2.7540 | 2.7779 | **3.0346** | **all pass** |
+
+What the board reads on those same three signals — worst case across all nine
+measurements is **0.138 of tolerance**: **[measured]**
+
+| defect | Pitch trajectory | early/body energy | decay |
+|---|---|---|---|
+| 12 kHz tone | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.372 dB, **0.000** | 334.7 → 357.8 ms, **0.138** |
+| 6-bit | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.377 dB, **0.002** | 334.7 → 339.6 ms, **0.029** |
+| tail noise | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.372 dB, **0.000** | 334.7 → 347.4 ms, **0.076** |
+
+*(each figure is the error divided by that metric's own tolerance; ≤ 1 passes)*
+
+**The guard hypothesis is confirmed, and by a wide margin.** All three defects
+pass every per-property metric with an order of magnitude to spare, and the
+log-domain distances flag all three at **20× to 354×** their floor. Two of them
+(requantisation, tail noise) read *above the BD-versus-snare-drum ceiling* —
+the metric's way of saying "this is not the same instrument". **[measured]**
+
+**Three qualifications, and they shape the recommendation rather than reversing
+it.** **[inference]**
+
+1. **The defect class is exactly the one [§6](#6-the-alignment-problem-which-gates-everything-else)
+   warns about.** All three injections are *additive, broadband and present in
+   the quiet parts* — which is the same property that makes an inaudible −60 dB
+   gate read 0.251. The guard is sensitive to added stuff. It is not, on this
+   evidence, sensitive to a wrong *parameter*: §2.4 is the same family of
+   measurement on a parameter error and it fails.
+2. **Some of the headroom is the board's loose time tolerance.** The decay
+   tolerance here is 167 ms, 50 % of 335 ms, which
+   `docs/bd-repeatability-measurement.md` already identifies as having "an order
+   of magnitude of unused room". A tighter decay tolerance would have caught
+   part of the 12 kHz case on its own.
+3. **This is a self-comparison and the real guard would not be.** Both sides are
+   our own deterministic render, so the floor is 0.0086. Used as designed —
+   our render against the reference recording — the defect's contribution rides
+   on top of a baseline that already includes the constructed reference floor
+   (0.268 on `mel_dac`), and distances do not add. Even pessimistically
+   treating the floor as additive, the 12 kHz tone clears it by 2.3× and the
+   other two by 8–11×, so the conclusion survives; but **the guard's threshold
+   must be set against a measured our-versus-reference baseline, not against
+   the self-comparison floor measured here.** That baseline is not measured in
+   this document.
+
+---
+
+## 8. The role question, answered
+
+**A target is out, and not on the balance of evidence — on four independent
+disqualifications, any one of which is sufficient.** **[measured, §§2, 6]**
+
+1. It ranks our largest open drum defect **wrongly**, on all four distance
+   variants ([§2.4](#24-the-tom-pitch-drop-the-decisive-test)).
+2. Its floor against a real recording is dominated by an f0 difference the
+   board deliberately passes, and the defect sits at that floor
+   ([§2.3](#23-the-floor-that-decides-it)).
+3. It is non-monotone in onset misalignment, and 2 ms of misalignment reads
+   larger than the whole defect ([§6](#6-the-alignment-problem-which-gates-everything-else)).
+4. It cannot distinguish a 5 % decay error from a 0.4 dB level residual, and
+   the board peak-normalises both sides, so that residual is always present
+   ([§2.6](#26-the-ceiling-and-the-exchange-rate)).
+
+And a fifth reason that is not measured but is the one I would argue hardest.
+**[inference]** `docs/scorecard/README.md` already refuses to average
+milliseconds against cents against decibels, and requires every distance to be
+normalised by *its own* tolerance with the worst reported. A spectral distance
+is precisely that forbidden average, performed inside an FFT, with the weighting
+set by whichever magnitude convention someone picked. Adopting it as a target
+would not be adding a metric to the board; it would be repealing the board's
+central rule. If it were then optimised against, the result is `#99`/`#100`'s
+two-judges problem at its limit: a second judge whose verdict nobody can
+interpret and whose disagreement with the first cannot be adjudicated, because
+the second judge cannot say what it is disagreeing about.
+
+**A guard is in, and [§7](#7-the-guard-hypothesis-tested) is the reason.** The
+argument for it is not that the scalar is good — it is that *our per-property
+coverage is deliberately narrow*. The BD case measures three properties. A
+render that matches all three and still has a 12 kHz tone in it passes today,
+and a guard catches it at 71× its floor. That is a real hole, and it is exactly
+the shape of hole a repository whose failure mode is "internal consistency is
+cheap to check" should expect to have.
+
+**The guard's contract, stated so it cannot quietly become a target.**
+**[inference]**
+
+- It is **never normalised by a tolerance, never summed into the case's worst,
+  and never rendered on the board as a distance.** It has one output:
+  `blind-spot: <voice> differs at <distance> against a baseline of <b>` — a
+  flag, in the diagnostics block, next to the provenance.
+- It **cannot make a case pass or fail.** A case's verdict comes from the
+  per-property metrics. The guard's job is to say *look again*, and the correct
+  response to it firing is **to write a new per-property estimator** for
+  whatever it found, not to tune anything until the guard goes quiet.
+- **Any change made in response to the guard invalidates the guard as evidence
+  for that change** — same logic as the scorecard's holdout rule, that a
+  holdout case which has guided a change has become development data.
+- It reports **`no verdict`, not a number**, whenever its preconditions fail:
+  no sample-accurate alignment, or a reference whose noise floor has not been
+  characterised. Per `docs/scorecard/README.md`, an invalid measurement has no
+  distance, not zero distance.
+
+**And the thing worth building instead of adopting any scalar at all.**
+**[inference]** [§3.3](#33-discriminators-are-where-the-interesting-idea-is)
+argues that a discriminator's value is that it is a *map* of where two signals
+differ. The non-learned version of that needs no checkpoint, no corpus and no
+training: take the multi-scale spectral **residual** and report **where** it is
+largest, in time and in frequency band — "the disagreement is in 4–8 kHz,
+between 200 and 400 ms" — and no norm at all. That output is actionable in a way
+that `0.3` is not, it names a property to go and measure, and it cannot be
+optimised against because it is not a number. I did not build it; it is the
+recommendation I would make for the next issue.
+
+---
+
+## 9. Recommendation
+
+| metric | what it would catch that we miss today | what it costs | verdict |
+|---|---|---|---|
+| **`mel_dac` (DAC multi-scale mel, log) as a blind-spot guard** | additive/broadband defects invisible to our three-per-voice property list: spurious tones, requantisation noise, a non-decaying noise floor — measured at **20–354× its own floor**, all passing every board metric ([§7](#7-the-guard-hypothesis-tested)) | ~90 lines of numpy, no new dependency; a measured our-versus-reference baseline per voice; a gate or window to keep it out of the sub-−60 dB region ([§6](#6-the-alignment-problem-which-gates-everything-else)) | **adopt as guard only** — diagnostics block, never a tolerance, never in the case's worst, and firing means *write a new estimator*, not *tune until quiet* |
+| **`mss_l1` (linear multi-scale spectral)** | little. Blind to an 8 dB partial imbalance (0.0185, less than a 0.16 dB level change), and the only distance that survives the reference's noise floor | same as above | **reject** — the one form robust to [§6](#6-the-alignment-problem-which-gates-everything-else)'s second precondition is the one blind to the errors we care about |
+| **any multi-scale spectral distance as a scorecard target** | nothing it catches survives its floor: ranks the tom defect wrongly on all four variants; floor 0.311 against a defect of 0.322–0.385; 2 ms of misalignment outweighs the whole defect | would repeal the board's own rule against averaging across units | **reject** — four independent disqualifications, [§8](#8-the-role-question-answered) |
+| **A learned paired distance (CDPAM, OpenL3/VGGish/CLAP cosine)** | genuinely: timbral properties nobody has written an estimator for. This is a real gap | torch; a frozen, hashed checkpoint (a silent upstream weight change moves every historical result); a full floor characterisation, i.e. all of [§2](#2-what-a-multi-scale-spectral-distance-actually-reads-on-our-signals) repeated. **Unmeasurable on this host** | **reject for now** — not refuted, *unmeasured*. OpenL3 is at chance (0.507) on coarse pitch ordering ([§3.1](#31-the-result-that-decides-the-pitch-case)) and CDPAM's own abstract concedes the family generalises poorly outside its training perturbations, which do not include synth parameter errors |
+| **FAD / MMD / any distributional metric** | nothing — it is not defined on our inputs. A population of one has no covariance | — | **reject** — definitional, not empirical ([§1](#1-why-most-of-this-literature-is-not-about-our-problem)) |
+| **A trained discriminator (MPD / MS-STFT / sub-band CQT)** | in principle, *where* two signals differ — a map, not a scalar | adversarial training against a corpus we do not have; one reference recording per voice; an uncharacterisable floor | **reject as built** — but see the row below, which is the same idea without the training |
+| **A multi-scale spectral *residual map* (no norm)** — **not built, recommended next** | names the time and frequency band of a disagreement — "4–8 kHz, 200–400 ms" — which points at a property to go and measure | small; no checkpoint, no corpus, no training | **build this instead** — it keeps everything [§3.3](#33-discriminators-are-where-the-interesting-idea-is) says is valuable about a discriminator and throws away the scalar that makes it dangerous |
+
+### The one precondition that gates the adopt row
+
+**None of this is usable until alignment is solved and asserted.**
+[§6](#6-the-alignment-problem-which-gates-everything-else) measures 2 ms of
+onset disagreement reading larger than our largest defect, non-monotonically.
+The guard must therefore:
+
+1. align by cross-correlation to sample accuracy and **write the residual onto
+   the record**, and
+2. **refuse — `no verdict`, not a number** — when the residual exceeds a stated
+   bound, or when the reference's noise floor has not been characterised for
+   that voice.
+
+A guard that answers when it cannot is worse than one that is absent, because
+its output looks exactly like data.
+
+---
+
+## 10. This session's wrong-then-right rate
+
+Per `CLAUDE.md`, so a reader can calibrate any single figure above. **Three
+results in this session were wrong before they were right**, all caught by
+controls or by reading output rather than by inspection:
+
+| what | wrong | right | caught by |
+|---|---|---|---|
+| DAC mel filterbank, empty low bands | ×2 gain read 0.6247 | 0.69313 (ln 2) | the E0 ground-truth gate |
+| decay perturbation, seconds read as ms | sweep read 1e128, then NaN | 0.0128–0.484 | reading the sweep; **the gate passed**, because the bug was in the stimulus, not the metric |
+| "pre-onset noise floor" field | −3.6 dBFS | not a noise floor at all — `prepare` had already trimmed to 1 ms before onset | noticing the number was implausible |
+
+The second is the useful one: a ground-truth gate on the estimator does not
+cover the stimulus, and it looked exactly like a passing run.
+
+---
+
+## 11. Sources
+
+Fetched and read this session. **WebSearch was exhausted (200/200) before this
+task began**, so everything here was reached by direct URL; anything I could not
+reach by URL is listed in [§5](#5-where-practice-is-contested-or-absent) as not
+sourced rather than recalled.
+
+- Joseph Turian, Max Henry (2020). [*I'm Sorry for Your Loss: Spectrally-Based Audio Distances Are Bad at Pitch*](https://arxiv.org/abs/2012.04572). arXiv:2012.04572. (Table 1 read from the [ar5iv full text](https://ar5iv.labs.arxiv.org/html/2012.04572).)
+- Jesse Engel, Lamtharn Hantrakul, Chenjie Gu, Adam Roberts (2020). [*DDSP: Differentiable Digital Signal Processing*](https://arxiv.org/abs/2001.04643). arXiv:2001.04643.
+- Ryuichi Yamamoto, Eunwoo Song, Jae-Min Kim (2019). [*Parallel WaveGAN: A fast waveform generation model based on generative adversarial networks with multi-resolution spectrogram*](https://arxiv.org/abs/1910.11480). arXiv:1910.11480.
+- Alexandre Défossez, Jade Copet, Gabriel Synnaeve, Yossi Adi (2022). [*High Fidelity Neural Audio Compression*](https://arxiv.org/abs/2210.13438) (EnCodec). arXiv:2210.13438. (Loss and MS-STFT discriminator configuration from the [ar5iv full text](https://ar5iv.labs.arxiv.org/html/2210.13438).)
+- Rithesh Kumar, Prem Seetharaman, Alejandro Luebs, Ishaan Kumar, Kundan Kumar (2023). [*High-Fidelity Audio Compression with Improved RVQGAN*](https://arxiv.org/abs/2306.06546) (Descript Audio Codec). arXiv:2306.06546. (Mel-loss and discriminator configuration from the [ar5iv full text](https://ar5iv.labs.arxiv.org/html/2306.06546).)
+- Kevin Kilgour, Mauricio Zuluaga, Dominik Roblek, Matthew Sharifi (2018). [*Fréchet Audio Distance: A Metric for Evaluating Music Enhancement Algorithms*](https://arxiv.org/abs/1812.08466). arXiv:1812.08466.
+- Azalea Gui, Hannes Gamper, Sebastian Braun, Dimitra Emmanouilidou (2023). [*Adapting Frechet Audio Distance for Generative Music Evaluation*](https://arxiv.org/abs/2311.01616). arXiv:2311.01616.
+- Pranay Manocha, Zeyu Jin, Richard Zhang, Adam Finkelstein (2021). [*CDPAM: Contrastive learning for perceptual audio similarity*](https://arxiv.org/abs/2102.05109). arXiv:2102.05109.
+- Joseph Turian *et al.* (2022). [*HEAR: Holistic Evaluation of Audio Representations*](https://arxiv.org/abs/2203.03022). arXiv:2203.03022. *(Fetched; the abstract page carries no result I could quote, so nothing is claimed from it beyond its existence and scope.)*
+- Jiatong Shi *et al.* (2024). [*ESPnet-Codec: Comprehensive Training and Evaluation of Neural Codecs for Audio, Music, and Speech*](https://arxiv.org/abs/2409.15897). arXiv:2409.15897. *(Confirmed to introduce the VERSA toolkit with "over 20 audio evaluation metrics"; the list of those metrics is not on the abstract page and is not reproduced here.)*
+- [ICLR 2023 blog-post track index](https://iclr-blogposts.github.io/2023/blog/) — fetched; contains no post on audio distances, audio similarity or spectral losses, and none marked retracted.
+
+### Internal, and load-bearing
+
+- [`docs/bd-repeatability-measurement.md`](bd-repeatability-measurement.md) — the 2.74 % / 1.30 % / 0.159 dB machine floor, and the editing-noise control this document reuses.
+- [`docs/tom-pitch-drop-measurement.md`](tom-pitch-drop-measurement.md) — ×1.063 / ×1.140 / ×1.236 against the shipped ×1.7.
+- [`docs/scorecard/README.md`](scorecard/README.md) — per-property distance, own tolerance, worst reported, coverage stated separately; and "an invalid measurement has no distance, not zero distance".
+- [`docs/reference-integrity.md`](reference-integrity.md) — run-to-run spread by plugin: 0.0000 pp for ours and Surge, 0.006–0.010 pp for Mini V3.
+- [`model/audio_measure.py`](../model/audio_measure.py) — onsets "good to about 10 ms and no better"; the refusal contract every estimator here imitates.
