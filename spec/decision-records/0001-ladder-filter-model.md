@@ -13,7 +13,7 @@ it is decided here, first. Four candidates were considered.
 | model | tuning accuracy | solver | per-sample cost |
 |---|---|---|---|
 | Stilson & Smith (1996) | poor at high resonance | explicit | cheapest |
-| **Huovilainen (DAFx-04)** | measured ±2 % to 1.6 kHz | **explicit** | 5 tanh + ~5 mult, ×2 oversample |
+| **Huovilainen (DAFx-04)** | measured ±2 % from 400 Hz to 1.6 kHz | **explicit** | 5 tanh + ~5 mult, ×2 oversample |
 | Zavalishin ZDF/TPT (2012) + Newton-Raphson (D'Angelo & Välimäki, 2014) | best available | **iterative** | unbounded worst case |
 | Levien matrix (2013) | exact on the linear part | explicit | 4×4 matrix multiply = 16 mult |
 
@@ -88,7 +88,9 @@ decision is what surfaced it.
 
 - The datapath is a sequencer plus one multiplier and one `tanh` unit, not four
   parallel stages, and its latency is a constant.
-- Tuning error is accepted at ±2 % to 1.6 kHz, and self-oscillation is **not**
+- Tuning error is accepted at ±2 % from **400 Hz** to 1.6 kHz (at 200 Hz it is
+  2.06 %, just outside; DR 0006's own table gives 0.979 there), and
+  self-oscillation is **not**
   sustained above ~3 kHz at fixed resonance — the paper's own caveat that
   required feedback varies with frequency. A small compensation ROM is the
   intended fix and is not yet designed.
