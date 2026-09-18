@@ -44,7 +44,7 @@ claims with no grounding — so the three categories are kept apart and tagged.
 | tag | meaning |
 |---|---|
 | **[measured]** | computed by `tools/probes/audio_distance_floor.py` on our signals, this session |
-| **[sourced]** | from a paper fetched and read this session; the link is in [§10](#10-sources) |
+| **[sourced]** | from a paper fetched and read this session; the link is in [§10](#11-sources) |
 | **[inference]** | my reasoning from the above. Not established. |
 
 ### Three refusals, stated rather than filled in
@@ -190,7 +190,7 @@ and puts a precursor ahead of every strike", and `run_case.prepare` aligns by a
 2 %-of-peak threshold crossing with a 1 ms lead — not a cross-correlation, and
 not sample-accurate between two different instruments. At **5.4 ms** of
 misalignment `mss_l1` reads 0.509, which is **42 % of the entire bass-drum-
-versus-snare-drum distance** (1.211, [§2.6](#26-the-ceiling)) — for two copies
+versus-snare-drum distance** (1.211, [§2.6](#26-the-ceiling-and-the-exchange-rate)) — for two copies
 of one recording. **[measured]**
 
 **It is not monotone.** 10.9 ms of misalignment reads *less* than 5.4 ms, on
@@ -198,7 +198,7 @@ all four distances (italicised row). So the value cannot even be read as "more
 is worse" in the one variable that dominates it. **[measured]**
 
 **A defect must be compared against the floor on its own signal, and that is
-done in [§2.4](#24-the-tom-pitch-drop-the-decisive-test) rather than borrowed
+done in [§2.4](#24-the-tom-pitch-drop--the-decisive-test) rather than borrowed
 from this table.** **[inference]**
 
 ### 2.2 Single-property sweeps
@@ -447,11 +447,11 @@ on pitch.** **[inference]**
 - **The task in that table is two stationary sinusoids.** Ours is an
   inharmonic, fast-decaying percussive one-shot with a pitch that *sweeps*
   during the first 60 ms. Nothing in the paper suggests the numbers improve
-  when you make the signal harder. Our [§2.4](#24-the-tom-pitch-drop-the-decisive-test)
+  when you make the signal harder. Our [§2.4](#24-the-tom-pitch-drop--the-decisive-test)
   measures the harder version and finds 4 rank errors out of 4.
 - **The level column is the exchange-rate problem, independently found.** MSS
   scores 0.550 / 0.530 / 0.531 — near-random — at ordering *amplitude*
-  differences, which is the same fact our [§2.6](#26-the-ceiling) measures as
+  differences, which is the same fact our [§2.6](#26-the-ceiling-and-the-exchange-rate) measures as
   "a 5 % decay error and a 0.4 dB gain error read the same number".
 
 One caveat the paper states itself: **octave equivalence is explicitly out of
@@ -779,7 +779,7 @@ it.** **[inference]**
 disqualifications, any one of which is sufficient.** **[measured, §§2, 6]**
 
 1. It ranks our largest open drum defect **wrongly**, on all four distance
-   variants ([§2.4](#24-the-tom-pitch-drop-the-decisive-test)).
+   variants ([§2.4](#24-the-tom-pitch-drop--the-decisive-test)).
 2. Its floor against a real recording is dominated by an f0 difference the
    board deliberately passes, and the defect sits at that floor
    ([§2.3](#23-the-floor-that-decides-it)).
