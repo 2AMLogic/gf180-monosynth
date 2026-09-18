@@ -1,8 +1,29 @@
 # Working in this repository
 
 Read `docs/verification-rules.md` first — start red, carry injected-bug
-controls, a cell count is not evidence of correctness. This file is about how
-to work, not what to build.
+controls, a cell count is not evidence of correctness. Then read
+`docs/failure-modes.md`, which root-causes why this project keeps producing
+confident wrong answers: **internal consistency is cheap to check and external
+grounding is expensive, so work drifts toward the cheap check — and the cheap
+check feels like rigour because it is rigorous in form.**
+
+Four consequences that will bite you specifically:
+
+- **An estimator calibrated on our own model is not validated.** It needs a
+  signal whose answer is known independently of the thing being measured. A
+  probe calibrated the other way reported 25 dB of separation that turned out
+  to be window leakage.
+- **A suite that only tests against our own decision records cannot tell you
+  the model is right.** The voice has 42 such tests and, until today, zero
+  external references.
+- **Check that the thing you are testing is the thing that ships.** Every bench
+  drove the register write port rather than the link, so the control path
+  delivered 37 of 155 writes with every block still bit-exact.
+- **Sweep a parameter before arguing about it.** Hours went into 8 modes versus
+  12; yosys pads the bank to a power of two, so 9 through 16 cost identically,
+  and the variable that mattered was `NUMS`.
+
+This file is about how to work, not what to build.
 
 ## Waiting is the expensive part, not the work
 
