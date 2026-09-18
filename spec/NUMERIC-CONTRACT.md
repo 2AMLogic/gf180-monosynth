@@ -1182,7 +1182,16 @@ eight audition patches of `audition/patches.py::MONO` played through one
 continuous voice by `render_mono_fx`, whose write lists (from `KeyHost`,
 5.6) are the sequences. A bench MUST also be shown to fail: the injected defects of
 `rtl-sketch/ladder_dp.v` (`INJECT_BUG_LADDER_FB`, `_SAT`, `_TANH_CLAMP`) are
-the pattern.
+the pattern, and the voice's are `INJECT_BUG_VOICE_SQUARE_SIGN` (6.6.4),
+`_ENV_FLOOR` (8.3), `_KEFF` (10.2), `_MIX_SAT` (7), `_GLIDE_FLOOR` (6.7),
+`_RECIP_CLAMP` (6.6.1), `_TRIG_RESET` (8.5) and `_OUT_SAT` (12), each run on
+the scenario of `rtl-sketch/verify_voice.py` that reaches it. A voice bench
+MUST compare the taps of item 4 as well as the sample and MUST report an
+undefined (X) output as a mismatch, never a pass: a sample-only comparison
+is blind while the tail is quiet (with the release floor of 8.3 removed the
+first tap to differ precedes the first sample to differ by 36 frames), and
+`rtl-sketch/stubs/voice_dp_stub.v` — the ports with every output X — is the
+run that shows the bench can tell X from wrong from right.
 
 Table freshness: `spec/reference/gen_tables.py --check` MUST pass; it fails
 if any hash in the appendices, any image under `spec/reference/tables/`, or
@@ -1276,8 +1285,16 @@ record that extends this document; none may be resolved by picking a reading.
   cutoff registers; RESET leaves the link and queue alone). No arithmetic,
   table, hash or reference sequence changes. The voice is now implemented
   (`rtl-sketch/voice_dp.v`) and verified bit-exact against the model at the
-  register port over the three scenarios of `rtl-sketch/verify_voice.py`
-  (43 200 frames); the chip around it is `docs/ARCHITECTURE.md`. Not ratified.
+  register port by `rtl-sketch/verify_voice.py`: 255 060 frames over 24
+  scenario segments (every waveform, every NOTE_INC entry and the increments
+  where 5.5's clamps fire, glide up, down and at its limits, GATE_ON / TRIG /
+  GATE_OFF in every segment, a release to exactly zero, paraphonic keys, the
+  register extremes, three of the audition reference sequences), every sample,
+  every tap of 16.4 and the final state; eight injected defects (16) each
+  caught, and an all-X stub caught. The worst frame measured is 136 cycles
+  from `go` with the drum filter off (the all-maximum image: three reciprocals
+  and both PolyBLEP windows on every edge). The chip around it is
+  `docs/ARCHITECTURE.md`. Not ratified.
 
 ---
 

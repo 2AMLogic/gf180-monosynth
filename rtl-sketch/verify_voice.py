@@ -1,21 +1,63 @@
 #!/usr/bin/env python3
 """Bit-exact verification of voice_dp.v against model/voice_fx.py (VoiceFx).
 
-The model is the specification. Three scenarios are played through ONE
-continuous voice (contract 5.3, DR 0003), the model's writes are translated
-one-to-one into DR 0007 register writes, tb_voice.v applies them at the
-register port in the frames the model applies them, and every output sample
-is compared with no tolerance.
+The model is the specification. Scenarios are played through ONE continuous
+voice (contract 5.3, DR 0003); the model's writes are translated one-to-one
+into DR 0007 register writes; tb_voice.v applies them at the register port
+in the frames the model applies them; and every output sample AND every tap
+of contract 16.4 -- the three oscillators with their increments and
+reciprocals, mixed, ae, fe, cut, g, kc, k_eff, the ladder's y, the VCA's v,
+the pre-rail out_v -- and the final state (phases, increment accumulators,
+envelope levels and segments) are compared with NO tolerance.
 
-  1. the default patch (saw, saw, square), one note from reset;
-  2. every remaining waveform (pulse25, tri, sine), res 1.05, drive 3, a
-     wide cutoff envelope and full tracking, a glide from a fifth below;
-  3. a paraphonic, multi-trigger phrase through the reference host
-     (KeyHost: last-note, multi, legato glide), keys pressed and released
-     while others are held, a new key during a release.
+Scenarios (--set full; --set quick is the same list at shorter lengths, what
+the test suite runs; --only picks by key):
 
-Exit status: 0 every sample identical; 1 a mismatch; 2 it did not run.
-    .venv/bin/python rtl-sketch/verify_voice.py [--outdir DIR] [--short]
+  default    the default patch (saw, saw, square), one note from reset
+  waves2     pulse25 / tri / sine at res 1.05, drive 3, wide cutoff envelope,
+             full tracking, a glide from a fifth below
+  para       a paraphonic multi-trigger phrase through the reference host
+  waveforms  every waveform in every oscillator slot, at low and high notes,
+             with the shapes and weights changed mid-note
+  notes      every NOTE_INC entry (0..127) with the default detunes; the
+             increments where 5.5's clamp fires (note 127 + 24 semitones =
+             2^24 - 1); the powers of two where the reciprocal clamps; inc =
+             1, 2, 3; inc >= 2^23 where both PolyBLEP windows can open;
+             inc = 0 (a stalled oscillator); a slew through 0
+  glide      up two octaves and down three at the reference rate, landing
+             exactly; glide at its maximum (an octave per frame); glide = 1
+             (the max(1, .) floor every frame); GLIDE <- 0 mid-glide (snap);
+             a jump mid-glide
+  gate       GATE_ON; TRIG in attack, decay and sustain; GATE_OFF in attack;
+             GATE_ON during a release (attack from the released level);
+             adjacent GATE_OFF / GATE_ON; TRIG with the gate off; a legato
+             pitch change without TRIG (DR 0003)
+  silence    a note whose release runs all the way to level 0 -- through
+             the max(1, .) floor of 8.3 -- while the ladder is still driven
+             at the mixer's level (DR 0005); and a self-oscillating filter
+             that keeps singing after the VCA has closed
+  extremes   the all-maximum control image; the all-zero image; a negative
+             cutoff span with full tracking; weights that saturate the mixer;
+             k that saturates k_eff; ogain that saturates the ladder's word;
+             vol that reaches the rail; rate = 0; d_dec = 0; a_inc = 0
+  audition   the reference sequences of contract 16: 04-lead-glide,
+             07-growl-bass and 08-self-osc-whistle through KeyHost (the first
+             0.8 s of each) -- full set only
+
+Exit status (a CI job asserting that a negative control fails must require
+exactly 1):
+  0  every sample and every tap identical, final state identical
+  1  the simulation ran to completion and something differed
+  2  it did not run: tool missing, compile error, timeout, short output
+
+  --inject NAME     compile with -DINJECT_BUG_VOICE_<NAME>; the negative controls
+  --expect-fail     exit 0 only if the comparison gave 1
+  --rtl FILE        simulate FILE in place of voice_dp.v (the red run of
+                    docs/verification-rules.md: stubs/voice_dp_stub.v, every
+                    output X, must give exit 1 with the frames reported as X)
+  --set full|quick  which scenario lengths (default full)
+  --only a,b,c      run only these scenario keys
+  --compare-only F  skip generation and simulation, compare F to the expected
 """
 from __future__ import annotations
 import argparse, os, subprocess, sys
@@ -24,18 +66,28 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "model")); sys.path.insert(0, os.path.join(ROOT, "audition"))
 import numpy as np
 import voice_fx as vf
-from dsp import SR
+import dsp
+from dsp import SR, PHASE_MASK
 from verify_ladder import tool
 
 A = dict(INC=0x00, WAVE=0x04, W=0x08, GLIDE=0x0C, VOL=0x0D, AMP=0x10, FILT=0x14,
          CUT_LO=0x18, CUT_HI=0x19, TRACK=0x1A, K=0x1C, GAIN=0x1D, OGAIN=0x1E,
          GATE_ON=0x20, GATE_OFF=0x21, TRIG=0x22)
 WAVE_CODE = dict(saw=0, square=1, pulse25=2, tri=3, sine=4)
+FULL24 = (1 << 24) - 1
+FIELDS = ["sample", "osc0", "osc1", "osc2", "inc0", "inc1", "inc2", "sh0", "sh1", "sh2",
+          "r0", "r1", "r2", "mixed", "ae", "fe", "cut", "g", "kc", "k_eff", "y19", "v", "out_v"]
+STATE_FIELDS = ["phase0", "phase1", "phase2", "inc_acc0", "inc_acc1", "inc_acc2",
+                "level_a", "level_f", "seg_a", "seg_f"]
+RTL_FILES = ["tb_voice.v", "voice_dp.v", "recip_div.v", "ladder_dp_n.v"]
+BUGS = ["SQUARE_SIGN", "ENV_FLOOR", "KEFF", "MIX_SAT", "GLIDE_FLOOR", "RECIP_CLAMP", "TRIG_RESET", "OUT_SAT"]
 
 
+# ---- the model's writes as register writes -----------------------------------
 def patch_to_writes(regs: dict, f0: int) -> list:
     """The register image VoiceFx._apply_patch installs at the first frame of
-    a play() call, as (frame, flag, addr, data)."""
+    a play() call, as (frame, flag, addr, data). GLIDE is written before any
+    INC of the same frame, as the model applies it (5.2)."""
     out = []
     for k, s in enumerate(regs["waves"]): out.append((f0, 0, A["WAVE"] + k, WAVE_CODE[s]))
     for k, wgt in enumerate(regs["weights"]): out.append((f0, 0, A["W"] + k, int(wgt)))
@@ -62,93 +114,377 @@ def model_writes_to_regs(writes: list, f0: int) -> list:
     return out
 
 
-def scenarios(short: bool) -> list:
-    d = 0.12 if short else 0.3
-    n = int(d * SR)
+# ---- scenarios ------------------------------------------------------------------
+def _incs(note, detune=(0.0, 0.07, -12.0)):
+    return vf.VoiceFx.note_incs(note, detune)
+
+
+def _note_writes(note, regs, f=0, jump=True):
+    return [(f, "INC", k, v, jump) for k, v in enumerate(_incs(note, regs["detune"]))] + \
+           [(f, "TRACK", vf.VoiceFx.note_track(note, regs["track"]))]
+
+
+def scenarios(which: str, only=None) -> list:
+    """(key, name, regs, writes, n) -- each is one VoiceFx.play() call on the
+    continuing voice. `which` is 'full' or 'quick'."""
+    q = which == "quick"
     v = vf.VoiceFx()
-    segs = []
-    # 1. one note from reset, the default patch
+    S = []
+
+    def add(key, name, regs, writes, n):
+        assert all(0 <= int(w[0]) < n for w in writes), (key, n, [w for w in writes if not 0 <= int(w[0]) < n])
+        if only is None or key in only:
+            S.append((key, name, regs, writes, n))
+
+    # -- default: the default patch, one note from reset --------------------------
+    d = 0.025 if q else 0.3
     r = v.note_on(45, d)
-    segs.append(("default patch, note 45 from reset", r["regs"], r["writes"], r["n"]))
-    # 2. the other waveforms, hot resonance and drive, glide from a fifth below
+    add("default", "default patch (saw, saw, square), note 45 from reset", r["regs"], r["writes"], r["n"])
+
+    # -- waves2: the other shapes, hot resonance and drive, glide from a fifth below
     r = v.note_on(69, d, glide_from=62, waves=("pulse25", "tri", "sine"), detune=(0.0, 0.03, -12.0),
                   mix=(1.0, 0.7, 0.9), cutoff=(200, 9000), q=1.05, drive=3.0, track=0.9, glide_s=0.05,
                   amp=(0.002, 0.1, 0.6, 0.08), fenv=(0.001, 0.2, 0.3, 0.05))
-    segs.append(("pulse25/tri/sine, res 1.05, drive 3, glide from 62", r["regs"], r["writes"], r["n"]))
-    # 3. a paraphonic multi-trigger phrase through the reference host
+    add("waves2", "pulse25 / tri / sine, res 1.05, drive 3, glide from 62", r["regs"], r["writes"], r["n"])
+
+    # -- para: a paraphonic multi-trigger phrase through the reference host --------
+    n = int((0.05 if q else 0.3) * SR)
     regs = v.patch_regs(waves=("square", "saw", "saw"), detune=(0.0, 0.05, -12.0), q=0.9, drive=2.0,
                         cutoff=(300, 5000), glide_s=0.03)
     ev = [(0, "on", 60), (n // 7, "on", 64), (2 * n // 7, "on", 67), (3 * n // 7, "off", 64),
           (4 * n // 7, "off", 60), (9 * n // 14, "on", 48), (5 * n // 7, "off", 67), (6 * n // 7, "off", 48)]
     host = vf.KeyHost(priority="last", trigger="multi", glide="legato", mode="para")
-    segs.append(("paraphonic multi-trigger phrase, KeyHost", regs, host.writes(ev, regs, first_from_reset=False), n))
-    return segs
+    add("para", "paraphonic multi-trigger phrase, KeyHost (last, multi, legato glide, para)",
+        regs, host.writes(ev, regs, first_from_reset=False), n)
+
+    # -- waveforms: every shape in every slot, low and high notes, changed mid-note --
+    n = int((0.01 if q else 0.06) * SR)
+    rot = [(("square", "pulse25", "tri"), 100), (("sine", "saw", "pulse25"), 24), (("tri", "sine", "square"), 108),
+           (("saw", "square", "sine"), 115), (("pulse25", "tri", "saw"), 60)]
+    for i, (waves, note) in enumerate(rot):
+        regs = v.patch_regs(waves=waves, detune=(0.0, 0.07, -12.0), mix=(1.0, 0.9, 0.8), q=0.7, drive=1.8,
+                            cutoff=(300, 8000), track=0.5)
+        # a new play() call re-writes the image: with the gate left on this is SET_WAVE / SET_WEIGHT mid-note (5.2)
+        writes = _note_writes(note, regs) + ([(0, "GATE", 1)] if i == 0 else [])
+        add("waveforms", f"waveforms {waves} at note {note}" + (" (shapes and weights changed mid-note)" if i else ""),
+            regs, writes, n)
+
+    # -- notes: the full note range and the increments where 5.5's clamps fire ----
+    per = 12 if q else 40
+    regs = v.patch_regs(waves=("saw", "square", "pulse25"), detune=(0.0, 0.07, -12.0), mix=(1.0, 1.0, 1.0),
+                        q=0.5, drive=1.5, cutoff=(200, 12000), track=0.3, amp=(0.001, 0.1, 1.0, 0.1))
+    writes = [(0, "GATE", 1)]
+    for note in range(128):
+        writes += _note_writes(note, regs, f=note * per)
+    add("notes", "every NOTE_INC entry 0..127, detune (0, +0.07, -12), 3 shapes with PolyBLEP", regs, writes, 128 * per)
+    per = 100 if q else 400
+    steps = [_incs(127, (24.0, 23.24, 23.0)),                       # 2^24 - 1 (clamped), and just below the clamp
+             [1, 2, 3],                                             # tiny: e = -15, -14, -14
+             [1 << 15, 1 << 16, 1 << 23],                           # powers of two: m = 2^15, r clamps to 65535
+             [(1 << 23) + 1, (1 << 24) - 1, (1 << 24) - 2],         # both PolyBLEP windows can open
+             [0, dsp.phase_inc(dsp.note_hz(60)), 0],                # inc = 0 stalls oscillators 0 and 2
+             [3, 3, 3]]                                             # then a slew through 0 (below)
+    writes = [(0, "TRACK", 0)]
+    for i, incs in enumerate(steps):
+        writes += [(i * per, "INC", k, int(x), True) for k, x in enumerate(incs)]
+    f = len(steps) * per
+    writes += [(f, "GLIDE", 2692)] + [(f, "INC", k, 0, False) for k in range(3)]   # acc 768 -> 0 at max(1, .) per frame
+    n = f + (900 if q else 1200)
+    add("notes", "increments at 5.5's clamp, 1..3, powers of two, >= 2^23, 0 (stalled), and a slew through 0",
+        regs, writes, n)
+
+    # -- glide: up, down, exact landing, maximum, floor, snap, jump mid-glide -------
+    regs = v.patch_regs(glide_s=(0.02 if q else vf.GLIDE_REF_S))
+    oct_frames = int(round(1.0 / (np.log2(1.0 + regs["glide"] / (1 << 24)))))   # frames per octave at this rate
+    writes = [(0, "GATE", 1)] + _note_writes(48, regs, 0, jump=True)
+    f = 50
+    writes += _note_writes(72, regs, f, jump=False); f += 2 * oct_frames + 200          # up two octaves, lands
+    writes += _note_writes(36, regs, f, jump=False); f += 3 * oct_frames + 200          # down three, lands
+    writes += [(f, "GLIDE", FULL24)] + _note_writes(60, regs, f, jump=False); f += 40    # an octave per frame
+    writes += [(f, "GLIDE", 1)] + _note_writes(61, regs, f, jump=False); f += 200        # d = 0 -> 1 LSB of Q24.8 per frame
+    writes += [(f, "GLIDE", regs["glide"])] + _note_writes(84, regs, f, jump=False); f += oct_frames // 2
+    writes += [(f, "GLIDE", 0)]; f += 50                                                 # mid-glide: snaps to the target
+    writes += [(f, "GLIDE", regs["glide"])] + _note_writes(48, regs, f, jump=False); f += oct_frames // 2
+    writes += _note_writes(55, regs, f, jump=True); f += 100                             # a jump mid-glide
+    add("glide", f"glide: +2 oct, -3 oct at {oct_frames} frames/oct, max rate, glide = 1, GLIDE <- 0 mid-glide, jump",
+        regs, writes, f)
+
+    # -- gate: GATE_ON / TRIG / GATE_OFF in every segment (DR 0003) ---------------
+    regs = v.patch_regs(amp=(0.005, 0.02, 0.6, 0.05), fenv=(0.002, 0.03, 0.3, 0.04), q=0.8, drive=2.0)
+    a = 240                                                                  # the amp attack, frames
+    writes = _note_writes(57, regs) + [
+        (0, "GATE", 1), (a // 2, "TRIG"), (a + 400, "TRIG"), (a + 1200, "TRIG"),  # attack, decay, sustain
+        (a + 1300, "GATE", 0), (a + 1400, "GATE", 1),                             # release; attack from the released level
+        (a + 1450, "GATE", 0),                                                    # release from a partial attack
+        (a + 1500, "GATE", 0), (a + 1501, "GATE", 1),                             # adjacent frames
+        (a + 1900, "GATE", 0), (a + 1950, "TRIG"), (a + 2000, "GATE", 1),         # TRIG with the gate off, then on
+    ] + _note_writes(64, regs, a + 2100) + [(a + 2200, "GATE", 0)]               # legato pitch change, no TRIG
+    add("gate", "GATE_ON, TRIG in attack / decay / sustain, GATE_OFF in attack, GATE_ON in release, adjacent, TRIG off, legato",
+        regs, writes, a + 2300)
+
+    # -- silence: a release that runs to exactly zero; a filter that keeps singing --
+    rel = 0.045 if q else 0.12                                              # rate 121 (floor 542) / 45 (floor 1457)
+    regs = v.patch_regs(q=0.9, drive=2.5, vol=0.9, amp=(0.003, 0.1, 0.75, rel), fenv=(0.002, 0.1, 0.5, rel))
+    gate_n = 1200 if q else 4800
+    n = gate_n + (7000 if q else 16800)
+    writes = _note_writes(40, regs) + [(0, "GATE", 1), (gate_n, "GATE", 0)]
+    add("silence", f"note 40 at res 0.9, drive 2.5, vol 0.9; gate {gate_n} frames then a release of {n - gate_n} frames to level 0",
+        regs, writes, n)
+    regs = v.patch_regs(waves=("sine",), detune=(0.0,), mix=(1.0,), cutoff=(200, 2600), q=1.06, drive=0.5,
+                        track=0.9, vol=0.9, amp=(0.005, 0.1, 0.85, rel), fenv=(0.005, 0.2, 0.5, rel))
+    gate_n = 1500 if q else 4800
+    n = gate_n + (6000 if q else 12000)
+    writes = _note_writes(69, regs) + [(0, "GATE", 1), (gate_n, "GATE", 0)]
+    add("silence", "self-oscillating whistle (res 1.06): the VCA closes while the ladder still sings", regs, writes, n)
+
+    # -- extremes: the register image at its limits ---------------------------------
+    n = 400 if q else 960
+    regs = v.patch_regs()
+    regs["weights"] = [(1 << 16) - 1] * 3
+    regs["amp"] = regs["fenv"] = (FULL24, FULL24, FULL24, 65535)
+    regs["cut_lo"] = regs["cut_hi"] = 65535
+    regs["k"], regs["gain"], regs["ogain"] = (1 << 17) - 1, (1 << 20) - 1, (1 << 20) - 1
+    regs["vol"], regs["glide"] = 65535, FULL24
+    writes = [(0, "INC", k, FULL24, True) for k in range(3)] + [(0, "TRACK", 65535), (0, "GATE", 1),
+                                                                 (n // 2, "INC", 0, 1, False), (n // 2, "TRIG")]
+    add("extremes", "the all-maximum control image (weights, envelopes, cutoff, k, gain, ogain, vol, glide, inc)", regs, writes, n)
+    regs = v.patch_regs()
+    regs["weights"] = [0] * 3; regs["amp"] = regs["fenv"] = (0, 0, 0, 0); regs["cut_lo"] = regs["cut_hi"] = 0
+    regs["k"] = regs["gain"] = regs["ogain"] = regs["vol"] = regs["glide"] = 0
+    writes = [(0, "INC", k, 0, True) for k in range(3)] + [(0, "TRACK", 0), (0, "GATE", 1)]
+    add("extremes", "the all-zero image: silent (14)", regs, writes, 200 if q else 480)
+    n = 1500 if q else 3000
+    regs = v.patch_regs(q=0.6, drive=2.0, amp=(0.002, 0.05, 0.9, 0.1), fenv=(0.05, 0.05, 0.2, 0.1))
+    regs["cut_lo"], regs["cut_hi"] = 9000, 100                              # negative span
+    regs["weights"] = [30000, 30000, 30000]                                 # the mixer saturates
+    regs["k"] = (1 << 17) - 1                                               # k_eff saturates near the kc peak
+    regs["ogain"] = (1 << 20) - 1                                           # the ladder's 19-bit word saturates
+    regs["vol"] = 65535                                                     # the rail
+    writes = _note_writes(52, regs) + [(0, "TRACK", 65535), (0, "GATE", 1), (n // 2, "TRACK", 0), (n - 300, "GATE", 0)]
+    add("extremes", "negative span, track 65535, saturating weights, k / ogain / vol at maximum", regs, writes, n)
+    regs = v.patch_regs(amp=(0.002, 0.01, 0.5, 0.1), fenv=(0.002, 0.01, 0.5, 0.1))
+    regs["amp"] = regs["amp"][:3] + (0,); regs["fenv"] = regs["fenv"][:3] + (0,)      # rate = 0: 1 LSB per frame
+    writes = _note_writes(50, regs) + [(0, "GATE", 1), (150, "GATE", 0)]
+    add("extremes", "rate = 0 (release at one LSB per frame)", regs, writes, 400)
+    regs = v.patch_regs()
+    regs["amp"] = (regs["amp"][0], 0, 0, regs["amp"][3]); regs["fenv"] = (regs["fenv"][0], 0, FULL24, regs["fenv"][3])
+    writes = _note_writes(50, regs) + [(0, "GATE", 1)]
+    add("extremes", "d_dec = 0 with sus = 0 (DECAY holds at FULL) and sus = FULL (SUSTAIN at once)", regs, writes, 500)
+    regs = v.patch_regs()
+    regs["amp"] = (0,) + regs["amp"][1:]; regs["fenv"] = (0,) + regs["fenv"][1:]
+    writes = [(0, "GATE", 0), (100, "GATE", 1)]                             # a_inc = 0: ATTACK holds the level
+    add("extremes", "a_inc = 0 (the attack holds the current level)", regs, writes, 300)
+    regs = v.patch_regs()
+    regs["k"] = regs["gain"] = regs["ogain"] = 0
+    writes = _note_writes(50, regs) + [(0, "GATE", 1)]
+    add("extremes", "k = gain = ogain = 0", regs, writes, 200)
+
+    # -- audition: the reference sequences of contract 16 (the first 0.8 s) --------
+    if not q:
+        import patches
+        for name, seq, dur in patches.MONO:
+            if name not in ("04-lead-glide", "07-growl-bass", "08-self-osc-whistle"):
+                continue
+            n = int(0.8 * SR)
+            kw0 = dict(seq[0][3]); kw0.pop("blep", None); glide_on = bool(kw0.pop("glide", False)); kw0.pop("gate", None)
+            regs = vf.VoiceFx.patch_regs(**kw0)
+            host = vf.KeyHost(glide="always" if glide_on else "off")
+            events = []
+            for start, note, dd, kw in seq:
+                g = kw.get("gate", None); g = dd * 0.8 if g is None else g
+                on = int(start * SR); off = min(n - 1, on + max(1, int(g * SR)))
+                if on < n: events.append((on, "on", note)); events.append((off, "off", note))
+            add("audition", f"reference sequence {name} through KeyHost, first 0.8 s", regs, host.writes(events, regs), n)
+    return S
 
 
-def generate(outdir: str, short: bool):
+# ---- coverage from the model's trace ------------------------------------------------
+def coverage(v: vf.VoiceFx, regs: dict, writes: list, phases0: list, trig, gate) -> str:
+    t = v.trace
+    notes = []
+    win = both = pow2 = zero = 0
+    for k, o in enumerate(v.oscs):
+        inc = t["incs"][k]
+        ph = (phases0[k] + np.concatenate([[0], np.cumsum(inc[:-1])])) & PHASE_MASK
+        a = ph < inc; b = (vf.CYCLE - ph) < inc
+        if o.shape in ("square", "pulse25"):
+            ph2 = (ph + (vf.CYCLE - (vf.CYCLE // 2 if o.shape == "square" else vf.CYCLE // 4))) & PHASE_MASK
+            a |= ph2 < inc; b |= (vf.CYCLE - ph2) < inc
+        if o.blep:
+            win += int((a | b).sum()); both += int((a & b).sum())
+        pow2 += int(((inc > 0) & ((inc & (inc - 1)) == 0)).sum())
+        zero += int((inc == 0).sum())
+    acc = sum(t["osc"][k] * int(regs["weights"][k]) for k in range(3))
+    mix_sat = int(((acc >> 15) > 32767).sum() + ((acc >> 15) < -32768).sum())
+    out_v = (t["vca"] * int(regs["vol"])) >> 15
+    out_sat = int((out_v > 32767).sum() + (out_v < -32768).sum())
+    cut_lo = int((t["cut"] == vf.CUT_MIN).sum()); cut_hi = int((t["cut"] == vf.CUT_MAX).sum())
+    keff_sat = int((t["k_eff"] == (1 << vf.K_BITS) - 1).sum())
+    y_sat = int((np.abs(t["ladder"]) >= (1 << 18) - 1).sum())
+    g_on = int(gate.sum()); n = len(gate)
+    ae0_off = int(((gate == 0) & (t["amp_env"] == 0)).sum())
+    moving = sum(int((np.diff(t["incs"][k]) != 0).sum()) for k in range(3))
+    notes.append(f"blep windows {win}" + (f" (both {both})" if both else ""))
+    if pow2: notes.append(f"power-of-two inc {pow2}")
+    if zero: notes.append(f"inc=0 {zero}")
+    if mix_sat: notes.append(f"mixer sat {mix_sat}")
+    if out_sat: notes.append(f"rail {out_sat}")
+    if cut_lo or cut_hi: notes.append(f"cut clamp lo {cut_lo} hi {cut_hi}")
+    if keff_sat: notes.append(f"k_eff sat {keff_sat}")
+    if y_sat: notes.append(f"ladder sat19 {y_sat}")
+    if moving: notes.append(f"inc changes {moving}")
+    notes.append(f"gate on {g_on}/{n}, trig {int(trig.sum())}" + (f", ae=0 after gate-off {ae0_off}" if ae0_off else ""))
+    return "; ".join(notes)
+
+
+# ---- generate: run the model, write the writes and the expected taps -------------
+def generate(outdir: str, which: str, only=None, verbose=True):
     v = vf.VoiceFx()
     v.reset()
     all_writes, expected, f0 = [], [], 0
-    for name, regs, writes, n in scenarios(short):
+    report = []
+    for key, name, regs, writes, n in scenarios(which, only):
+        phases0 = [o.phase for o in v.oscs]
         y = v.play(regs, writes, n)                     # the voice persists across scenarios
+        t = v.trace
         all_writes += patch_to_writes(regs, f0) + model_writes_to_regs(writes, f0)
-        expected += [int(s) for s in y]
-        print(f"  scenario: {name}: {n} frames, {len(writes)} writes, peak {int(np.abs(y).max())}")
+        er = [[vf.recip_of(int(i)) for i in t["incs"][k]] for k in range(3)]
+        vol = int(regs["vol"])
+        for i in range(n):
+            row = [int(y[i])] + [int(t["osc"][k][i]) for k in range(3)] + [int(t["incs"][k][i]) for k in range(3)] \
+                + [er[k][i][0] + 15 for k in range(3)] + [er[k][i][1] for k in range(3)] \
+                + [int(t["mixed"][i]), int(t["amp_env"][i]), int(t["filt_env"][i]), int(t["cut"][i]), int(t["g"][i]),
+                   int(t["kc"][i]), int(t["k_eff"][i]), int(t["ladder"][i]), int(t["vca"][i]), (int(t["vca"][i]) * vol) >> 15]
+            expected.append(row)
+        cov = coverage(v, regs, writes, phases0, t["trig"], t["gate"])
+        report.append(dict(key=key, name=name, f0=f0, n=n, writes=len(writes), cov=cov))
+        if verbose:
+            print(f"  [{key}] {name}: frames {f0}..{f0 + n - 1} ({n}), {len(writes)} writes; {cov}")
         f0 += n
+    state = [o.phase for o in v.oscs] + [o.inc_acc for o in v.oscs] + \
+            [v.amp_env.level, v.filt_env.level, v.amp_env.seg, v.filt_env.seg]
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, "voice_writes.txt"), "w") as fh:
         fh.writelines("%d %d %d %d\n" % w for w in all_writes)
     with open(os.path.join(outdir, "voice_expected.txt"), "w") as fh:
-        fh.writelines(f"{s}\n" for s in expected)
-    return expected, all_writes
+        fh.writelines(" ".join(str(x) for x in row) + "\n" for row in expected)
+        fh.write("STATE " + " ".join(str(x) for x in state) + "\n")
+    if verbose:
+        print(f"  {len(expected)} frames, {len(all_writes)} register writes; final amp level {state[6]}, "
+              f"filt level {state[7]}")
+    return expected, state, all_writes, report
 
 
-def compare(expected, out_file, name="verify_voice") -> int:
-    got = [l.strip() for l in open(out_file)]
-    if len(got) < len(expected):
-        print(f"{name}: short output: {len(got)} of {len(expected)} frames"); return 2
-    mism = [(i, e, g) for i, (e, g) in enumerate(zip(expected, got)) if str(e) != g]
-    if not mism:
-        print(f"{name}: PASS -- {len(expected)} frames, RTL identical to model"); return 0
-    i, e, g = mism[0]
-    worst = max(abs(int(g2) - e2) for _, e2, g2 in mism if g2.lstrip('-').isdigit())
-    print(f"{name}: FAIL -- {len(mism)} of {len(expected)} frames differ; first at frame {i}: model {e}, RTL {g}; worst |error| {worst} LSB")
+# ---- compare: every field of every frame, then the state ---------------------------
+def compare(expected, state, report, out_file, name="verify_voice") -> int:
+    try:
+        lines = [l.split() for l in open(out_file) if l.strip()]
+    except OSError:
+        print(f"{name}: no RTL output at {out_file}"); return 2
+    rows = [l for l in lines if l[0] != "STATE"]
+    st = [l for l in lines if l[0] == "STATE"]
+    n = len(expected)
+    if len(rows) < n or not st:
+        print(f"{name}: RTL produced {len(rows)} of {n} frames{' and no STATE line' if not st else ''} -- did not run to completion")
+        return 2
+    mism = {f: 0 for f in FIELDS}
+    first = {}
+    per_scn = [[0, 0] for _ in report]                            # per segment: sample mismatches, tap mismatches
+    scn_of = []
+    for i, r in enumerate(report):
+        scn_of += [i] * r["n"]
+    cycles = []
+    xs = 0
+    for i in range(n):
+        got = rows[i][1:1 + len(FIELDS)]
+        cycles.append(int(rows[i][1 + len(FIELDS)]))
+        for j, f in enumerate(FIELDS):
+            g = got[j]
+            try:
+                gv = int(g)
+            except ValueError:
+                gv = None; xs += 1
+            if gv != expected[i][j]:
+                mism[f] += 1
+                per_scn[scn_of[i]][0 if f == "sample" else 1] += 1
+                if f not in first: first[f] = (i, expected[i][j], g, report[scn_of[i]]["key"])
+    st_got = st[0][1:]
+    st_mism = [(f, e, g) for f, e, g in zip(STATE_FIELDS, state, st_got) if str(e) != g]
+    total = sum(mism.values())
+    print(f"{name}: cycles from go to sample_valid: best {min(cycles)}, mean {sum(cycles) / len(cycles):.1f}, "
+          f"worst {max(cycles)} (of 256 - 8 in the chip)")
+    for r, (s, t) in zip(report, per_scn):
+        print(f"  [{r['key']}] {r['n']} frames: {s} sample mismatches, {t} tap mismatches")
+    if total == 0 and not st_mism:
+        print(f"{name}: PASS -- {n} frames, every sample and every tap identical to the model; final state identical")
+        return 0
+    print(f"{name}: FAIL -- {mism['sample']} of {n} samples differ; tap mismatches: "
+          + ", ".join(f"{f} {c}" for f, c in mism.items() if c and f != "sample")
+          + (f"; {xs} undefined/X" if xs else ""))
+    for f in FIELDS:
+        if f in first:
+            i, e, g, key = first[f]
+            print(f"  first {f} mismatch at frame {i} [{key}]: model {e}, RTL {g}")
+    if st_mism:
+        print("  final state differs: " + ", ".join(f"{f} model {e} RTL {g}" for f, e, g in st_mism))
     return 1
+
+
+def simulate(outdir: str, defines: list, rtl: str = None, timeout_s: float = 3600.0) -> str | None:
+    iverilog, vvp = tool("iverilog"), tool("vvp")
+    if not iverilog or not vvp:
+        print("verify_voice: iverilog/vvp not on PATH (or set OSS_CAD_SUITE)"); return None
+    vvp_file = os.path.join(outdir, "tb_voice.vvp")
+    out_file = os.path.join(outdir, "voice_rtl_out.txt")
+    if os.path.exists(out_file): os.remove(out_file)
+    files = [rtl if (f == "voice_dp.v" and rtl) else f for f in RTL_FILES]
+    r = subprocess.run([iverilog, "-g2012", "-o", vvp_file] + [f"-D{d}" for d in defines] + files,
+                       cwd=HERE, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("verify_voice: iverilog failed:\n" + r.stdout + r.stderr); return None
+    try:
+        r = subprocess.run([vvp, "-n", vvp_file, f"+wr={os.path.join(outdir, 'voice_writes.txt')}",
+                            f"+exp={os.path.join(outdir, 'voice_expected.txt')}", f"+out={out_file}"],
+                           cwd=HERE, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        print("verify_voice: simulation timed out"); return None
+    sys.stdout.write("".join("  sim: " + l + "\n" for l in r.stdout.splitlines() if l.startswith("tb_voice")))
+    if r.returncode != 0 or not os.path.exists(out_file):
+        print("verify_voice: vvp failed:\n" + r.stdout + r.stderr); return None
+    return out_file
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--outdir", default=os.path.join(HERE, "build"))
-    ap.add_argument("--short", action="store_true", help="0.12 s per scenario instead of 0.3 s")
+    ap.add_argument("--set", default="full", choices=("full", "quick"))
+    ap.add_argument("--only", default=None, help="comma-separated scenario keys")
+    ap.add_argument("--inject", default=None, choices=BUGS, help="INJECT_BUG_VOICE_<NAME> to compile in")
+    ap.add_argument("--expect-fail", action="store_true")
+    ap.add_argument("--rtl", default=None, metavar="FILE", help="simulate FILE in place of voice_dp.v")
     ap.add_argument("--compare-only", default=None, metavar="FILE")
     a = ap.parse_args(argv)
-    a.outdir = os.path.abspath(a.outdir)              # the benches run with cwd = rtl-sketch
-    print("verify_voice: model VoiceFx() (contract rev 3: three oscillators, glide, PolyBLEP, mixer, two ADSRs, "
-          "g/kc ROMs, ladder 19-bit, VCA, vol)")
-    expected, writes = generate(a.outdir, a.short)
+    a.outdir = os.path.abspath(a.outdir)              # the bench runs with cwd = rtl-sketch
+    only = set(a.only.split(",")) if a.only else None
+    print(f"verify_voice: model VoiceFx() (contract rev 4), scenario set '{a.set}'"
+          + (f", only {sorted(only)}" if only else ""))
+    expected, state, writes, report = generate(a.outdir, a.set, only)
     if a.compare_only:
-        return compare(expected, a.compare_only)
-    iverilog, vvp = tool("iverilog"), tool("vvp")
-    if not iverilog or not vvp:
-        print("verify_voice: iverilog/vvp not found"); return 2
-    vvp_file = os.path.join(a.outdir, "tb_voice.vvp")
-    r = subprocess.run([iverilog, "-g2012", "-o", vvp_file, "tb_voice.v", "voice_dp.v", "recip_div.v", "ladder_dp_n.v"],
-                       cwd=HERE, capture_output=True, text=True)
-    if r.returncode != 0:
-        print("verify_voice: iverilog failed:\n" + r.stdout + r.stderr); return 2
-    out_file = os.path.join(a.outdir, "voice_rtl_out.txt")
-    tap_file = os.path.join(a.outdir, "voice_taps.txt")
-    print(f"verify_voice: simulating voice_dp.v, {len(expected)} frames, {len(writes)} writes at the register port")
-    try:
-        r = subprocess.run([vvp, "-n", vvp_file, f"+wr={os.path.join(a.outdir, 'voice_writes.txt')}",
-                            f"+exp={os.path.join(a.outdir, 'voice_expected.txt')}", f"+out={out_file}", f"+tap={tap_file}"],
-                           cwd=HERE, capture_output=True, text=True, timeout=1800)
-    except subprocess.TimeoutExpired:
-        print("verify_voice: simulation timed out"); return 2
-    sys.stdout.write("".join("  sim: " + l + "\n" for l in r.stdout.splitlines() if l.startswith("tb_voice")))
-    if r.returncode != 0 or not os.path.exists(out_file):
-        print("verify_voice: vvp failed:\n" + r.stdout + r.stderr); return 2
-    return compare(expected, out_file)
+        status = compare(expected, state, report, a.compare_only)
+    else:
+        defines = [f"INJECT_BUG_VOICE_{a.inject}"] if a.inject else []
+        rtl = os.path.relpath(os.path.abspath(a.rtl), HERE) if a.rtl else None
+        print(f"verify_voice: simulating {rtl or 'voice_dp.v'} ({', '.join(RTL_FILES[2:])}"
+              f"{', ' + defines[0] if defines else ''}), {len(expected)} frames, {len(writes)} writes at the register port")
+        out = simulate(a.outdir, defines, rtl)
+        status = 2 if out is None else compare(expected, state, report, out)
+    if a.expect_fail:
+        if status == 1:
+            print(f"verify_voice: negative control {a.inject or ''} CAUGHT (comparison failed as required)")
+            return 0
+        print(f"verify_voice: NEGATIVE CONTROL NOT CAUGHT (status {status})")
+        return 1 if status == 0 else 2
+    return status
 
 
 if __name__ == "__main__":

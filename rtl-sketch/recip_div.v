@@ -15,8 +15,12 @@
 // one case the clamp catches. 19 cycles from start to done, fixed.
 //
 // STATUS: REAL RTL, written to the contract; checked against voice_fx.recip_of
-// by tb_recip.v over every NOTE_INC entry and the edge cases (not yet the
-// full 24-bit range).
+// through verify_voice.py, which compares this module's (sh, r) for every
+// oscillator in every frame with the model's: every NOTE_INC entry at three
+// detunes (the `notes` scenario), the edge cases 0, 1, 2, 3, 2^15, 2^16, 2^23,
+// 2^23 + 1, 2^24 - 2 and 2^24 - 1, and every increment a glide passes through.
+// Not the full 24-bit range. (An earlier header cited a tb_recip.v that was
+// never committed.) INJECT_BUG_VOICE_RECIP_CLAMP is its negative control.
 `default_nettype none
 module recip_div (
     input  wire        clk,
@@ -66,7 +70,11 @@ module recip_div (
                 if (cnt == 5'd1) begin                         // the 17th quotient bit
                     busy <= 1'b0;
                     done <= 1'b1;
+`ifdef INJECT_BUG_VOICE_RECIP_CLAMP
+                    r <= {quo[14:0], ge};                          // NEGATIVE CONTROL: no clamp -- a power-of-two
+`else                                                              //   inc (m = 2^15) gets r = 0, not 65535
                     r <= ({quo[15:0], ge} == 17'h10000) ? 16'hFFFF : {quo[14:0], ge};
+`endif
                 end
             end
         end
