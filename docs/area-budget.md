@@ -377,9 +377,15 @@ written, the core is 0.50 mm² of cells, not 0.37–0.40.
   first routed number replaces the assumption; until then the utilisation is
   the largest single uncertainty in this document (a 10-point change moves
   every core area by 17–25 %).
-- **Booth netlists were not equivalence-checked.** The P = 8 modal ROM
-  netlists, plain and Booth, were simulated at gate level against the model's
-  48,000 vectors; the result is recorded here: GATE_LEVEL_RESULT
+- **Booth netlists were not equivalence-checked.** Instead, the P = 8 modal
+  ROM netlists as mapped to `gf180mcu_fd_sc_mcu7t5v0` — plain and Booth — were
+  simulated at gate level (iverilog, the PDK's `gf180mcu_fd_sc_mcu7t5v0.v`
+  functional cell models) against the first 4,800 samples of the model's
+  stimulus (the note-28 strike and its ring, all four modes and every ROM
+  word of that preset): **both PASS, 0 mismatches, worst error 0 LSB**. That
+  is the ROM-as-logic and the Booth multiplier shown correct after mapping,
+  on a tenth of the stimulus; the full 48,000-sample gate-level run costs
+  about an hour per netlist and had not completed when this was committed.
 - **`drum_src_seq.v` is an area sketch**, unverified against any model, exactly
   as `touch_dp.v` is. Its 0.089 mm² is a lower bound for "drum sources", not a
   design.
