@@ -92,6 +92,96 @@ def render_summed(seq, dur_total, voice_kw=None):
     return np.clip(out, -32768, 32767).astype(np.int16)
 
 
+# ---- the Minimoog features revision 9 adds ---------------------------------
+# One patch per claim in docs/minimoog-reference.md, so that each addition can
+# be HEARD and not only asserted. These are the continuous voice (render_mono_fx's
+# path), through VoiceFx.note, at the reference volume.
+MINI = [
+    # (name, note, seconds, patch, what it is for)
+    ("10-noise-wind", 36, 3.0,
+     dict(mix=(0, 0, 0), noise=1.0, nsel=0, cutoff=(200, 5200), q=0.86, drive=2.2,
+          amp=(0.8, 1.2, 0.55, 1.0), fenv=(0.9, 1.4, 0.10, 1.2), track=0.0, vol=0.9),
+     "N8: white noise through the ladder, slow envelope -- wind"),
+    ("11-noise-surf-pink", 36, 3.0,
+     dict(mix=(0, 0, 0), noise=1.0, nsel=1, cutoff=(120, 2600), q=0.55, drive=1.6,
+          amp=(0.6, 1.6, 0.5, 1.2), fenv=(0.7, 1.8, 0.12, 1.4), track=0.0, vol=0.9),
+     "N2/N4: the same patch on PINK -- the colour switch is not a level change"),
+    ("12-noise-breath-lead", 64, 1.6,
+     dict(waves=("saw", "saw", "shark"), detune=(0.0, 0.06, -12.0), mix=(1.0, 0.8, 0.5),
+          noise=0.22, nsel=0, cutoff=(500, 6500), q=0.72, drive=2.0,
+          amp=(0.02, 0.4, 0.7, 0.25), fenv=(0.015, 0.35, 0.3, 0.2), track=0.4),
+     "N1/N8: noise as the fifth mixer source under a lead -- breath"),
+    ("13-vibrato-lead", 69, 2.2,
+     dict(waves=("saw", "saw", "tri"), detune=(0.0, 0.05, 0.0), mix=(1.0, 0.9, 0.0),
+          cutoff=(700, 5200), q=0.6, drive=1.8, track=0.4,
+          amp=(0.02, 0.3, 0.75, 0.2), fenv=(0.02, 0.3, 0.4, 0.2),
+          osc_mod=True, osc3_ctl=False, mod_mix=0.0, mod_wheel=0.30,
+          osc3_hz=5.5),
+     "M1/M7: oscillator 3 out of the mixer and into the pitch -- vibrato"),
+    ("14-filter-wobble", 40, 3.0,
+     dict(waves=("saw", "pulse29", "revsaw"), detune=(0.0, 0.07, -12.0), mix=(1.0, 0.7, 0.0),
+          cutoff=(900, 900), q=1.02, drive=2.4, track=0.2,
+          amp=(0.01, 0.3, 0.85, 0.3), fenv=(0.01, 0.3, 1.0, 0.3),
+          filt_mod=True, osc3_ctl=False, mod_mix=0.0, mod_wheel=0.75,
+          osc3_hz=1.6),
+     "M8: oscillator 3's reverse saw on the cutoff at res 1.02 -- the slow sweep"),
+    ("15-noise-mod-filter", 45, 3.0,
+     dict(waves=("saw", "saw", "tri"), detune=(0.0, 0.04, -12.0), mix=(1.0, 0.8, 0.0),
+          noise=0.0, nsel=1, cutoff=(1200, 1200), q=0.95, drive=2.0, track=0.3,
+          amp=(0.01, 0.3, 0.85, 0.3), fenv=(0.01, 0.3, 1.0, 0.3),
+          filt_mod=True, osc3_ctl=False, mod_mix=1.0, mod_wheel=0.55, mod_filter=0.9,
+          osc3_hz=2.0),
+     "M4/N2: the MOD MIX panned all the way to NOISE -- red noise on the cutoff"),
+    ("16-shark-and-widths", 52, 2.4,
+     dict(waves=("shark", "pulse29", "pulse15"), detune=(0.0, 7.02, -12.0), mix=(1.0, 0.75, 0.6),
+          cutoff=(400, 7000), q=0.7, drive=1.9, track=0.45,
+          amp=(0.01, 0.35, 0.7, 0.25), fenv=(0.01, 0.3, 0.35, 0.2)),
+     "W1/W3/W4: shark-tooth, the 29 % and 15 % rectangles, a fifth apart"),
+    ("18-noise-at-the-reference-balance", 45, 2.4,
+     dict(waves=("saw", "saw", "tri"), detune=(0.0, 0.06, -12.0), mix=(1.0, 0.0, 0.0),
+          noise=1.76, nsel=0, cutoff=(600, 5000), q=0.7, drive=2.0, track=0.35,
+          amp=(0.01, 0.4, 0.75, 0.25), fenv=(0.01, 0.35, 0.35, 0.2)),
+     "N6a/N7: noise weight 1.76 -- white at the -7.1 dB balance Mini V3 measures against its own saw"),
+    ("17-reverse-saw-beat", 33, 2.6,
+     dict(waves=("saw", "revsaw", "saw"), detune=(0.0, 0.0, 0.03), mix=(1.0, 1.0, 0.8),
+          cutoff=(300, 3200), q=0.8, drive=2.2, track=0.3,
+          amp=(0.02, 0.5, 0.8, 0.3), fenv=(0.02, 0.5, 0.4, 0.25)),
+     "W5: a saw and its inversion at the SAME pitch -- the reverse saw's one audible use"),
+]
+
+
+def render_minimoog(out, gap):
+    """One render per addition of contract revision 9, plus a sheet of all of
+    them. `osc3_hz`, where a patch gives it, puts oscillator 3 in the LO range
+    (M2) instead of on the keyboard -- which is what SW2 does on the
+    instrument, and is the host's job here (M1)."""
+    print(f"\n{'minimoog patch':24} {'peak':>5} {'rms dBFS':>9}  what it is for")
+    sheet = []
+    for name, note, dur, patch, why in MINI:
+        patch = dict(patch)
+        lo = patch.pop("osc3_hz", None)
+        v = vf.VoiceFx()
+        r = v.note_on(note, dur, gate=dur * 0.85, **patch)
+        if lo is not None:                       # oscillator 3 off the keyboard, into LO
+            r["writes"] = [w for w in r["writes"] if not (w[1] == "INC" and w[2] == 2)] + \
+                          [(0, "INC", 2, dsp.phase_inc(lo), True)]
+        v.reset()
+        y = v.run(r)
+        write(out / f"{name}.wav", y)
+        yf = y.astype(np.float64) / 32768.0
+        print(f"{name:24} {np.abs(yf).max():5.2f} {20 * math.log10(max(np.sqrt((yf ** 2).mean()), 1e-9)):9.1f}  {why}")
+        sheet += [y, gap]
+    write(out / "00-minimoog-additions.wav", np.concatenate(sheet))
+    # the one A/B that says what the noise selector does: same patch, both colours
+    ab = []
+    for nsel in (0, 1):
+        v = vf.VoiceFx()
+        ab += [v.note(36, 2.2, mix=(0, 0, 0), noise=1.0, nsel=nsel, cutoff=(150, 4000),
+                      q=0.6, drive=1.8, track=0.0, vol=0.9,
+                      amp=(0.5, 1.0, 0.6, 0.8), fenv=(0.6, 1.2, 0.15, 1.0)), gap]
+    write(out / "00-noise-white-vs-pink.wav", np.concatenate(ab))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=OUT)
@@ -121,6 +211,7 @@ def main():
         sheet_ab += [fl16, gap, level_match(cont / 32768.0, fl16 / 32768.0), gap]
         sheet_fx += [cont, gap]
     write(out / "00-float-vs-fixed.wav", np.concatenate(sheet_ab))
+    render_minimoog(out, gap)
     write(out / "00-all-fixed.wav", np.concatenate(sheet_fx))
     # what the band-limiting buys, both integer: the lead line naive then PolyBLEP
     name, seq, total = patches.MONO[2]
@@ -131,6 +222,8 @@ def main():
     print(f"listen:  afplay {out}/00-float-vs-fixed.wav          (float, fixed, float, fixed ... loudness-matched)")
     print(f"         afplay {out}/00-all-fixed.wav               (the eight patches, the continuous integer voice, raw output level)")
     print(f"         afplay {out}/00-aliasing-naive-vs-blep.wav  (lead line: integer naive oscillators, then integer PolyBLEP)")
+    print(f"         afplay {out}/00-minimoog-additions.wav      (the eight patches revision 9 adds: noise, vibrato, filter wobble, the new shapes)")
+    print(f"         afplay {out}/00-noise-white-vs-pink.wav     (one noise patch, WHITE then PINK -- the colour switch is not a level change)")
     return 0
 
 
