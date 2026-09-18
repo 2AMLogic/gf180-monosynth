@@ -29,15 +29,27 @@
 //        the envelope updates (8.3) and the glide slews (6.7) -- step 9 of
 //        4.2, whose inputs are all latched by now -- and the DRUM FILTER's
 //        coefficients from DCUT (its own g, kc, k_eff; DK, DGAIN, DOGAIN)
-//   6. when the voice context is done: if ROUTE.DFILT the drum filter runs
-//      the second ladder context on sat16(drum_bus) (24 more cycles);
-//      meanwhile VCA (y19 x ae) >> 15 and volume (v x vol) >> 15         9, 12
-//   7. master: sat16(out_v + ((d19 x dvol) >> 15)) -- the chip's ONE rail; both
-//      busses reach it at 19 bits (Q4.15), nothing clamps to 16 before it
+//   6. the drum gains, then the drum filter: dacc = dmix*dvol + body*bvol
+//      EXACTLY (no shift, no clamp); if ROUTE.DFILT the second ladder context
+//      runs on sat16(dacc >> 15) (24 more cycles); meanwhile the VCA
+//      (y19 x ae) >> 15 and macc = v x vol, exact                        9, 12
+//   7. master, contract 12 / DR 0008 -- ONE shift and ONE clamp over the
+//      EXACT sum of the three products:
+//        sample = sat16((v*vol + dmix*dvol + body*bvol) >> 15)
+//      With ROUTE.DFILT the two drum terms are replaced by the drum filter's
+//      output word at unity, d19 << 15 (ARCHITECTURE.md 4.1); DOGAIN is that
+//      path's level. Shifting each product by 15 BEFORE the sum -- which is
+//      what this file did while the drum bus was a placeholder -- is a
+//      different circuit: two floors instead of one, up to 1 LSB per sample
+//      on every sample that has drums in it. INJECT_BUG_VOICE_MASTER_PRESHIFT
+//      is that version, kept as the negative control.
 //
-// The drum bus is 19 bits, Q4.15, the ladder's output word (DR 0005); the
-// drum branch's block produces it, and it must be valid (drum_done) before
-// this frame's master mix -- the sequencer waits, it does not assume.
+// The drum section presents TWO buses (DR 0008): `dmix`, the 21-bit exact sum
+// of the paths routed to MIX, and `body`, the modal bank's 19-bit Q4.15 word.
+// Both reach the master at full width -- a bus clipped to 16 bits before the
+// gains could not be recovered by lowering them (contract 12) -- and both must
+// be valid (drum_done) before this frame's master mix: the sequencer waits, it
+// does not assume.
 //
 // Every register is the contract's width (5.1); the write port is DR 0007's
 // register map. rst_n is the chip reset AND the RESET write (the top ANDs
@@ -53,12 +65,13 @@ module voice_dp #(
     input  wire        rst_n,
     input  wire        go,                 // one cycle per frame, after the write drain
     // register write port (contract 16.2; DR 0007 section 3)
-    input  wire        wr_valid,
+    input  wire        wr_valid,          // already gated on SEC = 0 (DR 0007 rev 2)
     input  wire        wr_flag,
-    input  wire [6:0]  wr_addr,
-    input  wire [23:0] wr_data,
-    // the drum bus (ARCHITECTURE.md section 4): Q4.15, valid for this frame once drum_done
-    input  wire signed [18:0] drum_bus,
+    input  wire [7:0]  wr_addr,
+    input  wire [31:0] wr_data,
+    // the drum section's two buses (DR 0008, 15.5/15.6), valid this frame once drum_done
+    input  wire signed [20:0] dmix,
+    input  wire signed [18:0] body,
     input  wire        drum_done,
     // out
     output reg  signed [15:0] sample,
@@ -81,7 +94,7 @@ module voice_dp #(
     reg [15:0] rate_a, rate_f;
     reg        gate;
     reg [23:0] glide;
-    reg [15:0] vol, dvol;
+    reg [15:0] vol, dvol, bvol;
     reg        dfilt;                  // ROUTE bit 0: the drum bus through the second ladder context
     reg [15:0] cut_lo, cut_hi, track_hz;
     reg [16:0] k;
@@ -143,7 +156,8 @@ module voice_dp #(
         S_LGO = 16,
         S_EA1 = 17, S_EF1 = 18, S_SL0 = 19, S_SL1 = 20, S_SL2 = 21,
         S_DC0 = 22, S_DC1 = 23, S_DC2 = 24, S_DC3 = 25, S_DC4 = 26, S_DC5 = 27,
-        S_YWAIT = 28, S_DGO = 29, S_VCA0 = 30, S_VCA1 = 31, S_VCA2 = 32, S_DWAIT = 33, S_OUT0 = 34, S_OUT1 = 35, S_OUT2 = 36;
+        S_YWAIT = 28, S_DM1 = 29, S_DM2 = 30, S_DFLT = 31, S_VCA1 = 32, S_VCA2 = 33,
+        S_DWAIT = 34, S_OUT2 = 35;
     reg [5:0]  state;
     reg [1:0]  kk;                     // oscillator index
     reg [1:0]  win;                    // PolyBLEP window 0..3
@@ -153,8 +167,12 @@ module voice_dp #(
     reg [15:0] g0, g1, kc0, kc1;
     reg signed [16:0] kd;
     reg [39:0] pacc;
-    reg signed [19:0] out_v, out_d;
-    reg signed [18:0] d19;             // the drum bus after (or without) the drum filter
+    // the output stage's accumulators, all EXACT (contract 12): no shift and no
+    // clamp until the single one at the end.
+    reg signed [38:0] dacc;            // dmix*dvol + body*bvol   , |.| < 2^37
+    reg signed [35:0] macc;            // v*vol                   , |.| < 2^34
+    reg signed [39:0] tacc;            // the whole sum           , |.| < 2^38
+    reg signed [18:0] d19;             // the drum bus after the drum filter
     assign busy = (state != S_IDLE);
 
     // ---- per-oscillator combinational view (index kk) --------------------------------
@@ -184,7 +202,7 @@ module voice_dp #(
     wire [38:0] xs  = {x, 15'b0} >> sh[kk];
     wire [15:0] p   = xs[15:0];                                   // 6.6.2
     wire [15:0] u   = mr[30:15];                                  // (p * r) >> 15, < 2^16
-    wire [16:0] s   = 17'h10000 - {1'b0, u};                      // 1..65536
+    wire [16:0] s   = 18'h10000 - {1'b0, u};                      // 1..65536
     wire [15:0] c   = mr[32:17];                                  // (s * s) >> 17, 0..32768
     wire        last_win = (win == 2'd3) || (win == 2'd1 && !two_edge);
     // the oscillator sample (6.6.4) and the mixer term (7). The square and
@@ -259,16 +277,33 @@ module voice_dp #(
 
     // ---- output (9, 12; ARCHITECTURE.md 4) ---------------------------------------------
     wire signed [19:0] msh = mixacc[34:15];
-    wire signed [20:0] osum = {out_v[19], out_v} + {out_d[19], out_d};
-    function signed [15:0] sat16(input signed [20:0] v);
-        sat16 = (v > 21'sd32767) ? 16'sd32767 : (v < -21'sd32768) ? -16'sd32768 : v[15:0];
-    endfunction
     function signed [15:0] sat16m(input signed [19:0] v);
         sat16m = (v > 20'sd32767) ? 16'sd32767 : (v < -20'sd32768) ? -16'sd32768 : v[15:0];
     endfunction
-    function signed [15:0] sat16d(input signed [18:0] v);
-        sat16d = (v > 19'sd32767) ? 16'sd32767 : (v < -19'sd32768) ? -16'sd32768 : v[15:0];
+    function signed [15:0] sat16q(input signed [23:0] v);          // the drum filter's input rail
+        sat16q = (v > 24'sd32767) ? 16'sd32767 : (v < -24'sd32768) ? -16'sd32768 : v[15:0];
     endfunction
+    function signed [15:0] sat16t(input signed [24:0] v);          // the chip's ONE rail
+        sat16t = (v > 25'sd32767) ? 16'sd32767 : (v < -25'sd32768) ? -16'sd32768 : v[15:0];
+    endfunction
+    wire signed [23:0] dq = dacc >>> 15;                           // the drum bus as a Q4.15 word
+    wire signed [24:0] tsh = tacc >>> 15;
+    // the two buses as they enter the gains. NEGATIVE CONTROL: clipped to 16
+    // bits first, which contract 12 says must not happen ("a bus clipped to 16
+    // bits before the master gains could not be recovered by lowering them").
+`ifdef INJECT_BUG_VOICE_DRUM_CLAMP16
+    wire signed [24:0] dmix_m = {{9{dmix[20]}}, ((dmix > 21'sd32767) ? 16'sd32767 :
+                                 (dmix < -21'sd32768) ? -16'sd32768 : dmix[15:0])};
+    wire signed [24:0] body_m = {{9{body[18]}}, ((body > 19'sd32767) ? 16'sd32767 :
+                                 (body < -19'sd32768) ? -16'sd32768 : body[15:0])};
+`else
+    wire signed [24:0] dmix_m = {{4{dmix[20]}}, dmix};
+    wire signed [24:0] body_m = {{6{body[18]}}, body};
+`endif
+    // NEGATIVE CONTROL: each product floored to Q.15 before the sum -- two
+    // floors instead of contract 12's one.
+    wire signed [39:0] macc_r = $signed({macc[35:15], 15'b0});
+    wire signed [39:0] dacc_r = $signed({dacc[38:15], 15'b0});
 
     integer i;
     always @(posedge clk) begin
@@ -278,11 +313,11 @@ module voice_dp #(
                 phase[i] <= 0; sh[i] <= 5'd15; r[i] <= 0; inc_er[i] <= 0;
             end
             a_inc_a <= 0; d_dec_a <= 0; sus_a <= 0; rate_a <= 0; a_inc_f <= 0; d_dec_f <= 0; sus_f <= 0; rate_f <= 0;
-            gate <= 0; glide <= 0; vol <= 0; dvol <= 0; dfilt <= 0; cut_lo <= 0; cut_hi <= 0; track_hz <= 0;
+            gate <= 0; glide <= 0; vol <= 0; dvol <= 0; bvol <= 0; dfilt <= 0; cut_lo <= 0; cut_hi <= 0; track_hz <= 0;
             k <= 0; gain <= 0; ogain <= 0; dcut <= 0; dk <= 0; dgain <= 0; dogain <= 0;
             level_a <= 0; level_f <= 0; seg_a <= 0; seg_f <= 0;
             state <= S_IDLE; kk <= 0; win <= 0; c_pp <= 0; c_ps <= 0; mixacc <= 0; y_seen <= 0; d_seen <= 0;
-            g0 <= 0; g1 <= 0; kc0 <= 0; kc1 <= 0; kd <= 0; pacc <= 0; out_v <= 0; out_d <= 0; d19 <= 0;
+            g0 <= 0; g1 <= 0; kc0 <= 0; kc1 <= 0; kd <= 0; pacc <= 0; dacc <= 0; macc <= 0; tacc <= 0; d19 <= 0;
             ma <= 0; mb <= 0; div_start <= 0; div_inc <= 0; lad_sv <= 0; lad_ch <= 0; g <= 0; g2 <= 0; k_eff2 <= 0; dx <= 0;
             sample <= 0; sample_valid <= 0; mixed <= 0; ae <= 0; fe <= 0; cut <= 0; k_eff <= 0; y19 <= 0;
         end else begin
@@ -356,7 +391,7 @@ module voice_dp #(
 `ifdef INJECT_BUG_VOICE_KEFF
                 S_KEFF1: begin k_eff <= k; state <= S_LGO; end                // NEGATIVE CONTROL: no compensation
 `else                                                                         //   (rev 1): dies above ~3 kHz
-                S_KEFF1: begin k_eff <= mr[32] ? 17'h1FFFF : mr[31:15]; state <= S_LGO; end
+                S_KEFF1: begin k_eff <= mr[32] ? 18'h1FFFF : mr[31:15]; state <= S_LGO; end
 `endif
                 // ---- 5. the voice's ladder context starts ----
                 S_LGO: begin
@@ -405,32 +440,47 @@ module voice_dp #(
                 end
                 S_DC3: begin g2 <= g0 + mr[23:8]; ma <= {{8{kd[16]}}, kd}; mb <= {11'b0, kf}; state <= S_DC4; end
                 S_DC4: begin ma <= {8'b0, dk}; mb <= {5'b0, kc_n}; state <= S_DC5; end
-                S_DC5: begin k_eff2 <= mr[32] ? 17'h1FFFF : mr[31:15]; state <= S_YWAIT; end
-                // ---- 6. the voice context done: launch the drum filter, then the VCA ----
-                S_YWAIT: if (y_seen) begin
-                    if (dfilt) begin
-                        if (drum_done) begin
-                            dx <= sat16d(drum_bus); lad_sv <= 1'b1; lad_ch <= 1'b1; state <= S_VCA0;
-                        end
-                    end else state <= S_VCA0;
+                S_DC5: begin k_eff2 <= mr[32] ? 18'h1FFFF : mr[31:15]; state <= S_YWAIT; end
+                // ---- 6. the voice context done and the drum buses in: the drum gains ----
+                // Both buses are needed whatever ROUTE says, so the wait is on
+                // drum_done either way (ARCHITECTURE.md 4.4: wait, do not assume).
+                S_YWAIT: if (y_seen && drum_done) begin
+                    ma <= dmix_m; mb <= {5'b0, dvol}; state <= S_DM1;
                 end
-                S_VCA0: begin ma <= {{6{y19[18]}}, y19}; mb <= {6'b0, ae}; state <= S_VCA1; end
+                S_DM1: begin dacc <= $signed(mr[38:0]); ma <= body_m; mb <= {5'b0, bvol}; state <= S_DM2; end
+                S_DM2: begin dacc <= dacc + $signed(mr[38:0]); state <= S_DFLT; end
+                // the drum filter runs on sat16 of the GAIN-SCALED drum bus
+                // (ARCHITECTURE.md 4.1: its input is sat16(drum_bus), and its
+                // rail is the designed mixer-overload rail); the VCA multiply
+                // starts in the same cycle, in the filter's shadow.
+                S_DFLT: begin
+                    if (dfilt) begin dx <= sat16q(dq); lad_sv <= 1'b1; lad_ch <= 1'b1; end
+                    ma <= {{6{y19[18]}}, y19}; mb <= {6'b0, ae};
+                    state <= S_VCA1;
+                end
                 S_VCA1: begin ma <= mr[39:15]; mb <= {5'b0, vol}; state <= S_VCA2; end
-                S_VCA2: begin out_v <= mr[34:15]; state <= S_DWAIT; end
-                // ---- 7. the master mix, one rail ----
+                S_VCA2: begin macc <= $signed(mr[35:0]); state <= S_DWAIT; end
+                // ---- 7. the master mix: one exact sum, one shift, one rail ----
                 S_DWAIT: begin
                     if (dfilt) begin
-                        if (d_seen) begin ma <= {{6{d19[18]}}, d19}; mb <= {5'b0, dvol}; state <= S_OUT1; end
-                    end else if (drum_done) begin
-                        ma <= {{6{drum_bus[18]}}, drum_bus}; mb <= {5'b0, dvol}; state <= S_OUT1;
+                        if (d_seen) begin
+                            tacc <= macc + $signed({{6{d19[18]}}, d19, 15'b0});
+                            state <= S_OUT2;
+                        end
+                    end else begin
+`ifdef INJECT_BUG_VOICE_MASTER_PRESHIFT
+                        tacc <= macc_r + dacc_r;                              // NEGATIVE CONTROL: two floors
+`else
+                        tacc <= macc + dacc;
+`endif
+                        state <= S_OUT2;
                     end
                 end
-                S_OUT1: begin out_d <= mr[34:15]; state <= S_OUT2; end
                 default: begin                                                // S_OUT2
 `ifdef INJECT_BUG_VOICE_OUT_SAT
-                    sample <= osum[15:0];                                     // NEGATIVE CONTROL: no rail
+                    sample <= tsh[15:0];                                       // NEGATIVE CONTROL: no rail
 `else
-                    sample <= sat16(osum);
+                    sample <= sat16t(tsh);
 `endif
                     sample_valid <= 1'b1; state <= S_IDLE;
                 end
@@ -438,33 +488,34 @@ module voice_dp #(
 
             // ---- the register write port (DR 0007 section 3); applied while idle ----
             if (wr_valid) case (wr_addr)
-                7'h00, 7'h01, 7'h02: begin
-                    inc_tgt[wr_addr[1:0]] <= wr_data;
-                    if (wr_flag || glide == 24'd0) inc_acc[wr_addr[1:0]] <= {wr_data, 8'b0};
+                8'h00, 8'h01, 8'h02: begin
+                    inc_tgt[wr_addr[1:0]] <= wr_data[23:0];
+                    if (wr_flag || glide == 24'd0) inc_acc[wr_addr[1:0]] <= {wr_data[23:0], 8'b0};
                 end
-                7'h04, 7'h05, 7'h06: wave[wr_addr[1:0]] <= wr_data[2:0];
-                7'h08, 7'h09, 7'h0A: w[wr_addr[1:0]] <= wr_data[15:0];
-                7'h0C: glide <= wr_data;
-                7'h0D: vol <= wr_data[15:0];
-                7'h0E: dvol <= wr_data[15:0];
-                7'h0F: dfilt <= wr_data[0];
-                7'h10: a_inc_a <= wr_data;  7'h11: d_dec_a <= wr_data;  7'h12: sus_a <= wr_data;  7'h13: rate_a <= wr_data[15:0];
-                7'h14: a_inc_f <= wr_data;  7'h15: d_dec_f <= wr_data;  7'h16: sus_f <= wr_data;  7'h17: rate_f <= wr_data[15:0];
-                7'h18: cut_lo <= wr_data[15:0];  7'h19: cut_hi <= wr_data[15:0];  7'h1A: track_hz <= wr_data[15:0];
-                7'h1C: k <= wr_data[16:0];  7'h1D: gain <= wr_data[19:0];  7'h1E: ogain <= wr_data[19:0];
-                7'h20: begin gate <= 1'b1; seg_a <= 2'd0; seg_f <= 2'd0;       // GATE_ON: ATTACK from the
+                8'h04, 8'h05, 8'h06: wave[wr_addr[1:0]] <= wr_data[2:0];
+                8'h08, 8'h09, 8'h0A: w[wr_addr[1:0]] <= wr_data[15:0];
+                8'h0C: glide <= wr_data[23:0];
+                8'h0D: vol <= wr_data[15:0];
+                8'h0E: dvol <= wr_data[15:0];
+                8'h0F: dfilt <= wr_data[0];
+                8'h10: a_inc_a <= wr_data[23:0];  8'h11: d_dec_a <= wr_data[23:0];  8'h12: sus_a <= wr_data[23:0];  8'h13: rate_a <= wr_data[15:0];
+                8'h14: a_inc_f <= wr_data[23:0];  8'h15: d_dec_f <= wr_data[23:0];  8'h16: sus_f <= wr_data[23:0];  8'h17: rate_f <= wr_data[15:0];
+                8'h18: cut_lo <= wr_data[15:0];  8'h19: cut_hi <= wr_data[15:0];  8'h1A: track_hz <= wr_data[15:0];
+                8'h1C: k <= wr_data[16:0];  8'h1D: gain <= wr_data[19:0];  8'h1E: ogain <= wr_data[19:0];
+                8'h20: begin gate <= 1'b1; seg_a <= 2'd0; seg_f <= 2'd0;       // GATE_ON: ATTACK from the
 `ifdef INJECT_BUG_VOICE_TRIG_RESET                                             //   current level (8.5)
                        level_a <= 24'd0; level_f <= 24'd0;                     // NEGATIVE CONTROL: the reset-to-
 `endif                                                                         //   zero envelope DR 0003 rejects
                 end
-                7'h21: gate <= 1'b0;                                           // GATE_OFF
-                7'h22: begin seg_a <= 2'd0; seg_f <= 2'd0;                     // TRIG
+                8'h21: gate <= 1'b0;                                           // GATE_OFF
+                8'h22: begin seg_a <= 2'd0; seg_f <= 2'd0;                     // TRIG
 `ifdef INJECT_BUG_VOICE_TRIG_RESET
                        level_a <= 24'd0; level_f <= 24'd0;
 `endif
                 end
-                7'h28: dcut <= wr_data[15:0];  7'h29: dk <= wr_data[16:0];
-                7'h2A: dgain <= wr_data[19:0]; 7'h2B: dogain <= wr_data[19:0];
+                8'h28: dcut <= wr_data[15:0];  8'h29: dk <= wr_data[16:0];
+                8'h2A: dgain <= wr_data[19:0]; 8'h2B: dogain <= wr_data[19:0];
+                8'h2C: bvol <= wr_data[15:0];                                  // the body bus's gain (12)
                 default: ;                                                     // RESET is rst_n; NOP, reserved, drums
             endcase
         end
