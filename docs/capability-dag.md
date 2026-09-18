@@ -150,7 +150,10 @@ against a real recording, where one exists.
 | 11 | CH closed hat | ✓ | ✓ | ✓ | n/a | no knob → no held-out setting |
 | — | DL full library | — | — | — | — | simultaneity and mix, after all circuits |
 
-**The 808's sixteen sounds are eleven circuits, in five exclusive pairs.** The
+**The 808's sixteen sounds are eleven or twelve circuits, in five exclusive
+pairs.** (Roland's TR-08 pairing implies eleven; Wikipedia says twelve timbral
+voices, plausibly over whether CH/OH is one shared circuit or two. Unresolved,
+and it moves the arithmetic by one — see `docs/reduced-808-precedent.md`.) The
 paired voices are the *same circuit retuned* and cannot sound simultaneously —
 verified from Roland's own TR-08 instrument listing, which still groups them in
 exactly those pairs thirty-five years later, and consistent with the original's
@@ -162,10 +165,18 @@ the mid conga/tom, the claves/rim shot, and the cymbal. Adding the second half
 of each pair we already own (LC, MC, HC, CL or RS, MA) is a coefficient preset,
 not a mode.
 
-Precedent for shipping fewer: Roland's own **T-8** ships six drum voices and
-Roland chose which six; **Korg volca beats** bought five analog voices and
-sampled everything else; the **TR-6S** has six assignable parts. Six
-simultaneous drum parts is a shipped product more than once.
+**Voice count is not our risk — the snare is.** No source in the survey
+(`docs/reduced-808-precedent.md`) reports a reduced 808 rejected for having too
+few voices; Roland's **T-8** ships six and reviewers call it *"authentically
+reproduced"*. What gets rejected is one specific voice, and it is the snare
+every time: the volca beats' is *"not snappy enough for a decent 808
+emulation"* and users layer a clap over it, the T-8's *"loses the front end"*,
+and io-808's author names his cymbal and rimshot.
+
+**That matches our own measurement independently** — SD is our worst voice at
+8.8 knob-equivalents. So the snare leads the queue, ahead of D0. And the six
+square oscillators are not negotiable: Mutable's **Peaks** kept all six phases
+on a 72 MHz part with two voices total rather than fake them.
 
 The hardware column is **knob-equivalent separation out of 10**: how far the
 real machine's own knob must travel before it looks this different from itself.
