@@ -29,11 +29,15 @@ design was arithmetic on separately-measured cell areas. Two things came out of 
 2. **The `synth_top` that exists now — with the real `drum_kit` engine (`d1e5068`) — does not fit
    that slot at all.** Its standard cells are **1,979,380 µm²**: *larger than the entire 1.7319 mm²
    die*, a floorplan utilisation of **118.3 %**. Section 4.
+3. **It does route, cleanly, in two quarter slots.** On a fixed 3.4650 mm² die it reaches
+   **60.1 % utilisation with 0 detailed-route DRC violations**, 0 antenna violations, and positive
+   setup and hold slack at all three corners (`ss_125C_4v50`: setup **+10.17 ns**, hold **+1.14 ns**).
+   Section 4.1.
 
 "It fits in a keychain" was true of the chip with a placeholder where the drums go. It is not true of
-the chip with the drums in it. The gap is not subtle and it is not a routing effect: it is 1.05 mm²
-of extra standard cells, of which **the drum section is 1.27 mm² and its control register file alone
-is 0.32 mm²** (section 5).
+the chip with the drums in it: **that chip needs about twice the silicon that was budgeted.** The gap
+is not subtle and it is not a routing effect — it is 1.05 mm² of extra standard cells, of which
+**the drum section is 1.27 mm² and its control register file alone is 0.32 mm²** (section 5).
 
 ---
 
@@ -118,6 +122,24 @@ from the final netlist at all. So this table covers the flops and says so
 | `synth_top` own (cyc, frame, overrun, reset sync) | 33 | 2,289.6 | 1.1 |
 | **total** | **2,925** | **199,137.6** | 100 |
 
+The same table for the joined chip's routed layout (8,298 flops, 564,974.2 µm²):
+
+| block | flops | flop area µm² | % |
+|---|---:|---:|---:|
+| `u_dregs` (`drum_regs`) | **2,276** | 154,884.5 | 27.4 |
+| `u_drums.bank` (`modal_dp`) | 2,072 | 141,046.0 | 25.0 |
+| `u_voice` own | 1,590 | 108,212.4 | 19.2 |
+| `u_drums.src` (`drum_dp`) | 1,367 | 93,069.9 | 16.5 |
+| `u_voice.u_ladder` | 530 | 36,078.1 | 6.4 |
+| `u_spi` | 292 | 19,881.9 | 3.5 |
+| `u_voice.u_div` | 77 | 5,239.9 | 0.9 |
+| `u_i2s` | 49 | 3,334.5 | 0.6 |
+| `synth_top` own | 45 | 3,226.9 | 0.6 |
+
+`drum_regs` places **exactly 2,276 flops** — precisely the bit count
+`docs/integration-area.md` section 4.1 censused from the register map. The bit count was right; only
+the µm²/bit was low (section 5).
+
 This is also the check that the run did the work it claims. `docs/ARCHITECTURE.md` section 10
 independently measures 2,939 flops for this RTL under a different tool recipe; the routed layout has
 2,925. **0.5 % apart on a number that a collapsed, all-X netlist could not produce at all** — the
@@ -147,6 +169,48 @@ Same flow, same stock `DONT_USE_CELLS = *_1`, same fixed quarter-slot die:
 no routing: the flow stops at the floorplan because the cells are larger than the core they would sit
 in. This is a measurement of the design, not of the flow — no utilisation target was set, and no
 amount of placement effort changes it.
+
+### 4.1 …and routes clean in two quarter slots
+
+Same RTL, same flow, same stock `DONT_USE_CELLS`, on the fixed 3.4650 mm² die of section 2.
+Evidence: `pnr/orfs/evidence/synth_top/joined-d1e5068/`.
+
+| stage | instances | std-cell area µm² | utilisation | setup WNS @tt |
+|---|---:|---:|---:|---:|
+| synth | 59,289 | 1,979,380 | | |
+| floorplan (fixed die) | 59,289 | 1,979,380 | 58.5 % | +50.69 ns |
+| place (+ I/O buffers, resizing) | 61,120 | 1,950,350 | 57.7 % | +45.54 ns |
+| CTS (+ clock tree) | 61,998 | 2,033,110 | 60.1 % | +45.26 ns |
+| **finish** (count includes fillers/taps/endcaps) | 154,246 | **2,033,110** | **60.1 %** | **+43.59 ns** |
+
+- **die 3,464,960 µm²** — *input*; **core 3,382,070 µm²** — *input*
+- **final standard-cell area 2,033,110 µm² = 60.1 % of the core** — *measured*
+- 8,298 flops, 38,419 multi-input combinational cells, 8,617 inverters, 689 clock buffers,
+  609 timing-repair buffers, 4,239 taps, 938 endcaps, 92,248 fillers (1,348,960 µm²)
+- routed wirelength **3,362,120 µm**; **detailed-route DRC violations: 0**; antenna-violating nets 0,
+  antenna diodes 0; max-slew violations 0, **max-capacitance violations 2**
+- clock skew 0.212 ns, ORFS `fmax` 26.5 MHz, power 143.54 mW (ORFS estimate, default activity)
+
+| corner | setup WNS | setup TNS | hold WNS | hold TNS | implied min period |
+|---|---:|---:|---:|---:|---:|
+| `tt_025C_5v00` | **+43.592 ns** | 0.000 | **+0.600 ns** | 0.000 | 37.79 ns (26.5 MHz) |
+| **`ss_125C_4v50`** | **+10.173 ns** | 0.000 | **+1.140 ns** | 0.000 | 71.21 ns (14.0 MHz) |
+| `ff_n40C_5v50` | **+58.055 ns** | 0.000 | **+0.363 ns** | 0.000 | 23.32 ns (42.9 MHz) |
+
+Setup still closes at the slow corner, with 12.5 % of the period to spare against the placeholder
+chip's 19 %. The whole flow took 9,072 s; detailed routing was the long pole and it did not converge
+quickly — **17,929 → 3,839 → 3,042 → 23 → 1 → … → 0 violations over twelve optimisation
+iterations**, about 2.5 h. Global placement's own routability pass had already reported the die
+comfortable (0.26 % of tiles overflowed, weighted congestion 1.0000 against a 1.0100 target), so the
+grind was pin access and shorts, not global congestion. `PLACE_DENSITY` was 0.69 against a 58.5 %
+floorplan utilisation; a target nearer the utilisation was not tried and might converge faster.
+
+### 4.2 What it costs in silicon, plainly
+
+| | quarter slot (1.7319 mm²) | two quarter slots (3.4650 mm²) |
+|---|---|---|
+| placeholder chip `2a88c35` | **routes at 56.7 %**, 2 DRC | — |
+| joined chip `d1e5068` | **118.3 % — will not place** | **routes at 60.1 %, 0 DRC** |
 
 ---
 
@@ -255,7 +319,8 @@ drum engine is 2.14× the chip the extrapolation was made for.
 - Power figures are ORFS's estimate with default switching activity.
 - IR drop was not analysed: `platforms/gf180/setRC.tcl` only sets via resistances at `CORNER=WC`, so
   `analyze_power_grid` aborts at TC (`docs/pnr-first-run.md` section 1.1 item 4).
-- The joined chip's `*_1`-allowed number is a synthesis, not a route.
+- The joined chip's `*_1`-allowed number (1,510,153 µm², 63,667 instances) is a synthesis, not a
+  route.
 - The pad ring is not modelled. The 1.73 mm² premise is stated to be *inside* the default pad ring,
   and these dice are core+margin only.
 

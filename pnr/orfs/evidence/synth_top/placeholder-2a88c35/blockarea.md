@@ -13,7 +13,7 @@ not a measurement of synth_top's own logic):
 | u_drums.u_modal   (modal_dp_rom, 8 presets) | 385 | 26,199.7 | 2.8 |
 | ZZ flow: clock tree (CTS) | 181 | 24,634.5 | 2.6 |
 | u_spi             (spi_ctl) | 250 | 17,034.8 | 1.8 |
-| u_drums           (PLACEHOLDER sources) | 87 | 5,920.5 | 0.6 |
+| u_drums           (drum section) | 87 | 5,920.5 | 0.6 |
 | u_voice.u_div     (recip_div) | 77 | 5,239.9 | 0.6 |
 | u_i2s             (i2s_tx) | 49 | 3,334.5 | 0.4 |
 | ZZ flow: endcap cells | 660 | 2,897.7 | 0.3 |
@@ -28,7 +28,7 @@ flattened netlist that can be attributed to a block:
 | u_voice.u_ladder  (ladder_dp_n, NCH=2) | 530 | 36,078.1 | 18.1 |
 | u_drums.u_modal   (modal_dp_rom, 8 presets) | 385 | 26,199.7 | 13.2 |
 | u_spi             (spi_ctl) | 250 | 17,034.8 | 8.6 |
-| u_drums           (PLACEHOLDER sources) | 87 | 5,920.5 | 3.0 |
+| u_drums           (drum section) | 87 | 5,920.5 | 3.0 |
 | u_voice.u_div     (recip_div) | 77 | 5,239.9 | 2.6 |
 | u_i2s             (i2s_tx) | 49 | 3,334.5 | 1.7 |
 | synth_top own (cyc, frame, overrun, rst sync) | 33 | 2,289.6 | 1.1 |

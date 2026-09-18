@@ -29,8 +29,14 @@ BUCKETS = [
     (r"^u_voice\.u_ladder\b",        "u_voice.u_ladder  (ladder_dp_n, NCH=2)"),
     (r"^u_voice\.u_div\b",           "u_voice.u_div     (recip_div)"),
     (r"^u_voice\b",                  "u_voice           (own: oscs, mixer, ADSRs, ROMs, VCA, mix)"),
+    # d1e5068 and later -- the real drum engine. drum_kit instantiates drum_dp as `src` and
+    # modal_dp as `bank`; synth_top instantiates drum_regs as u_dregs.
+    (r"^u_drums\.src\b",             "u_drums.src       (drum_dp: envelopes, paths, LFSR)"),
+    (r"^u_drums\.bank\b",            "u_drums.bank      (modal_dp resonator bank)"),
+    (r"^u_dregs\b",                  "u_dregs           (drum_regs control register file)"),
+    # 2a88c35 and earlier -- the placeholder drum section, whose bank was modal_dp_rom.
     (r"^u_drums\.u_modal\b",         "u_drums.u_modal   (modal_dp_rom, 8 presets)"),
-    (r"^u_drums\b",                  "u_drums           (PLACEHOLDER sources)"),
+    (r"^u_drums\b",                  "u_drums           (drum section)"),
     (r"^u_spi\b",                    "u_spi             (spi_ctl)"),
     (r"^u_i2s\b",                    "u_i2s             (i2s_tx)"),
 ]

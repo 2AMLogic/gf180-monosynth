@@ -1,0 +1,76 @@
+Found gzip magic in file `/OpenROAD-flow-scripts/flow/platforms/gf180/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib.gz', decompressing using zlib.
+
+21. Printing statistics.
+
+=== synth_top ===
+
+        +----------------------------Count including submodules.
+        |        +-------------------Area including submodules.
+        |        |        +----------Local count, excluding submodules.
+        |        |        |        +-Local area, excluding submodules.
+        |        |        |        | 
+    63319        -    63319        - wires
+    63319        -    63319        - wire bits
+     8903        -     8903        - public wires
+     8903        -     8903        - public wire bits
+        9        -        9        - ports
+        9        -        9        - port bits
+        -        -        -        - memories
+        -        -        -        - memory bits
+        -        -        -        - processes
+    59289 1.98E+06    59289 1.98E+06 cells
+     2128 1.54E+05     2128 1.54E+05   gf180mcu_fd_sc_mcu7t5v0__addf_1
+     1897  7.5E+04     1897  7.5E+04   gf180mcu_fd_sc_mcu7t5v0__addh_1
+     6124 1.21E+05     6124 1.21E+05   gf180mcu_fd_sc_mcu7t5v0__and2_2
+        6   223.91        6   223.91   gf180mcu_fd_sc_mcu7t5v0__and2_4
+      781 1.89E+04      781 1.89E+04   gf180mcu_fd_sc_mcu7t5v0__and3_2
+        2   87.808        2   87.808   gf180mcu_fd_sc_mcu7t5v0__and3_4
+      340  9.7E+03      340  9.7E+03   gf180mcu_fd_sc_mcu7t5v0__and4_2
+     1269 4.74E+04     1269 4.74E+04   gf180mcu_fd_sc_mcu7t5v0__aoi211_2
+     2206  6.3E+04     2206  6.3E+04   gf180mcu_fd_sc_mcu7t5v0__aoi21_2
+       17  895.642       17  895.642   gf180mcu_fd_sc_mcu7t5v0__aoi21_4
+      268 1.35E+04      268 1.35E+04   gf180mcu_fd_sc_mcu7t5v0__aoi221_2
+      523 1.84E+04      523 1.84E+04   gf180mcu_fd_sc_mcu7t5v0__aoi22_2
+        2  166.835        2  166.835   gf180mcu_fd_sc_mcu7t5v0__buf_12
+     2692 4.73E+04     2692 4.73E+04   gf180mcu_fd_sc_mcu7t5v0__buf_2
+       20   439.04       20   439.04   gf180mcu_fd_sc_mcu7t5v0__buf_3
+       34 1.04E+03       34 1.04E+03   gf180mcu_fd_sc_mcu7t5v0__buf_4
+       20 1.14E+03       20 1.14E+03   gf180mcu_fd_sc_mcu7t5v0__buf_8
+     1184 2.08E+04     1184 2.08E+04   gf180mcu_fd_sc_mcu7t5v0__clkbuf_2
+        1   30.733        1   30.733   gf180mcu_fd_sc_mcu7t5v0__clkbuf_4
+     8540 1.12E+05     8540 1.12E+05   gf180mcu_fd_sc_mcu7t5v0__clkinv_2
+        1   17.562        1   17.562   gf180mcu_fd_sc_mcu7t5v0__clkinv_3
+     8298 5.65E+05     8298 5.65E+05   gf180mcu_fd_sc_mcu7t5v0__dffq_2
+        2   57.075        2   57.075   gf180mcu_fd_sc_mcu7t5v0__dlya_2
+       68  895.642       68  895.642   gf180mcu_fd_sc_mcu7t5v0__inv_2
+        2   35.123        2   35.123   gf180mcu_fd_sc_mcu7t5v0__inv_3
+        6  131.712        6  131.712   gf180mcu_fd_sc_mcu7t5v0__inv_4
+     4198 1.38E+05     4198 1.38E+05   gf180mcu_fd_sc_mcu7t5v0__mux2_2
+     6040 1.19E+05     6040 1.19E+05   gf180mcu_fd_sc_mcu7t5v0__nand2_2
+       15  526.848       15  526.848   gf180mcu_fd_sc_mcu7t5v0__nand2_4
+      647 1.85E+04      647 1.85E+04   gf180mcu_fd_sc_mcu7t5v0__nand3_2
+        2   114.15        2   114.15   gf180mcu_fd_sc_mcu7t5v0__nand3_4
+      125   4390.4      125   4390.4   gf180mcu_fd_sc_mcu7t5v0__nand4_2
+     1149 2.52E+04     1149 2.52E+04   gf180mcu_fd_sc_mcu7t5v0__nor2_2
+        9  355.622        9  355.622   gf180mcu_fd_sc_mcu7t5v0__nor2_4
+       45 1.38E+03       45 1.38E+03   gf180mcu_fd_sc_mcu7t5v0__nor3_2
+        6  237.082        6  237.082   gf180mcu_fd_sc_mcu7t5v0__nor4_2
+     1846 7.29E+04     1846 7.29E+04   gf180mcu_fd_sc_mcu7t5v0__oai211_2
+     1406 4.63E+04     1406 4.63E+04   gf180mcu_fd_sc_mcu7t5v0__oai21_2
+        1    59.27        1    59.27   gf180mcu_fd_sc_mcu7t5v0__oai21_4
+       54 2.73E+03       54 2.73E+03   gf180mcu_fd_sc_mcu7t5v0__oai221_2
+     4670 1.95E+05     4670 1.95E+05   gf180mcu_fd_sc_mcu7t5v0__oai22_2
+      162 6.76E+03      162 6.76E+03   gf180mcu_fd_sc_mcu7t5v0__oai31_2
+      112 5.65E+03      112 5.65E+03   gf180mcu_fd_sc_mcu7t5v0__oai32_2
+      799 1.75E+04      799 1.75E+04   gf180mcu_fd_sc_mcu7t5v0__or2_2
+      574 1.51E+04      574 1.51E+04   gf180mcu_fd_sc_mcu7t5v0__or3_2
+        1   48.294        1   48.294   gf180mcu_fd_sc_mcu7t5v0__or3_4
+      125   3841.6      125   3841.6   gf180mcu_fd_sc_mcu7t5v0__or4_2
+      741 2.77E+04      741 2.77E+04   gf180mcu_fd_sc_mcu7t5v0__xnor2_2
+       50  3073.28       50  3073.28   gf180mcu_fd_sc_mcu7t5v0__xnor3_2
+       75  2963.52       75  2963.52   gf180mcu_fd_sc_mcu7t5v0__xor2_2
+        6  381.965        6  381.965   gf180mcu_fd_sc_mcu7t5v0__xor3_2
+
+   Chip area for module '\synth_top': 1979378.912000
+     of which used for sequential elements: 564688.857600 (28.53%)
+

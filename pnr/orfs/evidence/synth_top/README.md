@@ -6,7 +6,7 @@ Two different chips are recorded here, because `synth_top` changed underneath th
 |---|---|---|
 | `placeholder-2a88c35/` | `2a88c35` | `synth_top` with `drum_section_placeholder` — the design `docs/ARCHITECTURE.md` section 10 and `docs/area-budget.md` row G describe. **Fully routed**: synthesis, floorplan, placement, CTS, detailed routing, finish, multi-corner STA. The first `synth_top` ever placed and routed. |
 | `quarterslot-does-not-fit/` | `d1e5068` | `synth_top` with the **real** `drum_kit`/`drum_regs` engine, floorplanned on the quarter slot. Floorplan only: at 118.3 % utilisation there is nothing to place. |
-| `joined-d1e5068/` | `d1e5068` | the same joined design on a die that holds it (two quarter slots), routed. |
+| `joined-d1e5068/` | `d1e5068` | the same joined design on a die that holds it — two quarter slots, 3.4650 mm². **Fully routed**: 60.1 % utilisation, **0 detailed-route DRC violations**, positive setup and hold slack at tt/ss/ff. Also carries the hierarchical synthesis (`synth_stat_hier.txt`, the per-block split) and the `DONT_USE_CELLS=` synthesis (`synth_stat_x1.txt`). |
 
 The RTL of `placeholder-2a88c35` (md5, in the order `pnr/orfs/synth_top/config.mk` listed them at
 that commit):
