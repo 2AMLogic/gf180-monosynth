@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Run known-independent jobs together in one turn; report each one truthfully.
+
+WHY THIS EXISTS. An audit of one session found **89 agent wake-ups that
+produced nothing** but "still running" or "ending my turn"; one agent alone did
+24. Each wake reprocesses the agent's context, which is wasteful -- though the
+billed cost depends on caching and the provider, so measure usage separately
+from transcript turn counts rather than quoting a token figure per wake.
+
+The cause is always serial jobs: fire one, wake, fire the next, wake.
+
+    tools/run_all.py "verify_ladder" "verify_modal" "verify_voice --set quick"
+
+BATCH KNOWN-INDEPENDENT WORK. Not everything: generating vectors before
+simulating them, or reading a failure before choosing a diagnostic, is
+legitimate sequential work. The objective is fewer *empty* turns, not
+unconditional parallelism.
+
+WHAT THIS GUARANTEES, AND WHAT IT DOES NOT
+
+  - It reports **process exit status**, never text. A job that prints "FAIL"
+    and exits 0 is reported PASS: that is a defect in the verifier, and the
+    runner must not paper over it by scraping output.
+  - A timeout is **NO-VERDICT**, distinct from PASS and from FAIL. A timed-out
+    job reported as either is how a green run hides a hung one.
+  - Each child's own exit status is preserved in the summary and the JSON
+    report. Verifiers here distinguish 1 (mismatch) from 2 (did not run) and
+    the runner must not erase that.
+  - The overall exit code is **bounded**: 0 or 1. A raw failure count is wrong
+    -- shell status is eight bits, so 256 failures would exit 0.
+  - On timeout the whole **process group** is killed, so a shelled-out job's
+    children do not survive. Putting supervision outside the command fixes the
+    shell-exit problem specifically; it does not by itself make cleanup correct,
+    which is why this is explicit.
+
+It cannot guarantee "one turn": an agent platform may background a long tool
+call regardless. It removes the *self-inflicted* serial wakes.
+"""
+from __future__ import annotations
+import argparse, concurrent.futures as cf, json, os, signal, subprocess, sys, time
+
+PASS, FAIL, NO_VERDICT, LAUNCH_ERROR = "PASS", "FAIL", "NO-VERDICT", "LAUNCH-ERROR"
+
+
+def run_one(cmd: str, timeout: float | None = None, env: dict | None = None) -> dict:
+    """Run one command. Never infers status from output."""
+    t0 = time.time()
+    try:
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True,
+                             start_new_session=True, env=env)
+    except Exception as exc:                       # could not launch at all
+        return {"cmd": cmd, "state": LAUNCH_ERROR, "rc": None,
+                "out": f"{type(exc).__name__}: {exc}", "secs": 0.0}
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        rc = p.returncode
+        state = PASS if rc == 0 else FAIL
+    except subprocess.TimeoutExpired:
+        # Kill the GROUP: shell=True means a shell is the direct child, and
+        # killing it leaves the real work orphaned and still running.
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            out, _ = p.communicate(timeout=10)
+        except Exception:
+            out = ""
+        rc, state = None, NO_VERDICT
+    return {"cmd": cmd, "state": state, "rc": rc, "out": out or "",
+            "secs": time.time() - t0}
+
+
+def run_all(cmds: list[str], *, serial: bool = False, timeout: float | None = None,
+            jobs: int | None = None) -> list[dict]:
+    if serial or len(cmds) == 1:
+        return [run_one(c, timeout) for c in cmds]
+    workers = jobs or min(len(cmds), (os.cpu_count() or 4))
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(run_one, c, timeout) for c in cmds]
+        return [f.result() for f in futs]
+
+
+def summarise(results: list[dict], tail: int = 4) -> str:
+    bar = "=" * 78
+    lines = [bar]
+    for r in results:
+        tag = r["state"] if r["state"] != FAIL else f"FAIL({r['rc']})"
+        lines.append(f"{tag:<13} {r['secs']:6.1f}s  {r['cmd']}")
+        for line in [l for l in r["out"].strip().splitlines() if l.strip()][-tail:]:
+            lines.append(f"              {line}")
+    ok = sum(1 for r in results if r["state"] == PASS)
+    lines.append(bar)
+    bad = [f"{r['state']} {r['cmd'][:44]}" for r in results if r["state"] != PASS]
+    lines.append(f"{ok}/{len(results)} passed" + (f"  --  {'; '.join(bad)}" if bad else ""))
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmds", nargs="+")
+    ap.add_argument("--serial", action="store_true",
+                    help="run in order; use when jobs contend for a resource")
+    ap.add_argument("--jobs", type=int, default=None, help="max concurrent jobs")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="seconds per job; a timeout is NO-VERDICT, not FAIL")
+    ap.add_argument("--tail", type=int, default=4)
+    ap.add_argument("--json", metavar="PATH",
+                    help="write the full result set, including every child's own status")
+    a = ap.parse_args(argv)
+
+    results = run_all(a.cmds, serial=a.serial, timeout=a.timeout, jobs=a.jobs)
+    print(summarise(results, a.tail))
+    if a.json:
+        with open(a.json, "w") as fh:
+            json.dump(results, fh, indent=2)
+    # Bounded: 0 or 1. The count is in the summary and the JSON, where it
+    # cannot wrap round to zero.
+    return 0 if all(r["state"] == PASS for r in results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
