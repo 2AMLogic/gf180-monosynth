@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 audio/
 *.wav
+refaudio/cache/
 *.vvp
 rtl-sketch/build/
 pnr/orfs/work/
