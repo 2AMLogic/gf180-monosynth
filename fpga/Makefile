@@ -10,6 +10,14 @@
 #   make blocks     per-block resource breakdown (synthesis only)
 #   make clean
 #
+# THE CONTROL PATH (issue #81) -- no FPGA tools needed, iverilog only:
+#   make budget     the SPI link budget in absolute numbers, and the gate
+#   make host       the host's unit tests, then a musical fixture through the
+#                   PINS and bit-compared against model/synth_top_model.py
+#   make host-controls  every deliberately wrong transaction stream that must
+#                   turn `make host` red, in parallel, in one turn
+#   make play       the demo: the instrument with no keyboard attached
+#
 # Needs: yosys; nextpnr-ecp5 + prjtrellis for ecp5; nextpnr-ice40 + icestorm for
 # ice40. Set NEXTPNR_ECP5 / NEXTPNR_ICE40
 # if they are not on PATH. A missing tool skips its target and says so.
@@ -61,7 +69,37 @@ TOP_ICE40 := fpga_top
 # board must supply the frequency, so there it is a real constraint.
 FREQ_MHZ  ?= 12.288
 
-.PHONY: all ecp5 ice40 blocks headroom clean provenance srccheck
+.PHONY: all ecp5 ice40 blocks headroom clean provenance srccheck \
+        budget host host-controls play
+
+# ---------------------------------------------------------- the control path
+# Issue #81: the keyboard demo drove the floating-point audition engine, so
+# everything demonstrated had been made by poking model state. These targets
+# drive the verified integer chip through its 48-bit SPI link instead.
+budget:
+	@$(PYTHON) $(FPGA)/link_budget.py
+
+host:
+	@$(PYTHON) -m pytest $(FPGA)/test_spi_host.py -q
+	@$(PYTHON) $(FPGA)/verify_fixture.py --outdir $(ROOT)/build/fx-base
+
+## Every wrong transaction stream that must turn `make host` red. A bench that
+## has never been watched fail is not a bench (docs/verification-rules.md 1),
+## and `no-coef-seq` is the one that matters: it is a host that loads the kit
+## and forwards triggers and does nothing else -- the bridge issue #81 warns
+## about, and the reason the timed sequences of contract 15.7.1 exist.
+host-controls:
+	@$(PYTHON) $(ROOT)/tools/run_all.py --timeout 1800 \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong no-coef-seq   --expect-fail --outdir $(ROOT)/build/fx-nocoef" \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong drop-restore  --expect-fail --outdir $(ROOT)/build/fx-droprest" \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong late-window   --expect-fail --outdir $(ROOT)/build/fx-late" \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong no-tom-bend   --expect-fail --outdir $(ROOT)/build/fx-notom" \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong drop-tom-step --expect-fail --outdir $(ROOT)/build/fx-tomstep" \
+	  "$(PYTHON) $(FPGA)/verify_fixture.py --wrong burst         --expect-fail --outdir $(ROOT)/build/fx-burst"
+
+play:
+	@$(PYTHON) $(FPGA)/play.py --demo --out $(ROOT)/build/demo.wav
+
 all: srccheck provenance ecp5 ice40 blocks
 	@echo "--- reports in $(REPORTS)"
 
