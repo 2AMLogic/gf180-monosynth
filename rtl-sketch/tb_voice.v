@@ -31,7 +31,8 @@
 module tb_voice;
     parameter GO   = 48;              // writes occupy cycles 1..GO-2 (46; the whole patch image is 27)
     parameter MAXW = 1 << 17;
-    parameter MAXN = 1 << 18;
+    parameter MAXN = 1 << 20;          // the full set is 383,460 frames since contract rev 9;
+                                       // at 1 << 18 the bench stopped short and SAID so (status 2)
     // voice_dp's sequencer states this bench taps; they must match voice_dp.v
     // THESE TRACK voice_dp.v's STATE ENCODING BY NUMBER and must be updated with
     // it. S_VCA2 was 32 until the master mix was rebuilt to contract 12 (which

@@ -1783,7 +1783,17 @@ record that extends this document; none may be resolved by picking a reading.
     what a smaller saw share looks like. Not changed on an emulation's
     evidence; settling it needs a real Model D or a second source for the two
     resistors.
-17. **Per-unit oscillator drift is not modelled** (6.4,
+17. **Raw white noise is uniform, not Gaussian** (6.10,
+    `docs/minimoog-reference.md` N6a). A multi-bit LFSR slice is uniform by
+    construction: kurtosis 1.80, crest 4.8 dB, against references at 2.23–2.64
+    and 8.1–11.3. **Through the ladder it is not a defect** — measured at res
+    0.7, crest 10.0–11.8 dB and kurtosis 2.54–2.92, every value inside the
+    references' own span, because a four-pole low-pass Gaussianises. The
+    residual case is a patch with the cutoff wide open and no resonance. The
+    cheap fix was measured and rejected: summing k independent slices buys
+    2.40 at k = 2 and 2.60 at k = 3, for two or three times the LFSR work and
+    an adder tree, to reach what the filter already delivers.
+18. **Per-unit oscillator drift is not modelled** (6.4,
     `docs/minimoog-reference.md` W3a). Our square is a true 50 % and has no
     even harmonics; a reference emulation measures 52 % with h2 at −24 dB.
     SM 2.3 is explicit that 50 % is the design and that Moog hand-selected
@@ -1791,31 +1801,31 @@ record that extends this document; none may be resolved by picking a reading.
     instrument. Whether to model drift anyway — three oscillators beating
     against each other is part of the sound — is a musical decision and one
     constant.
-18. **The drum section's size** (15.9): 12 modes / 12 envelopes / 16 paths
+19. **The drum section's size** (15.9): 12 modes / 12 envelopes / 16 paths
     is 0.646 mm² of cells, four times the ladder; the same RTL at 8 modes /
     8 envelopes / 12 paths is 0.461 mm² and loses three bodies. Which the
     product takes, and whether the ladder and the bank share a multiplier
     (docs/area-budget.md 3.2), is a budget decision.
-19. **What the reference kit does not model** (15.7): the BD's 4 ms attack
+20. **What the reference kit does not model** (15.7): the BD's 4 ms attack
     at ≈130 Hz and its slow pitch sigh, the toms' diode pitch fall, the
     toms' pink-noise rumble, the BD tone low-pass, the cymbal, rimshot,
     claves, maracas and congas. Each is a coefficient sequence or a
     preset the block can already carry (a host may retune any mode on any
     frame; the render `06-bd-decay-short-mid-long.wav` does); none is
     specified.
-20. **The snare's cascade** (15.7): the 808 drives the high resonator from
+21. **The snare's cascade** (15.7): the 808 drives the high resonator from
     the low one's output ×1/38; the kit drives both from the pulse.
-21. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
+22. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
     DR 0010**: fitted to a recording of the reference unit, 16 identified
     partials with the duty cycle and the two gates' relative level free:
     **1100 Hz, Q 2.8**, rms residual 2.8 dB. Sound On Sound's 2.64 kHz is
     refuted; the reference's own 0.9 kHz is ~200 Hz low with the Q too high.
-22. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
+23. **The clap's burst period and tail ratio** (15.7): 480 frames (10 ms)
     and −10 dB are the reference's bounds, not measurements.
-23. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
+24. **Per-unit oscillator tuning** (15.4): the four untrimmed 808
     oscillators vary by tens of percent between units; the kit uses the
     schematic's nominal values. A host models a unit by writing `OSC_INC`.
-24. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
+25. **The reference drum gains** (12): at `dvol = bvol = 14746` (0.45, the
     voice's reference) the combined render clips 65 samples where all
     eight stops land accented under a bass note; at 0.30 it clips 5, and
     all eight stops in one frame at accent 1.4 clip 5 on their own (rev 5
@@ -1823,7 +1833,7 @@ record that extends this document; none may be resolved by picking a reading.
     peaks 2.37 × full scale of the word's 8.0 where it peaked 2.8). The
     rail is the host's to manage (DR 0005); a reference value for the two
     gains is not decided.
-25. **The excitation is an impulse where the machine's is a shaped pulse**
+26. **The excitation is an impulse where the machine's is a shaped pulse**
     (15.5, 15.7). Every bridged-T voice is struck with `PULSE` under a
     0.1 ms exponential — effectively an impulse — where the 808's pulse
     shaper produces a positive kick at t = 0 and a clamped negative kick
@@ -1837,7 +1847,7 @@ record that extends this document; none may be resolved by picking a reading.
     of the separability on every voice — including after every fix this
     revision makes. **This is the next thing to do to the drum section**,
     and it is a change to the sources of 15.4, not to the kit.
-26. **What the kit still does not match on the reference unit** (15.7).
+27. **What the kit still does not match on the reference unit** (15.7).
     Recorded rather than tuned away, because the rule is that the
     reference document wins over a single machine (17.18): the BD's body
     rings at the circuit table's τ = 144 ms where the unit measures
@@ -1846,7 +1856,7 @@ record that extends this document; none may be resolved by picking a reading.
     4 ms band-energy gap and not all of it (20); the hats are ≈6 % bright
     and their filters too selective; the clap's burst period is 10.0 ms
     against the unit's 12.3 ms; the toms have no pink-noise rumble (14).
-27. **The snappy filter's numerator is the measurement's, not the
+28. **The snappy filter's numerator is the measurement's, not the
     reference document's** (15.7). Reference 3 describes the snare's noise
     path as a 2-pole **high-pass** at 2.75 kHz, Q 0.7. On that pole a
     high-pass numerator is flat to Nyquist, and the reference unit's noise
@@ -1858,7 +1868,7 @@ record that extends this document; none may be resolved by picking a reading.
     schematic supports that reading, or whether a further stage the
     walk-through missed does the band-limiting, is not settled;
     `docs/tr808-reference.md` §3 carries the amendment.
-28. **The chip does not yet carry this drum section** (12, 15):
+29. **The chip does not yet carry this drum section** (12, 15):
     `rtl-sketch/synth_top.v` instantiates `drum_section_placeholder` — the
     modal bank alone on a single 19-bit bus, no sources of its own — and its
     master mix is the two-term `sat16(((v · vol) >> 15) + ((d · dvol) >> 15))`
@@ -1869,7 +1879,7 @@ record that extends this document; none may be resolved by picking a reading.
     verifies the two joined. Replacing the placeholder with `drum_kit` and
     the mix with 12's formula, and re-running `rtl-sketch/headroom_check.py`
     and the area flow on the result, is unscheduled work, not a decision.
-29. **The snare's two partials are balanced by MEASUREMENT, not from the
+30. **The snare's two partials are balanced by MEASUREMENT, not from the
     schematic** (15.7). Roland states that VR8 TONE sets "the output ratio of
     the two" bridged-T resonators, and the reference unit at TONE 5.0 puts the
     336 Hz partial at 1.42× the 173 Hz one — the same figure with the snappy
@@ -1880,7 +1890,7 @@ record that extends this document; none may be resolved by picking a reading.
     with R200 shorted by the 1983 design change, and nobody has computed the
     resulting ratio from those values. The number is right because it was
     measured; the circuit explanation is open.
-30. **The snappy envelope's rate is MEASURED, and disagrees with the
+31. **The snappy envelope's rate is MEASURED, and disagrees with the
     reference's RC by 2×** (15.7). Reference 3 gives the snare's noise
     envelope as C51 0.47 µF charged through R186 33 kΩ, τ ≈ 15.5 ms — and
     that is the **charge** path. The machine's burst measures T20 63–78 ms

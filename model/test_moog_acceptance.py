@@ -1835,3 +1835,85 @@ def test_control_oversampling_the_oscillators_without_a_decimator_is_worse():
         y = vf.OscFx("saw", blep=True).render(n * os_, inc).astype(np.float64)[os_ - 1::os_]
         b = am.inharmonic_fraction_db(y, inc * os_ * SR / (1 << 24)).require(f"saw at {os_}x")
         assert b > a + 5.0, f"{os_}x oversampling measured {b:.1f} dB against {a:.1f}: it helped, re-open this"
+
+
+# =============================================================================
+# 8. THE NOISE SOURCE AGAINST THE REFERENCE EMULATIONS
+#
+# Section 5 checks the noise board against the Moog drawing it is a copy of.
+# This checks it against what two software Minimoogs actually produce, which is
+# a different question and answers differently on one column.
+# =============================================================================
+def test_the_noise_distribution_is_inside_the_references_where_it_is_heard():
+    """**docs/minimoog-reference.md N6a; contract open item 18.**
+
+    | source | crest dB | kurtosis |
+    |---|---|---|
+    | ours, white RAW | 4.8 | 1.80 |
+    | ours, white through the ladder | 10.0–11.8 | 2.54–2.92 |
+    | ours, pink | 12.3 | 2.91 |
+    | Mini V3 white | 8.1 | 2.23 |
+    | Surge white | 11.3 | 2.64 |
+    | Mini V3 pink | 13.0 | 3.00 |
+
+    Raw white is **uniform**, because a multi-bit LFSR slice is uniform — and
+    that is asserted here as PRESENT, not argued away. What is also asserted is
+    that it does not reach the output that way: the noise source is a mixer
+    input, the mixer feeds a four-pole low-pass, and a four-pole low-pass
+    Gaussianises. Through it, every value lands inside the span of the three
+    references.
+
+    The distinction matters because the cheap fix — summing independent LFSR
+    slices — costs two or three times the noise generator to buy a
+    distribution the filter already delivers."""
+    def shape(x):
+        x = np.asarray(x, dtype=np.float64)
+        rms = am.rms(x)
+        k = float(((x - x.mean()) ** 4).mean() / (((x - x.mean()) ** 2).mean()) ** 2)
+        return 20 * math.log10(am.peak(x) / rms), k
+
+    w, p, _ = noise_colours(1 << 17)
+    cw, kw = shape(w[4000:])
+    assert abs(cw - 4.8) < 0.5 and abs(kw - 1.80) < 0.05, (cw, kw)   # uniform, asserted present
+    cp, kp = shape(p[4000:])
+    assert abs(cp - 13.0) < 1.5 and abs(kp - 3.00) < 0.35, (cp, kp)  # pink hits the target raw
+    for cut in (600, 2000, 8000):
+        y = ladder_render(np.clip(w[4000:], -32768, 32767).astype(np.int16), cut, 0.7, 2.0)
+        c, k = shape(y[2000:])
+        assert 8.1 - 1.0 <= c <= 11.3 + 1.0, f"{cut} Hz: crest {c:.1f} dB outside the references"
+        assert 2.23 - 0.1 <= k <= 3.00 + 0.1, f"{cut} Hz: kurtosis {k:.2f} outside the references"
+
+
+def test_the_noise_period_is_not_a_loop_anyone_will_hear():
+    """**docs/minimoog-reference.md N3.** Neither reference repeats inside 8 s,
+    which puts a floor of about 19 register bits on any LFSR that wants to be
+    ruled out by that measurement. Ours is 31 bits: 2^31 − 1 output bits at 16
+    per frame is **46.6 minutes** before the word stream repeats — four
+    thousand times the floor, and long enough that a sustained noise bed cannot
+    be heard as a loop."""
+    seconds = (2 ** vf.LFSR_BITS - 1) / vf.NOISE_BITS / SR
+    assert vf.LFSR_BITS >= 19, vf.LFSR_BITS
+    assert seconds > 8.0 * 100, f"{seconds:.1f} s"
+    assert 2700 < seconds < 2900, f"{seconds:.1f} s"
+
+
+def test_the_reference_noise_balance_is_reachable_from_the_register():
+    """**docs/minimoog-reference.md N7.** Mini V3 puts its white noise **7.1 dB
+    below its own sawtooth** at the mixer. `NOISE_SHIFT = 2` puts ours 12.0 dB
+    below at equal mixer weights — the headroom that keeps pink off the rail.
+
+    The 4.9 dB is a patch value, not a hardware limit, and this is the test
+    that says so: `WN` is Q0.15 and reaches 2.0, the balance is monotonic in
+    it, and weight 1.76 lands on -7.1 dB with an eighth of the register's range
+    still spare."""
+    n = 1 << 16
+    w, _, _ = noise_colours(n)
+    saw = vf.OscFx("saw", blep=True).render(n, dsp.phase_inc(dsp.note_hz(45))).astype(np.float64)
+    ref = am.rms(saw)
+    lv = {}
+    for wt in (1.0, 1.76, 2.0):
+        lv[wt] = 20 * math.log10(am.rms(w[4000:] * (wt * 32768) / 32768) / ref)
+    assert abs(lv[1.0] - (-12.0)) < 0.5, lv
+    assert abs(lv[1.76] - (-7.1)) < 0.4, f"weight 1.76 gives {lv[1.76]:.1f} dB, Mini V3's balance is -7.1"
+    assert lv[1.0] < lv[1.76] < lv[2.0], lv
+    assert int(round(1.76 * 32768)) <= (1 << vf.WEIGHT_BITS) - 1, "the balance must fit the register"

@@ -338,6 +338,47 @@ change.
 paths carry the exact make-up gain that puts their RMS on white's. Measured over
 200 000 frames: white −16.81 dBFS, pink −16.78, red −16.85 — **within 0.07 dB**.
 
+### N6a. Measured against the reference emulations [ours, measured]
+
+Four properties, our three colours against the three references. The
+distribution columns are the ones that were expected to fail and the result is
+not what the expectation was:
+
+| source | slope dB/oct | vs saw | crest dB | kurtosis |
+|---|---|---|---|---|
+| **ours, white (raw)** | +0.03 | −12.0 | **4.8** | **1.80** |
+| **ours, white through the ladder, 600 Hz** | — | — | **11.6** | **2.92** |
+| **ours, white through the ladder, 2 kHz** | — | — | **11.8** | **2.85** |
+| **ours, white through the ladder, 8 kHz** | — | — | **10.0** | **2.54** |
+| **ours, pink** | **−3.07** | −12.0 | **12.3** | **2.91** |
+| Mini V3 white | −0.2 | −7.1 | 8.1 | 2.23 |
+| Mini V3 pink | −3.0 | −9.3 | 13.0 | 3.00 |
+| Surge white | −0.1 | +0.6 | 11.3 | 2.64 |
+
+**Pink hits every column** — slope −3.07 against −3.0, crest 12.3 against 13.0,
+kurtosis 2.91 against 3.00 — and it hits them from drawing 1431's component
+values rather than from a fit.
+
+**Raw white is uniform**, as any multi-bit LFSR slice must be: kurtosis 1.80,
+crest 4.8 dB, against references at 2.23–2.64 and 8.1–11.3. *(It is not the
+LFSR's output BIT, which would be kurtosis 1.00 and crest 0.00 dB — a square
+wave of random sign. A 16-bit slice of the register is what both this voice and
+the drum section use.)*
+
+**But raw white is never what is heard.** The noise source is a mixer input and
+the mixer feeds the ladder; a four-pole low-pass is a strong Gaussianiser.
+Measured through it at res 0.7, drive 2.0: **crest 10.0–11.8 dB, kurtosis
+2.54–2.92 — every value inside the span of the three references**, and at the
+top of the cutoff range (8 kHz, 10.0 dB / 2.54) sitting between Mini V3's white
+and Surge's.
+
+So the cheap Gaussianiser — summing k independent slices, Irwin-Hall — was
+measured and is **not worth building**: k = 2 buys 7.8 dB / 2.40 and k = 3
+buys 9.4 / 2.60, for two or three times the LFSR work and an adder tree, to
+reach a distribution the filter already delivers. The residual case is a patch
+with the cutoff wide open and no resonance, where the raw uniform distribution
+does reach the output; that is contract open item 18.
+
 ### N7. …and that costs 12 dB of headroom, which is ours to explain [ours]
 
 Equal RMS between colours is a fact about the instrument; a hard digital rail is
@@ -349,8 +390,17 @@ peaks at **2.6 × full scale** and clip 0.05 % of its samples even at half that.
 `NOISE_SHIFT = 2` divides all three equally. It keeps them equal, keeps pink's
 measured peak at **0.66** of full scale, and costs one shift. What it costs
 musically is that white at mixer weight 1.0 sits **12 dB below a sawtooth at
-mixer weight 1.0**; a patch that wants more turns the noise weight up (the
-register reaches 2.0). This is a deviation, and the alternative was clipping.
+mixer weight 1.0**, where the Minimoog-relevant balance measured on Mini V3 is
+**−7.1 dB**.
+
+**That 4.9 dB is a patch value, not a hardware limit.** `WN` is a Q0.15
+register that reaches 2.0, and the balance is monotonic in it: measured,
+weight 1.0 gives −12.0 dB, **weight 1.76 gives −7.1 dB**, weight 2.0 gives
+−6.0 dB. The reference balance is inside the register's range with an eighth
+of it still spare, so the deviation costs a patch constant and not a
+redesign. `voice_fx_render.py`'s `18-noise-at-the-reference-balance` is that
+patch. The alternative — raising the common scale instead — would have put
+pink's peaks past the rail, which is what N7 exists to prevent.
 
 ### N8. Noise goes through the ladder, like everything else [verified: SM 2.2.1 signal flow]
 
