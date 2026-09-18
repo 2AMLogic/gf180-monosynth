@@ -238,10 +238,16 @@ class _Plugin:
     note = 48
     have_input = False
 
-    def __init__(self, quiet=True):
+    def __init__(self, quiet=True, block=BLOCK):
+        """`block` is the host block size. It matters for one measurement and
+        only one: parameter AUTOMATION is applied per block, so a 512-sample
+        block moves a swept cutoff in 93.75 Hz steps and the resulting ripple
+        is the HARNESS's, not the plugin's. The movement study passes a small
+        block so that the automation rate sits above its analysis band."""
         import dawdreamer as daw
         self._daw = daw
-        self.eng = daw.RenderEngine(SR, BLOCK)
+        self.block = block
+        self.eng = daw.RenderEngine(SR, block)
         self.p = self.eng.make_plugin_processor(self.name, self.path)
         self._buf = np.zeros((2, SR), dtype=np.float32)
         if self.have_input:
@@ -401,6 +407,25 @@ class SurgeRig(_Plugin):
         y = self.render(x, 0.70)
         return y[int(0.42 * SR):int(0.65 * SR)]
 
+    def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
+        """A steady carrier through the cutoff swept lo -> hi by parameter
+        AUTOMATION, which is how a host moves a control and the only way to
+        make the plugin do it sample by sample. Surge's cutoff parameter is
+        exponential in Hz, so a linear ramp of the normalised value is an
+        exponential sweep -- exactly what our own sweep does."""
+        self.set(self.I['f1_res'], res)
+        pre = int(0.25 * SR)
+        n = int(seconds * SR)
+        ramp = np.concatenate([np.full(pre, self.cut_value(lo), dtype=np.float32),
+                               np.linspace(self.cut_value(lo), self.cut_value(hi),
+                                           n).astype(np.float32),
+                               np.full(int(0.05 * SR), self.cut_value(hi), dtype=np.float32)])
+        self.p.set_automation(self.I['f1_cut'], ramp)
+        t = np.arange(len(ramp)) / SR
+        x = amp * np.sin(2 * math.pi * carrier * t)
+        y = self.render(x, len(ramp) / SR)
+        return y[pre:pre + n]
+
 
 class MiniV3Rig(_Plugin):
     """Arturia Mini V3 through the Model D's external-input jack. Every
@@ -472,6 +497,25 @@ class MiniV3Rig(_Plugin):
                             amp * np.sin(2 * math.pi * f * np.arange(n) / SR)])
         y = self.render(x, 0.78)
         return y[int(0.48 * SR):int(0.70 * SR)]
+
+    def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
+        """Mini V3's cutoff knob has no units, so the sweep's endpoints come
+        from the bisection calibration in `reference_compare.calibrate_knob`,
+        cached. The knob's own taper between them is unknown and is NOT
+        assumed to be exponential -- the measured range is reported with the
+        result rather than a nominal octaves/second."""
+        ka, kb = _knob(cache, self, "miniv3", lo), _knob(cache, self, "miniv3", hi)
+        self.set(self.I['emphasis'], res)
+        pre = int(0.30 * SR)
+        n = int(seconds * SR)
+        ramp = np.concatenate([np.full(pre, ka, dtype=np.float32),
+                               np.linspace(ka, kb, n).astype(np.float32),
+                               np.full(int(0.05 * SR), kb, dtype=np.float32)])
+        self.p.set_automation(self.I['cutoff'], ramp)
+        t = np.arange(len(ramp)) / SR
+        x = amp * np.sin(2 * math.pi * carrier * t)
+        y = self.render(x, len(ramp) / SR)
+        return y[pre:pre + n]
 
 
 class DivaRig(_Plugin):
@@ -621,6 +665,44 @@ class DivaRig(_Plugin):
         raise NotImplementedError(
             "Diva has 0 audio input channels, so no known signal can be put into its "
             "filter: the drive measurement is not answerable against it")
+
+    V_DIGITAL, V_DIGI_TRI = 0.9, 0.9333
+
+    def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.05, amp=1.0):
+        """Diva has no audio input, so the carrier is its own Digital
+        oscillator set to a triangle and tuned to `carrier` by MIDI note --
+        near enough to a sine that the envelope is clean, and its own
+        harmonics sit above the band limit the ripple measure applies."""
+        note = int(round(69 + 12 * math.log2(carrier / 440.0)))
+        self.note = note
+        self.set(self.I['osc_model'], self.V_DIGITAL)
+        self.set(144, self.V_DIGI_TRI)                 # DigitalType1 = Triangle
+        self.set(self.I['vol1'], 1.0)
+        self.set(self.I['noisevol'], 0.0)
+        self.set(self.I['vcf_res'], res)
+        pre = int(0.30 * SR)
+        n = int(seconds * SR)
+        ramp = np.concatenate([np.full(pre, self.freq_value(lo), dtype=np.float32),
+                               np.linspace(self.freq_value(lo), self.freq_value(hi),
+                                           n).astype(np.float32),
+                               np.full(int(0.05 * SR), self.freq_value(hi), dtype=np.float32)])
+        self.p.set_automation(self.I['vcf_freq'], ramp)
+        self.p.set_automation(self.I['noisevol'],
+                              np.zeros(len(ramp), dtype=np.float32))
+        y = self.render(np.zeros(1), len(ramp) / SR)
+        return y[pre:pre + n]
+
+
+def _knob(cache, dev, name, hz):
+    """The knob position that commands `hz` on a unitless control, bisected
+    against the device's own self-oscillation frequency and cached."""
+    import reference_compare as rc
+    key = f"{name}-{hz:.0f}"
+    if cache is None:
+        return rc.calibrate_knob(dev, name, hz)
+    if key not in cache:
+        cache[key] = rc.calibrate_knob(dev, name, hz)
+    return cache[key]
 
 
 def _welch(x, nfft=8192):

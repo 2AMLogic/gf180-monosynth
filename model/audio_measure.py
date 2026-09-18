@@ -1218,7 +1218,8 @@ def windowed_tone_amplitude(x, hz: float, sr: int = SR_DEFAULT, *,
 
 
 def harmonic_signature(x, sr: int = SR_DEFAULT, *, f_lo: float = 25.0, f_hi: float = 12000.0,
-                       kmax: int = 9, floor_margin_db: float = 6.0) -> dict:
+                       kmax: int = 9, floor_margin_db: float = 6.0,
+                       f0: float | None = None) -> dict:
     """h2..hk of a steady tone relative to its fundamental, in dB, by coherent
     projection (`tone_amplitude`) at each k*f0 -- with a MEASURED floor.
 
@@ -1247,13 +1248,19 @@ def harmonic_signature(x, sr: int = SR_DEFAULT, *, f_lo: float = 25.0, f_hi: flo
     if is_silent(x):
         raise InsufficientEvidence("harmonic_signature: silent")
     zc = zero_crossing_frequency(x, sr)
-    dom = dominant_frequency(x, f_lo, f_hi, sr)
-    if not dom.ok:
-        raise InsufficientEvidence(f"harmonic_signature: no fundamental ({dom.why})")
-    f0 = zc.value if (zc.ok and abs(zc.value - dom.value) / dom.value < 0.02) else dom.value
+    if f0 is None:
+        # A free ring's frequency is not known in advance and has to be found.
+        # An OSCILLATOR's is: the caller commanded it, and passing it in is
+        # better than re-deriving it -- a square wave's zero crossings are
+        # exact but a narrow pulse's are not, and a 0.5 % error loses the 7th
+        # harmonic out of any analysis band.
+        dom = dominant_frequency(x, f_lo, f_hi, sr)
+        if not dom.ok:
+            raise InsufficientEvidence(f"harmonic_signature: no fundamental ({dom.reason})")
+        f0 = zc.value if (zc.ok and abs(zc.value - dom.value) / dom.value < 0.02) else dom.value
     a1 = windowed_tone_amplitude(x, f0, sr).require("harmonic_signature: the fundamental")
     h = len(x) // 2
-    out = {"f0": float(f0), "h1": 0.0, "f0_zc_ok": bool(zc.ok),
+    out = {"f0": float(f0), "h1": 0.0, "f0_zc_ok": bool(zc.ok), "f0_given": f0 is not None,
            "drift_db": db(rms(x[h:]), rms(x[:h]))}
     n_valid = 0
     for k in range(2, kmax + 1):
@@ -1275,3 +1282,256 @@ def harmonic_signature(x, sr: int = SR_DEFAULT, *, f_lo: float = 25.0, f_hi: flo
             n_valid += 1
     out["n_valid"] = n_valid
     return out
+
+
+# ---------------------------------------------------------------------------
+# OSCILLATOR, ENVELOPE, GLIDE and NOISE descriptors
+#
+# Added for `model/reference_voice.py`, which extends the reference comparison
+# past the filter. Ground truth for every one of them is in
+# `model/test_reference_voice.py`, against signals whose answer is known in
+# closed form -- including the two cases each estimator must REFUSE.
+# ---------------------------------------------------------------------------
+def psd_slope_db_oct(x, band, sr: int = SR_DEFAULT, *, nfft: int = 8192,
+                     max_residual_db: float = 4.0) -> Estimate:
+    """Spectral slope of a NOISE signal in dB per octave, from a Welch power
+    spectrum fitted in (log2 f, dB).
+
+    The colour test: white is 0, pink is -3.01. Averaged over `len(x)/nfft*2`
+    Hann segments, then fitted over 1/6-octave bins so that the fit is not
+    dominated by the high end simply having more FFT bins in it -- a straight
+    least squares on raw bins weights the top octave 32:1 against the bottom
+    and reads a white spectrum as sloping."""
+    x = _as_float(x)
+    if is_silent(x):
+        return _fail("silent")
+    if len(x) < 4 * nfft:
+        return _fail("record too short for a Welch estimate", samples=len(x), nfft=nfft)
+    w = np.hanning(nfft)
+    segs = [np.abs(np.fft.rfft(x[i:i + nfft] * w)) ** 2
+            for i in range(0, len(x) - nfft + 1, nfft // 2)]
+    f = np.fft.rfftfreq(nfft, 1.0 / sr)
+    p = np.mean(segs, axis=0)
+    lo, hi = band
+    edges = 2.0 ** np.arange(math.log2(lo), math.log2(hi) + 1e-9, 1 / 6.0)
+    xs, ys = [], []
+    for a, b in zip(edges[:-1], edges[1:]):
+        sel = (f >= a) & (f < b)
+        if sel.sum() >= 2 and p[sel].mean() > 0:
+            xs.append(math.log2(math.sqrt(a * b)))
+            ys.append(10 * math.log10(p[sel].mean()))
+    if len(xs) < 6:
+        return _fail("fewer than 6 fractional-octave bins in the band", n=len(xs))
+    a, b = np.polyfit(xs, ys, 1)
+    resid = float(np.sqrt(np.mean((np.array(ys) - (a * np.array(xs) + b)) ** 2)))
+    if resid > max_residual_db:
+        return _fail("spectrum is not a straight line in log-frequency",
+                     slope_db_oct=float(a), residual_db=resid)
+    return Estimate(float(a), True, "", dict(residual_db=resid, n_bins=len(xs)))
+
+
+def repeat_period(x, sr: int = SR_DEFAULT, *, min_lag_s: float = 0.05,
+                  max_lag_s: float = 12.0, min_corr: float = 0.5) -> Estimate:
+    """The lag at which a signal repeats itself, in seconds, from the
+    normalised autocorrelation -- or a refusal when it does not repeat.
+
+    This is the measurement that says whether a synthesiser's "noise" is a
+    short LFSR going round. A maximal 16-bit LFSR clocked at 48 kHz repeats
+    every 65535 samples = 1.365 s, which is audibly a loop on a held note;
+    true noise has no such peak at all, and the estimator must report that as
+    a refusal rather than as the largest accident in the record."""
+    x = _as_float(x)
+    if is_silent(x):
+        return _fail("silent")
+    x = x - x.mean()
+    n = len(x)
+    max_lag = min(int(max_lag_s * sr), n // 2)
+    min_lag = int(min_lag_s * sr)
+    if max_lag <= min_lag + 16:
+        return _fail("record too short for this lag range", samples=n)
+    nf = 1 << int(math.ceil(math.log2(2 * n)))
+    X = np.fft.rfft(x, nf)
+    ac = np.fft.irfft(X * np.conj(X), nf)[:max_lag + 1]
+    if ac[0] <= 0:
+        return _fail("degenerate autocorrelation")
+    # UNBIASED: an FFT autocorrelation at lag L only overlaps n - L samples, so
+    # the raw sequence tapers linearly with lag and its maximum is always at
+    # the shortest lag examined. Without this division the estimator reports
+    # `min_lag` for every signal, repeating or not.
+    overlap = (n - np.arange(max_lag + 1)).astype(np.float64)
+    ac = (ac / ac[0]) * (n / np.maximum(overlap, 1.0))
+    seg = ac[min_lag:max_lag + 1]
+    i = int(np.argmax(seg))
+    peak = float(seg[i])
+    if peak < min_corr:
+        return _fail("no repeat: autocorrelation never approaches 1 in this lag range",
+                     best_corr=peak, best_lag_s=(min_lag + i) / sr)
+    return Estimate((min_lag + i) / sr, True, "", dict(corr=peak))
+
+
+def segment_shape(y, sr: int = SR_DEFAULT) -> Estimate:
+    """Is an envelope segment a straight line, or an exponential?
+
+    `value` is a unit-free **shape index**: how far the segment's value at its
+    own MIDPOINT IN TIME sits above (or below) the straight line between its
+    endpoints, as a fraction of the total span. Closed-form landmarks, which
+    are what `model/test_reference_voice.py` checks it against:
+
+        linear ramp                                    0.0000
+        exponential, 1 - exp(-4t/T) (RC charging)     +0.3808
+        exponential, exp(-4t/T)     (RC discharging)  +0.3808
+        convex, t^2                                   -0.2500
+
+    Note that an RC charge and an RC discharge give the SAME index: both are
+    "fast, then slow" along their own path, and the index is a property of the
+    path, not of its direction. Which direction a segment runs is
+    `detail['span']`, whose sign says it -- the two are reported together and
+    neither is quoted alone.
+
+    A shape index is used rather than "fit a line, fit an exponential, see
+    which R^2 wins", because both fit a short segment well and the winner
+    flips on noise. The midpoint deviation is one number, is monotonic in
+    curvature, and has an exact value for each candidate law.
+
+    `detail['t_10_90_s']` is the 10 %-to-90 % transition time, which is the
+    number to compare across instruments: it does not depend on where each
+    one decides a segment starts."""
+    y = _as_float(y)
+    if len(y) < 8:
+        return _fail("segment shorter than 8 samples", n=len(y))
+    a, b = float(y[0]), float(y[-1])
+    span = b - a
+    if abs(span) < 1e-9:
+        return _fail("segment does not move", span=span)
+    mid = float(y[len(y) // 2])
+    idx = (mid - a) / span - 0.5
+    lo, hi = a + 0.1 * span, a + 0.9 * span
+    s = np.sign(span)
+    p = np.nonzero(s * y >= s * lo)[0]
+    q = np.nonzero(s * y >= s * hi)[0]
+    t1090 = (float(q[0] - p[0]) / sr) if (len(p) and len(q) and q[0] >= p[0]) else float("nan")
+    return Estimate(float(idx), True, "", dict(t_10_90_s=t1090, span=span,
+                                               start=a, end=b, n=len(y)))
+
+
+def glide_law(f_hz, sr: int = SR_DEFAULT, *, min_ratio: float = 1.05) -> Estimate:
+    """Which law a pitch glide follows, from its instantaneous-frequency
+    trajectory.
+
+    `value` is the R^2 of the best fit and `detail['law']` names it:
+
+        'constant-rate'  log2 f is LINEAR in time -- a fixed number of cents
+                         per second, so two octaves take twice as long as one.
+                         This is DR 0004, and what our voice does.
+        'constant-time'  log2 f approaches the target exponentially -- a fixed
+                         time constant, so two octaves take the SAME time as
+                         one and the glide never exactly arrives.
+        'linear-hz'      f itself is linear in time.
+
+    `detail` carries all three R^2 values, because a short glide fits every
+    law well and the useful output is the MARGIN between them, not the winner.
+    Refuses a trajectory that does not move at least `min_ratio`."""
+    f = _as_float(f_hz)
+    f = f[np.isfinite(f) & (f > 0)]
+    if len(f) < 16:
+        return _fail("fewer than 16 usable frequency samples", n=len(f))
+    if max(f[0], f[-1]) / min(f[0], f[-1]) < min_ratio:
+        return _fail("the trajectory does not glide", ratio=float(max(f) / min(f)))
+    t = np.arange(len(f)) / sr
+    lf = np.log2(f)
+    out = {}
+
+    def r2(model):
+        ss = float(np.sum((model - lf) ** 2))
+        tot = float(np.sum((lf - lf.mean()) ** 2))
+        return 1.0 - ss / tot if tot > 0 else float("nan")
+
+    out["constant-rate"] = r2(np.polyval(np.polyfit(t, lf, 1), t))
+    out["linear-hz"] = r2(np.log2(np.maximum(np.polyval(np.polyfit(t, f, 1), t), 1e-9)))
+    best_tau, best = None, -np.inf
+    lo, hi = lf[0], lf[-1]
+    for tau in np.geomspace(max(1e-4, t[-1] / 200.0), t[-1] * 5.0, 90):
+        m = hi + (lo - hi) * np.exp(-t / tau)
+        v = r2(m)
+        if v > best:
+            best, best_tau = v, tau
+    out["constant-time"] = best
+    law = max(out, key=out.get)
+    return Estimate(float(out[law]), True, "",
+                    dict(law=law, r2=out, tau_s=float(best_tau),
+                         cents_per_s=float((lf[-1] - lf[0]) * 1200.0 / t[-1]),
+                         octaves=float(abs(lf[-1] - lf[0]))))
+
+
+def envelope_ripple_db(env, sr: int = SR_DEFAULT, *, hp_hz: float = 40.0,
+                       lp_hz: float | None = None) -> Estimate:
+    """Stepping ("zipper") in a signal's amplitude envelope, in dB relative to
+    the envelope itself.
+
+    A filter swept smoothly modulates a tone's envelope smoothly, and a smooth
+    envelope has no energy above a few tens of hertz. A filter whose
+    coefficient moves in DISCRETE STEPS adds a staircase whose rate is the
+    number of quantisation steps crossed per second -- hundreds, far above the
+    sweep's own bandwidth. The ripple is what survives a high-pass of the
+    envelope, relative to the envelope's mean.
+
+    This is the only property in this repository that a STATIC test cannot
+    see: every other filter measurement holds the cutoff still, and stepping
+    only happens while a control moves.
+
+    The high-pass is a MOVING-AVERAGE subtraction, not an FFT mask. A swept
+    envelope is a ramp, a ramp is not periodic, and an FFT high-pass of one
+    reads the wrap discontinuity as ripple -- it reported -46 dB of "stepping"
+    on a perfectly straight line. Subtracting a moving average leaves exactly
+    zero on a straight line, by construction, and the window's edges are
+    trimmed.
+
+    **Validity condition, and it is not optional:** the step rate must be well
+    above `hp_hz`, or the moving average tracks the staircase and the measure
+    under-reads. `detail['ripple_rate_hz']` is the measured dominant rate of
+    the residual; compare it with `hp_hz` before quoting the value.
+
+    `lp_hz` band-limits the residual from above and is REQUIRED whenever the
+    envelope came from `analytic_envelope` of a real signal: the analytic
+    envelope of a real sinusoid is not exactly constant, and its residual sits
+    AT AND ABOVE THE CARRIER (measured at f0 itself for a swelling 2 kHz tone;
+    the textbook 2*f0 term is not the one that dominates here). Without the
+    limit the measure reads that Hilbert artefact instead of the filter -- it
+    read -32.4 dB of "stepping" on a render that had none. Set `lp_hz` below
+    the carrier and above the expected step rate; if no such gap exists, this
+    measure cannot answer the question and the differential test in
+    `model/reference_movement.py` is the one to use. The limit is a
+    moving-average low-pass, so it ATTENUATES the artefact (by 18 dB on the
+    ground-truth signal) rather than removing it: `ripple_rate_hz` may still
+    name the carrier afterwards, and a reported rate at or above `lp_hz` means
+    the value is a floor, not a measurement of stepping.
+
+    Closed form, for ground truth: a staircase of step `d` on a ramp of mean
+    `m`, stepping fast compared with the window, has residual RMS d/sqrt(12),
+    so the ripple is 20*log10(d / (sqrt(12) * m))."""
+    env = _as_float(env)
+    if is_silent(env):
+        return _fail("silent")
+    m = float(np.mean(np.abs(env)))
+    if m <= 0:
+        return _fail("envelope has no level")
+    win = max(3, int(round(sr / hp_hz)))
+    n = len(env)
+    if n < 4 * win:
+        return _fail("envelope shorter than four high-pass windows", n=n, win=win)
+    k = np.ones(win) / win
+    smooth = np.convolve(env, k, mode="same")
+    resid = (env - smooth)[win:-win]
+    if lp_hz is not None and len(resid) > 64:
+        lw = max(3, int(round(sr / lp_hz)))
+        if lw < len(resid) // 4:
+            resid = np.convolve(resid, np.ones(lw) / lw, mode="same")[lw:-lw]
+    rate = float("nan")
+    if len(resid) > 64:
+        f, X = spectrum(resid, sr)
+        sel = f > hp_hz * 0.5
+        if sel.any():
+            rate = float(f[sel][int(np.argmax(X[sel]))])
+    return Estimate(db(rms(resid), m), True, "",
+                    dict(hp_hz=hp_hz, env_mean=m, ripple_rms=float(rms(resid)),
+                         ripple_rate_hz=rate, window=win, lp_hz=lp_hz))
