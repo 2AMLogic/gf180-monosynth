@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Fetch reference recordings named in refaudio/ into refaudio/cache/ (gitignored).
+
+    python tools/refaudio_fetch.py <archive.zip> '<member path>' ['<member path>' ...]
+
+The recordings live on operator-side storage, not in this repository; see
+refaudio/README.md. This tool reaches them over ssh, and needs two things in
+the environment that are deliberately not committed:
+
+    REFAUDIO_SSH    user@host of the storage
+    REFAUDIO_ROOT   the library directory on that host
+
+THREE OUTCOMES, and they are kept apart on purpose:
+
+    exit 0  FETCHED  every requested member is on disk, non-empty, and -- where
+                     refaudio/index/ lists it -- exactly the size the index says
+    exit 1  FAIL     the storage was reachable and the fetch went wrong
+    exit 2  REFUSED  a precondition is not met, so nothing was attempted
+
+REFUSED is not a failure of the recording and must never be read as one. A host
+with no route to the storage is the normal case for most of the fleet: open a
+`reference-audio` issue instead.
+
+The defect this is built to not have: `unzip -p` on a member that does not
+exist prints nothing, and a shell redirect of nothing is a zero-byte .wav that
+every downstream tool will open. So status comes from the process, an empty
+result is a FAIL, a partial file never survives, and a size that disagrees with
+the index is a FAIL -- the file on disk must be the file the index describes.
+"""
+from __future__ import annotations
+import csv, json, os, pathlib, shlex, subprocess, sys
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+REFAUDIO = REPO / "refaudio"
+FETCHED, FAIL, REFUSED = 0, 1, 2
+
+
+class Refused(Exception):
+    """A precondition is not met; nothing was attempted."""
+
+
+def known_archives() -> set[str]:
+    cat = json.loads((REFAUDIO / "catalog.json").read_text(encoding="utf-8"))
+    return {p["archive"] for p in cat["packs"]}
+
+
+def indexed_sizes(archive: str) -> dict[str, int] | None:
+    """member path -> bytes, or None when this pack has no committed index."""
+    tsv = REFAUDIO / "index" / (archive[:-4] + ".tsv")
+    if not tsv.exists():
+        return None
+    with tsv.open(encoding="utf-8", newline="") as fh:
+        return {r["path"]: int(r["bytes"]) for r in csv.DictReader(fh, delimiter="\t")}
+
+
+def preconditions(archive: str, members: list[str]) -> tuple[str, str]:
+    ssh, root = os.environ.get("REFAUDIO_SSH", ""), os.environ.get("REFAUDIO_ROOT", "")
+    if not ssh or not root:
+        raise Refused("REFAUDIO_SSH / REFAUDIO_ROOT are not set: this host has no route to the "
+                      "reference-audio storage. Open a `reference-audio` issue instead.")
+    if archive not in known_archives():
+        raise Refused(f"{archive!r} is not an archive in refaudio/catalog.json")
+    if not members:
+        raise Refused("no member paths given")
+    for m in members:
+        parts = pathlib.PurePosixPath(m).parts
+        if m.startswith("/") or ".." in parts or not parts:
+            raise Refused(f"member path must be a relative path inside the archive: {m!r}")
+    return ssh, root
+
+
+def unzip_literal(member: str) -> str:
+    """unzip treats * ? [ as wildcards even in an exact name; escape them."""
+    return "".join("\\" + c if c in "*?[\\" else c for c in member)
+
+
+def fetch_one(ssh: str, root: str, archive: str, member: str, want: int | None, cache: pathlib.Path) -> str | None:
+    """Returns None on success, or the reason it failed."""
+    dest = cache / archive[:-4] / member
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    remote = " ".join(shlex.quote(a) for a in
+                      ["unzip", "-p", f"{root}/packs/{archive}", unzip_literal(member)])
+    try:
+        with part.open("wb") as out:
+            proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", ssh, remote],
+                                  stdout=out, stderr=subprocess.PIPE, timeout=600)
+        got = part.stat().st_size
+        if proc.returncode != 0:
+            return f"remote exited {proc.returncode}: {proc.stderr.decode('utf-8', 'replace').strip()[:200]}"
+        if got == 0:
+            return "remote exited 0 but sent no bytes (no such member?)"
+        if want is not None and got != want:
+            return f"size {got} != {want} in the index: not the file the index describes"
+        part.replace(dest)
+        return None
+    except subprocess.TimeoutExpired:
+        return "timed out after 600 s"
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return REFUSED
+    archive, members = argv[0], argv[1:]
+    try:
+        ssh, root = preconditions(archive, members)
+    except Refused as why:
+        print(f"REFUSED  {why}")
+        return REFUSED
+
+    sizes = indexed_sizes(archive)
+    if sizes is None:
+        print(f"note     no committed index for {archive}: sizes will NOT be checked")
+    cache, bad = REFAUDIO / "cache", 0
+    for m in members:
+        want = None if sizes is None else sizes.get(m)
+        if sizes is not None and want is None:
+            print(f"note     {m!r} is not in the index: size will NOT be checked")
+        why = fetch_one(ssh, root, archive, m, want, cache)
+        if why:
+            bad += 1
+            print(f"FAIL     {m}\n         {why}")
+        else:
+            checked = "size matches index" if want is not None else "size unchecked"
+            print(f"FETCHED  refaudio/cache/{archive[:-4]}/{m}  ({checked})")
+    print(f"{len(members) - bad} fetched, {bad} failed")
+    return FAIL if bad else FETCHED
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
