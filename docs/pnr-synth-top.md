@@ -199,8 +199,8 @@ Evidence: `pnr/orfs/evidence/synth_top/joined-d1e5068/`.
 
 Setup still closes at the slow corner, with 12.5 % of the period to spare against the placeholder
 chip's 19 %. The whole flow took 9,072 s; detailed routing was the long pole and it did not converge
-quickly — **17,929 → 3,839 → 3,042 → 23 → 1 → … → 0 violations over twelve optimisation
-iterations**, about 2.5 h. Global placement's own routability pass had already reported the die
+quickly — **17,929 → 3,839 → 3,042 → 23 → 1 (held through seven ripup passes) → 2 → 0**
+across the thirteen iterations the router reported (numbered 0th to 18th), about 2.5 h. Global placement's own routability pass had already reported the die
 comfortable (0.26 % of tiles overflowed, weighted congestion 1.0000 against a 1.0100 target), so the
 grind was pin access and shorts, not global congestion. `PLACE_DENSITY` was 0.69 against a 58.5 %
 floorplan utilisation; a target nearer the utilisation was not tried and might converge faster.
