@@ -148,8 +148,28 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python -m pytest model/test_moog_acceptance.py -q      # "is this really a Minimoog?"
 .venv/bin/python -m pytest model/test_808_acceptance.py -q       # "is this really an 808?"
 TR808_STUB=silent .venv/bin/python -m pytest model/test_808_acceptance.py -q   # the red run: must exit 1
+.venv/bin/python model/sound_report.py                           # per voice, per property, against declared targets
+.venv/bin/python model/sound_report.py --inject sd-noise-6db     # ...and it must be able to go red
+.venv/bin/python -m pytest model/test_reference_compare.py -q    # the reference-comparison estimators
 rtl-sketch/synth_count.sh                                        # the cell counts
 ```
+
+`model/sound_report.py` is what a commit that changes the sound should run.
+It reports **one line per voice per behaviour** -- never an aggregate, because
+an aggregate lets a better kick hide a worse snare -- and each line says what
+was measured, what against, where that figure comes from, and by how much it
+is out **in the property's own unit**: "CB decay tau is 75.15 ms high:
+measured 97.15, target 22 +- 5.5". A `target` is a figure a document states
+(being outside it means the model is wrong); a `lock` is what this model
+measured at a named commit (being outside it means the model changed, which
+may be the point). `--inject` applies one of nine known-broken variants and
+prints which properties moved **and which did not**, because a defect nothing
+measures is a hole in the coverage.
+
+`model/reference_compare.py` is the other half: our ladder measured against
+Surge XT's Vintage Ladder, Arturia Mini V3 and u-he Diva, driven headlessly
+through `dawdreamer` (`docs/discrimination.md` section 8). It found the two
+things `model/sound_report.py` now guards.
 
 Two acceptance suites ask whether the instrument is the instrument it claims to
 be, one property at a time, each assertion citing the section of
