@@ -1,0 +1,105 @@
+{
+  "engine": "fixed-model",
+  "case_id": "D09A",
+  "subject": "Claves / anchor",
+  "source_commit": "4892fa4",
+  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:49:10Z",
+  "provenance": {
+    "engine": "fixed-model",
+    "worktree": {
+      "commit": "4892fa4",
+      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
+      "branch": "tools/case-runner",
+      "dirty": true,
+      "uncommitted_sha256": "4019ae6d15c4e7ec",
+      "untracked_files": 0
+    },
+    "base_check": {
+      "checked": true,
+      "origin_main": "edfcd4b3d761",
+      "behind_commits": 1,
+      "n_stops_here": 11,
+      "n_stops_origin_main": 11,
+      "stale_dependencies": {},
+      "allow_stale": false,
+      "problems": [],
+      "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
+    },
+    "command": "tools/run_case.py --batch First 32",
+    "config": {
+      "voice": "CL",
+      "refs": "/tmp/tr808-ref",
+      "inject": null,
+      "render_seconds": 2.2,
+      "accent": 1.0,
+      "bus_gain": 0.45,
+      "level_matched": true
+    },
+    "python": "3.14.7",
+    "run_at": "2026-09-18T20:49:17Z",
+    "inputs": {
+      "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
+      "model/voice_fx.py": "sha256:fc17442f2e21856a",
+      "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
+      "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
+      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
+      "reference:cl8/CL.WAV": "sha256:4f5b72674791ce13"
+    },
+    "artefacts": {
+      "ours": "build/scorecard/D09A-ours.wav",
+      "reference": "/tmp/tr808-ref/cl8/CL.WAV"
+    },
+    "outcome_code": 0,
+    "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
+  },
+  "reference_profile": "fischer-tr808-103852:cl8/CL.WAV (no knob)",
+  "reference_identity": "Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 s/n 103852, individual voice outputs, 16-bit/44.1 kHz",
+  "render_run": "drums_fx@5ea51e6cf91b kit_with_sounds('CL') solo, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz, circuit 9 of 11",
+  "audio": "reference cl8/CL.WAV; ours build/scorecard/D09A-ours.wav",
+  "tolerance_policy": {
+    "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
+    "time": "50 % of the reference value -- 1.7 states +-50 % on Q, and for these bridged-T resonators tau is proportional to Q",
+    "energy ratio": "3 dB, the half-power convention. A stated convention, not a number derived from any error of ours",
+    "event timing": "10 ms -- the positional accuracy audio_measure.onsets states for itself; a failure is larger than the estimator's own resolution",
+    "bus sum": "0.5 dB -- the final output must be the sum of the per-bus stems",
+    "rail": "0.01 % of samples at the rail, a stated budget for a render with no limiter in the path"
+  },
+  "metrics": {
+    "Pitch": {
+      "value": 2500.0014,
+      "units": "Hz",
+      "reference": 2421.869,
+      "error": 78.1323,
+      "tolerance": 242.1869,
+      "valid": true,
+      "tolerance_basis": "frequency"
+    },
+    "attack duration": {
+      "value": 1.9792,
+      "units": "ms",
+      "reference": 1.3379,
+      "error": 0.6413,
+      "tolerance": 0.6689,
+      "valid": true,
+      "tolerance_basis": "time"
+    },
+    "tail decay": {
+      "value": 27.1832,
+      "units": "ms",
+      "reference": 20.6196,
+      "error": 6.5636,
+      "tolerance": 10.3098,
+      "valid": true,
+      "tolerance_basis": "time"
+    }
+  },
+  "diagnostics": {
+    "ours_peak_fs": 0.160645,
+    "ours_rms_fs": 0.005125,
+    "reference_peak_fs": 0.593262,
+    "reference_rate_hz": 44100,
+    "ours_rate_hz": 48000,
+    "level_matched": true,
+    "note": "levels are not compared: the Fischer set pinned LEVEL at maximum for every voice, so its inter-voice levels are not the machine's. Original-gain peak and RMS are recorded above."
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "engine": "fixed-model",
+  "case_id": "E2A",
+  "subject": "Lead and kit / sparse",
+  "source_commit": "4892fa4",
+  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T21:02:40Z",
+  "provenance": {
+    "engine": "fixed-model",
+    "worktree": {
+      "commit": "4892fa4",
+      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
+      "branch": "tools/case-runner",
+      "dirty": true,
+      "uncommitted_sha256": "3b7667b6a02c8d3d",
+      "untracked_files": 0
+    },
+    "base_check": {
+      "checked": true,
+      "origin_main": "edfcd4b3d761",
+      "behind_commits": 1,
+      "n_stops_here": 11,
+      "n_stops_origin_main": 11,
+      "stale_dependencies": {},
+      "allow_stale": false,
+      "problems": [],
+      "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
+    },
+    "command": "tools/run_case.py --batch First 32",
+    "config": {
+      "patch": "03-lead-line",
+      "dense": false,
+      "bpm": 124.0,
+      "seconds": 6.0,
+      "bus_gain": 0.45,
+      "limiter": false
+    },
+    "python": "3.14.7",
+    "run_at": "2026-09-18T21:02:40Z",
+    "inputs": {
+      "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
+      "model/voice_fx.py": "sha256:fc17442f2e21856a",
+      "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
+      "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
+      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
+    },
+    "artefacts": {
+      "mix": "build/scorecard/E2A-mix.wav"
+    },
+    "outcome_code": 2,
+    "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
+  },
+  "reference_profile": "our own per-bus stems and the written hit schedule; no external reference is involved in this case",
+  "render_run": "voice_fx 03-lead-line + drums_fx sparse groove, 124 BPM, 2 bars, buses 0.45/0.45, no limiter",
+  "audio": "build/scorecard/E2A-mix.wav",
+  "tolerance_policy": {
+    "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
+    "time": "50 % of the reference value -- 1.7 states +-50 % on Q, and for these bridged-T resonators tau is proportional to Q",
+    "energy ratio": "3 dB, the half-power convention. A stated convention, not a number derived from any error of ours",
+    "event timing": "10 ms -- the positional accuracy audio_measure.onsets states for itself; a failure is larger than the estimator's own resolution",
+    "bus sum": "0.5 dB -- the final output must be the sum of the per-bus stems",
+    "rail": "0.01 % of samples at the rail, a stated budget for a render with no limiter in the path"
+  },
+  "metrics": {
+    "Event timing": {
+      "units": "ms",
+      "valid": false,
+      "why": "BD: detected onsets do not match the scheduled events {'detected': 12, 'scheduled': 10}",
+      "tolerance": 10.0
+    },
+    "bus balance": {
+      "value": 0.0,
+      "units": "dB",
+      "reference": 0.0,
+      "error": 0.0,
+      "tolerance": 0.5,
+      "valid": true,
+      "tolerance_basis": "bus sum"
+    },
+    "output artifacts": {
+      "value": 0.0,
+      "units": "% of samples",
+      "reference": 0.0,
+      "error": 0.0,
+      "tolerance": 0.01,
+      "valid": true,
+      "tolerance_basis": "rail"
+    }
+  },
+  "diagnostics": {
+    "peak_fs": 0.733276,
+    "stem_peaks_fs": {
+      "voice": 0.380188,
+      "drum-mix": 0.316925,
+      "body": 0.502808
+    },
+    "scheduled_events": 42,
+    "stops_timed": [
+      "BD",
+      "CB",
+      "CH",
+      "CP",
+      "HT",
+      "LT",
+      "OH",
+      "SD"
+    ],
+    "dc_offset_fs": 0.00035612,
+    "patch": "03-lead-line",
+    "bpm": 124.0
+  }
+}

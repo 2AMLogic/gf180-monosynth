@@ -58,6 +58,80 @@ tests repeatability; it is not evidence of generalisation to a new knob setting.
 And once a holdout case's detailed errors have guided a change, **it has become
 development data** — a fresh independent claim needs new holdout cases.
 
+## Filling it
+
+`tools/run_case.py` writes the result files. It renders our side in-process
+from the integer models (never a committed WAV), loads or renders the reference
+side, measures both with the same estimator, and writes one JSON per case.
+
+```
+tools/run_case.py D01A                  one case
+tools/run_case.py --batch "First 32"    the first batch
+tools/run_case.py --list                what is covered, what is not, and why
+make board                              the batch, then re-render this board
+```
+
+Its exit status is the repository's verifier convention — **0 match, 1
+mismatch (a result), 2 did not run (no evidence)** — and the same code is
+written onto each record as `provenance.outcome_code`. A first batch that holds
+deliberate not-runs exits 2 by design: the board, not the status, is the report.
+
+### The two controls
+
+A runner's only failure mode that matters is a false green, so the two states
+that are easy to get wrong are injectable and run by `make controls`:
+
+```
+tools/run_case.py --inject REF_F0_20PCT D01A --results build/x --expect fail
+tools/run_case.py --inject REF_MISSING  D01A --results build/x --expect 'no verdict'
+```
+
+The first moves the reference pitch by 20 %, twice the frequency tolerance: the
+case must come back **fail**. The second points the reference at a file that is
+not there: it must come back **no verdict**, with the reason on the record and
+no `error` key at all. `--inject` refuses to write into `results/` — a
+control's output is not evidence about the instrument.
+
+### The tolerances, and that they are not per case
+
+Three classes, frozen in `tools/run_case.py` before any number was computed,
+and every metric names the class it used:
+
+| class | tolerance | where it comes from |
+|---|---|---|
+| frequency | 10 % of the reference value | the TR-808's own component tolerance on f0, `docs/tr808-reference.md` §1.7 |
+| time | 50 % of the reference value | §1.7's ±50 % on Q, and τ ∝ Q for these bridged-T resonators |
+| energy ratio | 3 dB | the half-power convention: a stated convention, not a number derived from any error of ours |
+
+A tolerance chosen per case, after seeing the error, is fitting around the
+deficiency it was supposed to catch.
+
+## Provenance: what a result was measured against
+
+**A result that cannot say what produced it is a number, not evidence.**
+Nothing else in this repository records it — no verifier here calls
+`rev-parse` — so a stale result has been indistinguishable from a current one,
+and many worktrees are live at once. Every result now carries:
+
+```json
+"provenance": {
+  "engine": "fixed-model",
+  "worktree": {"commit": "0d8a763", "branch": "tools/case-runner",
+               "dirty": true, "uncommitted_sha256": "…", "untracked_files": 3},
+  "command": "tools/run_case.py --batch First 32",
+  "config": {"voice": "BD", "refs": "/tmp/tr808-ref", "bus_gain": 0.45},
+  "inputs": {"model/drums_fx.py": "sha256:…", "reference:bd8/BD5050.WAV": "sha256:…"},
+  "artefacts": {"ours": "build/scorecard/D01A-ours.wav", "reference": "…/BD5050.WAV"},
+  "outcome_code": 1, "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run"
+}
+```
+
+A clean commit alone is not enough: a SHA that silently means "plus whatever
+was in the working tree" is worse than no SHA, so the uncommitted diff and
+every untracked file are hashed alongside it. **`tools/scorecard.py` gives no
+verdict to a result without a provenance block** — it counts against coverage,
+never towards it.
+
 ## What a result file looks like
 
 ```json
