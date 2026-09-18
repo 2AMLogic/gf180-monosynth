@@ -13,25 +13,46 @@ should temper how much weight you give any single figure.
 
 ---
 
-## 1. Why did 2× oversampling make our aliasing *worse*?
+## 1. Why did 2× oversampling make our aliasing *worse*? — **ANSWERED, 2026-09-18**
 
-**This is the one we most want answered, because we do not understand it and it
-probably points at a real bug.**
+We instrumented it rather than reasoning about it. Full working in
+`docs/oversampling-paradox.md`; instrument in `model/alias_probe.py`; locked in
+`model/test_moog_acceptance.py`.
 
-Measured: oscillator aliasing went from **−42.7 dB to −33.1 dB** when we
-oversampled the oscillators at 2×. We expected an improvement and got a 9.6 dB
-regression, reproducibly enough that we kept it as a test so nobody re-proposes
-it.
+**Oversampling worked; the rate reduction is what cost us.** At 96 kHz the
+corrected sawtooth reads −55.5 dB — the estimator's own floor, 12.8 dB better
+than the −42.7 dB we ship at 48 kHz. Keeping the last sub-step then costs
+22.4 dB, and the amount it costs **equals the share of the oversampled signal's
+power sitting in harmonics above 24 kHz** (−33.1 dB against a −33.1 dB reading,
+at every note within 0.3 dB). Those harmonics are not aliasing we gained and
+lost — at 48 kHz they are not in the signal at all. Oversampling created them
+and the drop-decimator folded them down.
 
-Our oscillators are integer phase accumulators with PolyBLEP correction. The
-ladder is already 2× oversampled; this was about oversampling the *oscillators*.
+Of the four hypotheses we listed, one was the right mechanism described in the
+wrong words and three are ruled out by substitution:
 
-- Is this the expected consequence of applying a PolyBLEP correction computed
-  for one rate at another — i.e. did we invalidate the correction's assumptions
-  rather than help?
-- Is a naive 2× decimator (we take the last sub-step, zero-order-held input)
-  simply folding what we just gained back in?
-- Is there a standard way to get this wrong that we have found?
+- **PolyBLEP was not rate-mismatched.** `blep_fx` decides its window with
+  `ph < inc` and scales by `1/inc`, so it is one sample per side at whatever
+  rate; measured peak ratio 1.0000 and 1.99 corrected samples per wrap at both.
+- **Fixed point is not involved.** The same correction in float64 regresses
+  identically, within 0.1 dB.
+- **Our implementation is not the problem, and is better than perfect.** An
+  exact additive band-limited sawtooth through the same decimator reads −29.8 dB
+  against our −33.1, because PolyBLEP's two-sample residual attenuates the top
+  of the oversampled band and leaves less there to fold.
+
+**The answer to "why is Surge's `return outputOS[1]` fine, then?"** is that it
+is not the decimator, it is the fold-down budget. After the ladder's four-pole
+lowpass the band above 24 kHz holds −62 to −102 dB; after an oscillator it holds
+−33 to −18 dB. We measured our own shipped ladder path and its last-sub-step
+decimation costs **0.0 to 0.5 dB**.
+
+**What we would still like your view on** is question 2 below, now sharpened: a
+float64 bound says an 11-tap half-band decimator is break-even with our shipped
+base-rate PolyBLEP, and a 63-tap one buys 6.9 dB at 82 Hz but **18.2 dB at
+2.6 kHz** — the shape of our actual defect. Is oversampling-plus-decimator the
+right trade against a higher-order PolyBLEP on a multiplier-starved target, or
+have we just found the cheapest way to move the problem?
 
 ## 2. What is the right anti-aliasing strategy on a multiplier-starved
 fixed-point target?
@@ -155,9 +176,14 @@ references at kurtosis 2.2–3.0 and crest 8–13 dB. A 16-bit LFSR repeats in
 
 ## What would help most
 
-If you only answer one: **question 1**. A 9.6 dB regression from oversampling is
-a result we cannot explain, and not understanding it means we cannot trust our
-reasoning about question 2 either — which is our largest defect.
+If you only answer one: **question 2**. Question 1 is now answered — the 9.6 dB
+regression was a drop-decimator folding down harmonics that only existed at the
+higher rate, not anything about PolyBLEP, fixed point or oversampling as a
+technique — and answering it sharpened question 2 rather than settling it. The
+measured curve says oversampling plus a real decimator attacks our defect
+exactly where it is worst (18.2 dB at 2.6 kHz against 6.9 dB at 82 Hz), which is
+the shape we need; what we cannot judge is whether it is the right trade against
+a higher-order correction on a multiplier-starved target.
 
 ## What you can assume about our measurements
 
