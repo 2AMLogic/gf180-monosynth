@@ -159,6 +159,21 @@ def _freqs():
 #: and the corner is read off it.
 CUT_HZ = 250.0
 
+#: The OTHER cutoff regions the Filters cases state, in Hz. `docs/scorecard/
+#: cases.csv` names three for the cutoff-response family -- "nominal cutoff
+#: region 250 Hz / 1000 Hz / 4000 Hz, verified by measurement" -- and the
+#: profile froze only the first, which is what `run_case.py`'s twenty
+#: `out of scope for this reference profile` entries were about.
+#:
+#: Only resonance ZERO is rendered at the new regions, and that is a deliberate
+#: limit rather than an oversight: F1B and F1C are the only cases these clips
+#: can be read by. F2B/F2C want a resonance ladder and are blocked on a
+#: matched-drive DEFINITION (see run_case.NOT_RUN["F2A"]), not on audio, so
+#: freezing eighteen more ladder clips here would freeze audio no case can
+#: consume and would move every consumer's profile hash to do it. Whoever
+#: writes that definition renders the ladder the definition asks for.
+CUT_REGIONS_HZ = (1000.0, 4000.0)
+
 #: Wide open, for the passband insertion loss the cases call "low-band gain".
 #: A gain against the SAME device with its filter out of the way is a ratio
 #: inside one instrument; a plateau in dBFS compared across two instruments is
@@ -199,6 +214,18 @@ def clip_specs() -> list[dict]:
             rig="surge-type2", kind="drive_tone", cut_hz=CUT_HZ, res=0.5,
             f_in=100.0, amp=float(10 ** (lv / 20.0)), level_dbfs=lv,
             why="a steady 100 Hz tone into the filter at a stated input level"))
+    # APPENDED, not interleaved with the 250 Hz block above. The fourteen
+    # original clips keep their identity and their render ORDER, so a re-render
+    # on any host reproduces their committed sha256 or does not -- which is the
+    # control that says this host's rig is the one that built the profile.
+    # Grouping the regions together would read better and would throw that
+    # control away on the same commit that needed it.
+    for cut in CUT_REGIONS_HZ:
+        specs.append(dict(
+            clip_id=f"surge-type2/lp-cut{cut:.0f}-res0.00", rig="surge-type2",
+            kind="tone_train", cut_hz=cut, res=0.0, amp=PROBE_AMP, freqs=fr,
+            why=f"the cutoff-response anchor for the {cut:.0f} Hz region, at the "
+                f"resonance zero F1B and F1C state"))
     return specs
 
 
