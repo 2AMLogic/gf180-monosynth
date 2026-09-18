@@ -1,0 +1,246 @@
+# The TR-808's variation from itself, measured — and the part that cannot be
+
+**One deliverable, issue #111: how much does a real TR-808 differ from itself,
+per metric, so that every tolerance on the scorecard can be compared against
+something measured.**
+
+Instrument: [`tools/measure_repeatability.py`](../tools/measure_repeatability.py),
+validated by [`tools/test_measure_repeatability.py`](../tools/test_measure_repeatability.py).
+Numbers: [`bd-repeatability-results.json`](bd-repeatability-results.json).
+
+```
+.venv/bin/python tools/measure_repeatability.py --all --json docs/bd-repeatability-results.json
+#   exit 2
+```
+
+Exit 2 is the headline. Read on for what exit 2 covers and what was measured
+anyway.
+
+---
+
+## 1. The premise was wrong: there are no repeated takes
+
+`refaudio/README.md` and #111 both state that the 808 From Mars clean bass drum
+is **24 settings × 6 takes = 144 files**, and that it is *"the only place in the
+corpus where the same machine plays the same thing more than once."*
+
+**It is not. The trailing `01`…`06` is the TONE knob.** The grid is
+2 chains × 2 accents × 6 DECAY × 6 TONE = 144, with **no take axis in it at
+all.**
+
+Three independent lines of evidence, and the recordings are asked before the
+file names are.
+
+**What the recordings do across `01`→`06`,** over all twelve Digital
+decay × accent groups:
+
+| metric | span across `01`→`06` | Spearman ρ vs index |
+|---|--:|--:|
+| band energy 200–2000 Hz | **+3.97 dB** | **+1.00 in 12 of 12 groups** |
+| early/body energy | **+0.89 dB** | +1.00 in 11 of 12 |
+| Pitch trajectory (f0) | +0.003 Hz (0.006 %) | — |
+| decay T20 | +0.19 ms (0.5 %) | — |
+
+One component carries **65–96 %** of the between-recording variance in every
+group, and its loading is monotone in the trailing index. A high band that
+climbs 4 dB while f0 and T20 sit still is the bass drum's **TONE** control
+mixing in the attack pulse. Under a null of random ordering P(ρ = +1) is 1/720
+per group; twelve of twelve is 10⁻³⁴.
+
+**What the vendor says,** in `catalog.json`'s own notes for the pack:
+
+> A = No Accent, B = Accent, C = More Accent
+> Bass Drum / Clean — *"Multi-Sampled Levels of 808 **Decay and Tone** at 2
+> accent levels"*
+
+**What the naming convention does elsewhere.** The voices with no knob to sweep
+— Cowbell, Rim Shot, Claves — are 2 accents × 2 chains = **four** clean files
+each and carry **no trailing number**. The congas, *"2 accent levels at 11
+tunings"*, carry `01`…`11`. The snare, *"levels of tone and snappy at 3 accent
+levels"*, is 2 × 3 × 6 × 6 = 216, exactly its clean count. **The trailing number
+is a knob index wherever it appears.**
+
+So the take-to-take question, as #111 asks it, is **REFUSED**: there is nothing
+to take a spread over.
+
+### The one place it could still be answered, and why it was not
+
+`808_loops_from_mars.zip` has a **`WAV/03. Bass Drum/4x4`** folder — 27
+bass-drum-only 4/4 loops, up to 16 bars, in which the same machine strikes the
+same setting four to sixty-four times **inside one continuous take**. That is
+better evidence than six edited takes would have been, because the setting
+demonstrably cannot move mid-loop.
+
+It is **the one 808 pack of the three not present on this host** (80 of the
+catalogue's 89 packs are). Whoever has it should run `--audit` on those loops
+first — a vendor who copy-pasted one strike would show cross-correlation 1.000
+— and then the real take-to-take number is a short job.
+
+---
+
+## 2. The estimator, measured before the machine
+
+An estimator with its own scatter measures itself. Three controls ran first.
+
+| control | result |
+|---|---|
+| **determinism** — six runs of one array | bit-identical |
+| **ground truth** — synthetic BD, closed-form answer | f0 exact; T20 within **0.008 %** of ln(10)·τ |
+| **editing noise** — one *real* recording, six copies differing only by where the vendor's editor cut the head and tail | below |
+
+**The editing-noise floor convicts the apparatus.** A 4-sample (0.09 ms) change
+in the head trim cannot be the machine:
+
+| metric | span over six editor-trim variants |
+|---|--:|
+| Pitch trajectory | 0.0004 Hz (0.0008 %) |
+| decay T20 | 0.0003 ms |
+| early/body energy | 0.064 dB |
+| attack | 0.091 ms |
+| **body spectrum (as shipped)** | **0.568 dB** |
+| **body spectrum (#101's fix applied)** | **0.0005 dB** |
+
+That 0.568 dB is **19 % of its own 3.0 dB tolerance, from the head trim alone**
+— #101's `sosfiltfilt` edge, found here independently of the conga work, on a
+different voice. With 10 ms of silence in front of the strike the same span is
+**1100× smaller**.
+
+**#118, demonstrated more starkly than #118 states it.** Cutting a record whose
+true T20 is 1192 ms down to 400 ms: `schroeder_t20` reports **282 ms — a −76 %
+error — and its `tail_db` guard reads −43 dB against a −35 dB requirement, so it
+does not refuse.** The length probe added here fires at −11.2 %. On the
+unaltered corpus that probe reads **−0.00 % at every decay position**, so these
+files are *not* truncation-limited and their T20 can be trusted.
+
+---
+
+## 3. What the corpus can answer: the same machine, recorded twice
+
+Samples From Mars recorded this machine twice — the current edition and the
+superseded legacy edition, indexed as a second session. The two editions
+cross-correlate at **0.9960**, so they are two recordings and not one re-pressed.
+
+**The DECAY letters do not correspond between sessions,** so most settings
+cannot be compared at all:
+
+| | current T20 | legacy T20 | apart |
+|---|--:|--:|--:|
+| **Decay A** | **38.86 ms** | **38.32 ms** | **1.4 %** |
+| Decay B | 87.48 | 98.32 | 12.4 % |
+| Decay C | 282.29 | 220.53 | 21.9 % |
+| Decay D | 539.82 | 395.84 | 26.7 % |
+| Decay E | 1193.71 | 608.51 | 49.0 % |
+| Decay F | 2249.77 | 719.26 | 68.0 % |
+
+One letter agreeing to 1.4 % while the rest diverge monotonically is what a knob
+against its **end stop** looks like — the one position reproducible between
+sessions without calibration. Everything below is measured there, across the six
+TONE positions.
+
+| metric | session A | session B | \|diff\| | vs estimator floor |
+|---|--:|--:|--:|--:|
+| **f0** | 50.612 Hz | 49.203 Hz | **1.385 Hz (2.74 %)** | 3900× |
+| **decay T20** | 38.750 ms | 38.242 ms | **0.505 ms (1.30 %)** | 2000× |
+| **early/body energy** | 0.972 dB | 0.566 dB | **0.421 dB** | 6.6× |
+| **band split, #101-corrected** | −11.502 dB | −11.617 dB | **0.159 dB** | **0.28×** |
+| band split, as shipped | −11.973 dB | −11.124 dB | 0.855 dB | — |
+| **attack** | 6.168 ms | 6.081 ms | **0.079 ms (1.28 %)** | **0.88×** |
+
+**Two of these are not measurements of the machine.** The shipped band split and
+the attack both move *less* between two recording sessions than they move when
+the file is trimmed by four samples. Their numbers describe the apparatus.
+
+**f0 is the cleanly attributable one.** The TR-808 bass drum offers LEVEL, TONE
+and DECAY and **no tuning control**, so no knob-setting error can enter it. The
+tool bounds what little could: dƒ₀/dln(T20) is +0.179 Hz and the two sessions'
+T20 differ by 1.38 %, so **at most 0.0025 Hz of the 1.445 Hz difference is knob
+position — 0.17 % of it.**
+
+---
+
+## 4. Every tolerance, beside what it has to beat
+
+A tolerance has to sit **above** what the apparatus does on its own and above
+what the machine does on its own, and **below** what the machine's own knobs do
+— otherwise it cannot tell two settings apart.
+
+| tolerance | value | machine | apparatus | mach ÷ appar | tol ÷ mach | tol ÷ knob travel |
+|---|--:|--:|--:|--:|--:|--:|
+| energy ratio — band split | 3.0 dB | 0.159 dB | 0.568 dB | **0.28** | 18.9× | 0.19 |
+| energy ratio — early/body | 3.0 dB | 0.421 dB | 0.064 dB | 6.6 | 7.1× | 0.17 |
+| frequency — f0 | 5.06 Hz (10 %) | 1.385 Hz | 0.0004 Hz | 3948 | **3.7×** | **1.38** |
+| time — decay | 19.4 ms (50 %) | 0.505 ms | 0.0003 ms | 2003 | 38.3× | 0.009 |
+| time — attack | 3.08 ms (50 %) | 0.079 ms | 0.091 ms | **0.88** | 38.8× | 0.20 |
+
+"Knob travel" is the union over both accent settings — everything the machine's
+own controls do to that metric across the whole 6 decay × 6 tone grid, twice.
+
+### The four findings
+
+**No tolerance on the board is finer than the machine's own floor.** The conga
+failures at 1.036 and 1.052 (#106) are **not** explained by machine spread: the
+machine moves 0.16 dB on a band split and the tolerance is 3.0 dB, nineteen
+times that. #111's suspicion that *"3 dB is finer than the machine's spread"* is
+**refuted** for this voice. The ±10 % f0 sensitivity the conga agent measured —
+2.46/2.71/1.54 dB of body spectrum — is a statement about f0 *authority over the
+metric*, not about how far f0 actually wanders, and this says f0 wanders 2.74 %,
+not 10 %.
+
+**Two metrics are dominated by the apparatus, not the machine.** The shipped
+band split (mach ÷ appar = **0.28**) and the attack (**0.88**). Fixing #101
+moves the band split from 0.855 dB of session-to-session difference to
+**0.159 dB** — five sixths of what looked like the machine was the window edge.
+**Until #101 lands, no band-split result on the board is a measurement of
+anything the TR-808 did.** That is nineteen drum results.
+
+**The f0 tolerance is the one with no headroom, in both directions.** It is only
+**3.7×** the machine's own spread — the tightest ratio on the board, and it
+could not be tightened below about 3 % without becoming scoring noise. And it is
+**1.4× everything the machine's own controls can do to the bass drum's f0**
+(both accents, both grids, f0 spans 50.55–54.21 Hz = 3.66 Hz total; the
+tolerance is 5.06 Hz). **On the bass drum, a ±10 % f0 tolerance cannot
+distinguish any two settings of the machine** — it is the only tolerance on the
+board wider than the travel of the thing it is meant to score. It is simultaneously too loose to discriminate and too close to the
+noise to tighten. This is the tolerance to revisit, not the 3 dB one.
+
+**The 50 % time tolerance is 38× the machine's floor** and about six tenths of
+one of the vendor's six DECAY steps. It has an order of magnitude of unused
+room.
+
+---
+
+## 5. What this does not establish
+
+**It bounds one machine.** Every real-808 recording reachable here descends from
+one unit, and nominally different "808" sets cross-correlate at 1.000 — the same
+events re-pressed. **Unit-to-unit is the larger term and there is no data for it
+here at all.** These are floors. A tolerance already tighter than a floor is
+definitely wrong; one wider than it is merely unproven.
+
+**Session-to-session is not take-to-take.** It is larger, and it is the more
+relevant quantity for a scorecard that compares a render against one recorded
+take — but the true take-to-take number is smaller and is still unmeasured, and
+it waits on `808_loops_from_mars.zip`.
+
+**It bounds the bass drum.** BD repeatability is not cymbal repeatability. It
+suggests an order of magnitude for the rest and no more.
+
+**Whether the legacy edition is the same physical unit is undocumented.** Same
+vendor, same machine per the catalogue's own description, but not asserted by
+anyone. If it is a second unit, the 2.74 % f0 figure is *unit-to-unit* and the
+take-to-take floor is smaller still. Either way it is an **upper bound** on
+take-to-take, which is the direction every conclusion above relies on.
+
+**Two dB metrics carry a chain confound.** The two sessions' console and
+converter chains differ (the current one is documented as API 1608 → Apogee
+Symphony MKII; the legacy one is not documented at all). Frequencies and times
+are chain-invariant; the dB numbers are upper bounds.
+
+---
+
+## Provenance
+
+`808-from-mars.zip` (SHA-256 verified against `refaudio/catalog.json`) and
+`808_from_mars_legacy.zip`, `…/01. Bass Drum/Clean/Digital/`, 144 + 144 files,
+each member's size checked against the committed `refaudio/index/`. Fetched with
+`tools/refaudio_local.py`. No audio is committed.

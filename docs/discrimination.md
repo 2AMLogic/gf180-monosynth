@@ -191,9 +191,13 @@ separated at 1.00. **We are further from the real machine than the real
 machine's weakest knob can travel across its whole range.**
 
 To get the true floor someone must record multi-take material. 808 From Mars
-(≈ $39) ships real 808 recordings across tone/decay/accent with a clean
-digital subset and would supply it; it was **not purchased**. New recordings
-would serve equally.
+(≈ $39) has since been purchased, and **it does not supply it**: its bass
+drum's 144 clean files are 2 chains × 2 accents × 6 decay × 6 tone, a grid of
+settings with no take axis in it, and every other voice is one take per setting
+too (`docs/bd-repeatability-measurement.md`). The same vendor's
+`808_loops_from_mars.zip` has bass-drum-only 4/4 loops, where one setting is
+struck repeatedly inside one continuous take; that is the remaining candidate.
+New recordings would serve equally.
 
 ---
 

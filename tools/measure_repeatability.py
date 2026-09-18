@@ -567,9 +567,22 @@ def knob_travel(report=print) -> dict:
                       "decay_axis_span": round(max(dec) - min(dec), 4) if dec else None,
                       "tone_axis_span": round(max(ton) - min(ton), 4) if ton else None}
         out[f"accent {accent}"] = row
+    # ACCENT is a control too, so "everything the machine's own controls can do"
+    # is the union over both accent settings, not one of them.
+    both = {}
+    for k in out["accent A"]:
+        if k not in out["accent B"]:
+            continue
+        a, b = out["accent A"][k], out["accent B"][k]
+        lo, hi = min(a["grid_min"], b["grid_min"]), max(a["grid_max"], b["grid_max"])
+        both[k] = {"units": a["units"], "grid_min": lo, "grid_max": hi,
+                   "grid_span": round(hi - lo, 4),
+                   "decay_axis_span": max(a["decay_axis_span"], b["decay_axis_span"]),
+                   "tone_axis_span": max(a["tone_axis_span"], b["tone_axis_span"])}
+    out["both accents"] = both
     report("  metric                      units      min        max       span"
            "    by DECAY   by TONE")
-    for k, r in out["accent A"].items():
+    for k, r in out["both accents"].items():
         report(f"  {k:26s} {r['units']:4s} {r['grid_min']:10.3f} {r['grid_max']:10.3f} "
                f"{r['grid_span']:10.3f} {r['decay_axis_span']:10.3f} {r['tone_axis_span']:9.3f}")
     return out
@@ -713,7 +726,7 @@ def verdicts(machine: dict, estimator: dict, travel: dict, report=print) -> dict
             0.10 * ref if basis == "frequency" else 0.50 * ref)
         mach = m["abs_diff_median"]
         est = estimator["editing_noise"][shipped_metric]["span"]
-        tr = travel["accent A"][metric]
+        tr = travel["both accents"][metric]
         rows.append({
             "tolerance_basis": basis, "metric": metric, "units": units,
             "tolerance": round(tol, 4), "used_by": used_by,
