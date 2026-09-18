@@ -100,6 +100,20 @@ class Refused(Exception):
     """A precondition of the apparatus failed. Nothing was attempted."""
 
 
+def longest_true_run(mask) -> int:
+    """Longest run of True. `audio_measure.longest_plateau` is the wrong tool
+    for this -- it is the longest run of any identical value, which on a mask
+    that is mostly False is the silence."""
+    m = np.asarray(mask, dtype=bool)
+    if not m.any():
+        return 0
+    best = run = 0
+    for v in m:
+        run = run + 1 if v else 0
+        best = max(best, run)
+    return best
+
+
 # ===========================================================================
 # 1. Loading, with the preconditions asserted at the point of use
 # ===========================================================================
@@ -123,8 +137,14 @@ def load(path: pathlib.Path) -> tuple[np.ndarray, int]:
     pk = float(np.abs(x).max())
     if not (0.0 < pk <= 1.0):
         raise Refused(f"{path.name} peaks at {pk:.4f}: not a correctly scaled float read")
-    if am.clipped_fraction(x, 1.0) > 0.0:
-        raise Refused(f"{path.name} has samples at the rail")
+    # A clipped file cannot carry an energy ratio. But a SINGLE sample at
+    # exactly full scale is peak normalisation, not clipping -- the legacy
+    # pack is normalised per file and 57 of its 144 bass drums have exactly
+    # one such sample, none of them consecutive. Clipping is a PLATEAU at the
+    # rail; refuse on that and not on the level.
+    run = longest_true_run(np.abs(x) >= 1.0 - 1e-9)
+    if run > 1:
+        raise Refused(f"{path.name} is flat-topped at the rail: {run} consecutive samples")
     if int(sr) != 44100:
         raise Refused(f"{path.name} is {sr} Hz; the indexed corpus is 44.1 kHz")
     return x, int(sr)
@@ -246,3 +266,125 @@ def truncation_sensitivity(y: np.ndarray, sr: int) -> float | None:
     if not short.ok:
         return math.inf
     return 100.0 * (short.value - full.value) / full.value
+
+
+# ===========================================================================
+# 3. The audit: is a nominal repeat group actually repeats?
+#
+# `refaudio/README.md` and #111 both read the trailing `01`..`06` on the bass
+# drum as round-robin take numbers. The file names do not say that, and a file
+# name is not evidence. This asks the recordings.
+#
+# The vendor's own notes, in catalog.json's `about` for the pack, say what the
+# folders are:
+#
+#     A / B / C -- A = No Accent, B = Accent, C = More Accent
+#     Bass Drum / Clean -- "Multi-Sampled Levels of 808 Decay and Tone at 2
+#     accent levels"
+#
+# so the grid is 2 chains x 2 accents x 6 DECAY x 6 TONE = 144, with no take
+# axis at all. The naming convention is confirmed by the voices that have no
+# knob to sweep: Cowbell, Rim Shot and Claves are 2 accents x 2 chains = FOUR
+# clean files each and carry NO trailing number. The congas, "2 accent levels
+# at 11 tunings", carry 01..11. The trailing number is a knob index wherever it
+# appears.
+#
+# That is documentary evidence. The three tests below are physical, so the
+# conclusion does not rest on a vendor's prose either.
+# ===========================================================================
+def spearman(y: list[float]) -> float:
+    """Rank correlation of `y` against its own index order. +-1 is monotone.
+
+    For six values in random order, P(|rho| = 1) = 2/6! = 1/360."""
+    n = len(y)
+    r = np.empty(n)
+    r[np.argsort(np.argsort(np.asarray(y, float)))] = np.arange(n)
+    i = np.arange(n, dtype=float)
+    return float(np.corrcoef(r, i)[0, 1])
+
+
+def align(sigs: list[np.ndarray], maxlag: int = 256) -> np.ndarray:
+    """Integer-lag align to the first signal and truncate to a common length."""
+    n = min(len(s) for s in sigs)
+    ref = sigs[0][:n] - sigs[0][:n].mean()
+    out = [sigs[0][:n]]
+    for s in sigs[1:]:
+        s = s[:n]
+        best, bl = -np.inf, 0
+        c = s - s.mean()
+        for lag in range(-maxlag, maxlag + 1):
+            v = float(np.dot(ref[maxlag:n - maxlag], c[maxlag + lag:n - maxlag + lag]))
+            if v > best:
+                best, bl = v, lag
+        out.append(np.roll(s, -bl))
+    m = np.array([o[maxlag:n - maxlag] for o in out])
+    return m / np.abs(m).max(axis=1, keepdims=True)
+
+
+def rank1_fraction(sigs: list[np.ndarray]) -> tuple[float, list[float]]:
+    """Fraction of the between-recording variance carried by ONE component,
+    and that component's loading per recording.
+
+    Six recordings that differ by one knob are (fixed voice) + c_k x (fixed
+    additive term): a rank-1 family, with loadings monotone in knob position.
+    Six repeats of one setting differ by trigger jitter, thermal drift and
+    noise -- several uncorrelated terms, no single component dominating and no
+    reason for a monotone loading."""
+    m = align(sigs)
+    d = m - m.mean(axis=0, keepdims=True)
+    s = np.linalg.svd(d, compute_uv=False)
+    u, sv, _ = np.linalg.svd(d, full_matrices=False)
+    loading = (u[:, 0] * sv[0]).tolist()
+    if loading[-1] < loading[0]:
+        loading = [-v for v in loading]
+    return float(s[0] ** 2 / np.sum(s ** 2)), loading
+
+
+def audit(report=print) -> tuple[bool, dict]:
+    """Are the trailing-numbered bass-drum files repeats of one setting?
+
+    Returns (is_repeats, evidence). False is the finding, not a failure."""
+    ev: dict = {"groups": [], "vendor_note": "A/B = accent; per catalog.json "
+                "the BD clean set is 'Multi-Sampled Levels of 808 Decay and "
+                "Tone at 2 accent levels'"}
+    plan = metrics()
+    report("  group                       metric                   rho   span")
+    mono = collections.Counter()
+    for chain in ("Digital",):
+        for accent in ("A", "B"):
+            g = current_grid(accent, chain)
+            if len(g) != 36:
+                raise Refused(f"{chain}/{accent} holds {len(g)} of the 36 indexed files")
+            for decay in "ABCDEF":
+                sigs, vals = [], collections.defaultdict(list)
+                for tone in range(1, 7):
+                    x, sr = load(g[(decay, tone)])
+                    sigs.append(x)
+                    y = rc.prepare(x, sr)
+                    for k, v in measure_all(y, sr, plan).items():
+                        vals[k].append(v)
+                frac, loading = rank1_fraction(sigs)
+                row = {"group": f"{chain}/{accent}/Decay {decay}",
+                       "rank1_variance_fraction": round(frac, 4),
+                       "rank1_loading_spearman": round(spearman(loading), 4),
+                       "metrics": {}}
+                for k, v in vals.items():
+                    if any(t is None for t in v):
+                        continue
+                    rho, span = spearman(v), max(v) - min(v)
+                    row["metrics"][k] = {"spearman_vs_tone_index": round(rho, 4),
+                                         "span": round(span, 4),
+                                         "values": [round(t, 4) for t in v]}
+                    if abs(rho) == 1.0:
+                        mono[k] += 1
+                ev["groups"].append(row)
+                report(f"  {row['group']:26s} rank-1 variance {frac*100:5.1f} %  "
+                       f"loading rho {spearman(loading):+.2f}")
+                for k in ("body spectrum", "early/body energy", "Pitch trajectory", "decay"):
+                    if k in row["metrics"]:
+                        d_ = row["metrics"][k]
+                        report(f"      {k:24s} rho {d_['spearman_vs_tone_index']:+.2f}"
+                               f"   span {d_['span']:8.3f}")
+    ev["monotone_group_count"] = dict(mono)
+    ev["groups_total"] = len(ev["groups"])
+    return False, ev
