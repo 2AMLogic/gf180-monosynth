@@ -35,7 +35,7 @@ RULES THIS ENFORCES, because each of them is a way a scorecard starts lying:
     without provenance gets NO VERDICT: it is a number nobody can re-derive.
 """
 from __future__ import annotations
-import argparse, csv, json, pathlib, sys
+import argparse, csv, json, pathlib, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CASES = ROOT / "docs" / "scorecard" / "cases.csv"
@@ -123,6 +123,40 @@ def evaluate(case: dict, res: dict | None) -> dict:
             "why": "" if worst <= 1.0 else f"worst: {worst_name}", "engine": engine}
 
 
+def checkout_staleness() -> str | None:
+    """Is the tree we are reporting from behind the branch it should describe?
+
+    WHY THIS EXISTS. The board was reported as "0 of 100" for hours after it
+    actually read 16, because the working checkout sat on a branch that had
+    merged and nobody switched back. Nothing was lost and nothing was broken --
+    the reader was simply looking at a tree ten commits old, and the board said
+    so with complete confidence.
+
+    A status tool that answers from a stale tree is the same failure as an
+    estimator that answers when its preconditions do not hold: the output is
+    indistinguishable from a current one. So say so, loudly, in the report
+    itself rather than leaving it to be noticed.
+
+    Degrades silently when git cannot answer -- a tarball, a detached CI
+    checkout, no remote. An absent warning must never be read as a guarantee.
+    """
+    def git(*a: str) -> str:
+        try:
+            r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True,
+                               text=True, timeout=10)
+        except Exception:
+            return ""
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    behind = git("rev-list", "--count", "HEAD..origin/main")
+    if not behind.isdigit() or int(behind) == 0:
+        return None
+    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    return (f"!! THIS TREE IS {behind} COMMITS BEHIND origin/main (on '{branch}'). "
+            f"The board below describes that older tree, not main. "
+            f"`git checkout main && git pull` before reading it as current.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -135,6 +169,13 @@ def main() -> int:
     ap.add_argument("--markdown", metavar="PATH", nargs="?", const="docs/scorecard/BOARD.md",
                     help="write the full board as markdown (default docs/scorecard/BOARD.md)")
     a = ap.parse_args()
+
+    # The banner goes in the report itself. It ALSO goes to stderr, but only
+    # when stdout is redirected -- otherwise an interactive reader sees it
+    # twice, and a warning that looks like a bug gets ignored like one.
+    stale = checkout_staleness()
+    if stale and not sys.stdout.isatty():
+        print(stale, file=sys.stderr)
 
     cases = load_cases()
     for key, val in (("family", a.family), ("batch", a.batch), ("split", a.split)):
@@ -158,6 +199,9 @@ def main() -> int:
         valid = st[PASS] + st[FAIL]
         return n, st, valid
 
+    if stale:
+        print(stale)
+        print()
     print("=" * 74)
     print(f"{'':<12}{'cases':>6}{'valid':>7}{'pass':>6}{'fail':>6}"
           f"{'no verdict':>12}{'not run':>9}")
