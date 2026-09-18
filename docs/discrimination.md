@@ -333,60 +333,151 @@ proportional error in the table.
 
 ### 5b. General representation, grouped permutation importance
 
-40 log-mel bands and 20 MFCCs over four time segments; accuracy drop when a
-whole (band × segment) bucket is shuffled on held-out clips:
+Accuracy drop when a whole bucket is shuffled on held-out clips, arm `ours`,
+all sixteen sounds, the study's own 320 columns:
 
 | feature group | accuracy drop |
 |---|---|
-| MFCC, **attack segment** (0–60 ms) | **+0.20** |
-| MFCC, early segment (60–120 ms) | +0.072 |
-| 5–18 kHz, mid segment | +0.020 |
-| 5–18 kHz, tail segment | +0.016 |
-| 5–18 kHz, attack segment | +0.012 |
-| 200–700 Hz, attack segment | +0.010 |
+| MFCC, **attack segment** (0–60 ms) | **+0.122** |
+| MFCC, early segment (60–120 ms) | +0.065 |
+| MFCC, mid segment (120–180 ms) | +0.050 |
+| MFCC, tail segment (180–240 ms) | +0.022 |
+| 200–700 Hz, attack segment | +0.017 |
+| 2–5 kHz, attack segment | +0.010 |
 
-**The attack carries almost all of it.** That is consistent across voices and
-matches `docs/drum-verification.md`'s finding that we strike every resonator
-with an impulse where the machine uses a pulse shaped over ~10 ms.
+**The attack still carries most of it**, now over sixteen sounds rather than
+eight, and §6's trajectory report says what is in that attack.
 
 ---
+
+### 5c. The vocoder-discriminator views, as extra columns
+
+Three deterministic decompositions borrowed from the neural-vocoder
+discriminators were added as **feature columns** — no training, no encoder,
+no embedding, nothing fitted to the reference — and handed to the same L2
+logistic regression and the same knob-equivalent unit.
+`model/discrimination_features.py` is the code, with 12 self-tests.
+
+| view | what it is | columns |
+|---|---|---|
+| **MPD** | multi-period fold, statistics across rows | 48 |
+| **JIT** | the dominant partial's own cycle trajectory | 9 |
+| **CQT** | constant-Q sub-bands, 6 per octave, 40 Hz–16 kHz | 104 |
+| **MS** | six bands at 4, 10 and 25 ms, plus the scale differences | 30 |
+
+**What they changed.** Pooled held-out accuracy **0.895 → 0.984**, ABX
+**56/62 → 62/62**. They separate.
+
+**What they say.** After splitting the jitter bucket into *pitch* and
+*stability* columns — which had to be done, because `period_ms` and
+`ncycles` say what the partial's frequency **is**, which is a tuning error
+the study already measures:
+
+| bucket | accuracy drop |
+|---|---|
+| MFCC, early segment | +0.045 |
+| MFCC, tail segment | +0.026 |
+| MFCC, attack segment | +0.026 |
+| **`jit.period`** | **+0.024** |
+| `cqt.0-200Hz` | +0.018 |
+| `cqt.9000-20000Hz` | +0.017 |
+| `cqt.5000-9000Hz` | +0.014 |
+| `cqt.700-2000Hz` | +0.010 |
+
+> **#56 DOES NOT GET A NUMBER FROM THIS, AND THAT IS THE RESULT.**
+> "Three stable oscillators do not sound like three analogue ones" would be
+> measured by the **stability** columns. `jit.period` — a pitch error — is
+> in the top four. **`jit.stability` is not, and the pitch reading is
+> independently corroborated**: measured directly, all six tuned circuits
+> are 2–7 % sharp at every held-out TUNING position (§6.5).
+>
+> This is a negative result with power behind it, not an absence of
+> evidence. The stability columns resolve **0.1 % per-cycle jitter as
+> 14 534 ppm against a 20 ppm rate-artefact floor** — a factor of 700 — and
+> they carry the control that makes the claim falsifiable at all: two
+> *perfectly stable* detuned oscillators beat, and beating reads as jitter
+> on any scatter statistic (+2 Hz of static detune reads 17 473 ppm, against
+> 14 534 for real jitter). Only the lag-1 autocorrelation of the
+> **differenced** phase residual separates the two mechanisms (0.80–1.00 for
+> beating and glide, 0.60–0.68 for per-cycle jitter), and
+> `test_static_detuning_is_not_reported_as_drift` asserts the size of that
+> gap so it cannot quietly close.
+>
+> What the null does **not** cover: the study's window is 240 ms and the
+> probe follows one partial. Oscillator drift over a longer note, or in the
+> five oscillators the probe does not lock to, is untested.
+
+**The MPD columns are not a drift measure and are not read as one.** The
+strides are not commensurate with any oscillator here — 131 Hz at 48 kHz is
+366.4 samples — so a perfectly stable tone already walks from row to row.
+They are a non-stationarity view, asserted as such in
+`test_a_fixed_stride_fold_is_not_a_drift_measure`. They do not reach the top
+eight.
+
+**Promotable to named measurements, with tolerances and floors:**
+
+- **`cqt.0-200Hz`** — the low-band excess. It is the most promotable thing
+  here: it is in the top five, it is corroborated by the trajectory report
+  on every one of the sixteen sounds, and it has an obvious floor (the
+  machine's own level in that band, 41–91 dB under its peak).
+- **`ms.scale-difference`** (4 ms against 10 ms) — #109's shape, already a
+  named quantity there, now with a per-voice value.
+- **`jit.period_ms`** — a per-voice pitch check with a stated tolerance;
+  ours is 2–7 % sharp and the sign is systematic.
+- **NOT `jit.phasejit_ppm` on its own.** It cannot tell drift from beating
+  and must never be quoted without `jit.dphase_ar1` beside it.
+
+**A caution on the deltas, and it is the coordinator's, not a hedge.** Adding
+columns changes the ruler as well as the reading: the knob-equivalent is a
+distance normalised by that voice's own spread, and both move. The
+per-comparison knob-equivalent rose for BD (2.5 → 4.4) and CY (8.1 → 9.8)
+and **fell** for SD (3.4 → 2.9), HT (7.3 → 6.7) and LT (≥10 → 7.4). A number
+that rises with better features is a finding — it says the old columns could
+not see how far away we were — but a number that moves in either direction
+on a ruler that also moved is not by itself a newly discovered defect.
 
 ## 6. Ranked: what to fix next
 
-Ordered by knob-equivalent separation — how far our render sits from the
-machine in the machine's own units.
+Read with §3.1's caveat: the per-comparison knob-equivalent ranks, and it
+ranks against **one machine** (§7).
 
-1. ~~**SD — 8.8 / 10.** The snappy path. Noise carries 1.2 % of the energy
-   where the machine's carries 47–92 % depending on SNAPPY, and it is flat to
-   Nyquist where the machine humps at 3–5 kHz.~~ **SUPERSEDED — SD is now
-   3.4 / 10, second only to the kick.** The "1.2 % against 47–92 %" pair
-   is the withdrawn whole-span Hann split on both sides (§8.0 of
-   `docs/drum-verification.md`); measured honestly the share was never far
-   off. What was really wrong: the noise *band* (fixed in revision 6), then
-   the snappy burst's *length* (τ 15 → 30 ms) and the two partials'
-   *balance* (0.394 → 1.42), both fixed in revision 7 (§8.6). What remains at
-   3.4 has not been identified and is spread thinly rather than concentrated.
-2. **LT / HT — 7.1 and 6.0 / 10.** The missing pink-noise path (§4 of the
-   reference): ours have *zero* energy in 0.7–5 kHz against the machine's.
-   Cheap to add. **Underpowered verdict — the corpus has 2 held-out settings
-   each — but the diagnostic error is unambiguous.**
-3. **OH — 6.9 / 10.** Low-frequency excess, and the DECAY law saturation
-   above 7.5 that our linear decay control does not reproduce. Also
-   underpowered.
-4. **BD — 3.6 / 10.** Closest of the five. The attack: +103 % attack-time
-   error and no harmonics. The τ error largely disappeared once the DECAY law
-   was fitted properly, which confirms `drum-verification.md`'s reading that
-   the old 45 % shortfall was mid-point mapping, not mechanism.
-5. **The attack shaping, globally.** §5b says the 0–60 ms segment carries
-   ~90 % of the discrimination across all voices. One fix — a shaped
-   excitation pulse instead of an impulse — attacks every voice at once and
-   is the highest-leverage single change in the list.
+1. **The excitation pulse, and it is now the finding rather than an
+   inference.** `docs/discrimination-trajectory.txt` reports, for **all
+   sixteen sounds without exception**, broadband energy in the first 30 ms
+   that the machine does not have — 41 to 91 dB below the machine's own peak
+   in that band, and ours carrying +11 to +67 dB of it. The cymbal is the
+   clearest case: at 135 Hz the machine sits at −72.9 dB, 91 dB under its own
+   peak, and ours carries −6 dB. That is an impulse striking a resonator
+   where the machine uses a pulse shaped over ~10 ms, seen directly rather
+   than inferred from a segment importance. **One fix, sixteen sounds.**
+2. **BD — 2.5 / 10.** Closest of the three adjudicable sounds, and the
+   trajectory says exactly where: the 170–302 Hz attack is **17 to 22 dB
+   quiet in the first 30 ms**, and the body then **decays far too slowly** —
+   ours −8.9 dB/100 ms at 170 Hz against the machine's −44.1. A quiet, long
+   body where the machine has a loud, short one.
+3. **SD — 3.4 / 10.** Held at revision 7's figure. The trajectory puts the
+   remaining error at 1.3–3.8 kHz in the first 60 ms, +11 to +12 dB, and in
+   a tail that decays too slowly (−27.8 dB/100 ms at 479 Hz against −46.5).
+4. **CY — 8.1 / 10, and the first measurement of this voice.** The worst of
+   the three adjudicable sounds. Two separable defects: **+21 dB at 1.5 kHz**
+   where the machine has −18, and a high band that **decays too slowly**
+   across 4.8–10.8 kHz (−1.6 to −3.2 dB/100 ms against −5.6 to −7.6). The
+   135 Hz excess above is the third.
+5. **The six tuned circuits are all ~4 % sharp at the held-out knob
+   positions.** Measured directly against the machine at every held-out
+   TUNING setting: LT +4.0/+7.1 %, LC +3.5/+4.8, MT +5.3/+4.7, MC +3.7/+2.2,
+   HT +3.8/+3.3, HC +5.2/+2.3 — **every one high, none low**. A systematic
+   sign like that is a law or a rounding, not noise, and it is cheap to chase.
+6. **The congas' and toms' bodies decay too fast and the machine's do not.**
+   LT is the extreme: ours −48.7 dB/100 ms at 190 Hz against the machine's
+   −8.2. LC, MC, HC and HT are the same sign.
+7. **OH's tail is 17–20 dB hot at 7.7–8.6 kHz between 210 and 240 ms** and
+   its 1.9–2.2 kHz decays at less than half the machine's rate.
 
-`docfix` (the fixes `drum-verification.md` prescribes, applied as register
-overrides) was rendered as a second arm and is **still separated at 1.000**.
-Those fixes are necessary and not sufficient; they do not touch the attack.
-
----
+`docfix` was rendered as a second arm and is **not distinguishable from
+`ours`** on this corpus: 0.887 against 0.895 on the 320 columns, which is
+well inside the interval. The fixes `drum-verification.md` prescribes are
+not what is left.
 
 ## 7. What this test does **not** say
 
@@ -876,12 +967,39 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 
 ## 9. Reproducing, and one caveat
 
-The `drums` branch had not yet merged to `main` when this was run, so
-`model/drums_fx.py` and `model/modal_fixed.py` were taken from `origin/drums`
-`1e638ac` and the rest from `main` `d9921a4`. `model/drum_verify.py` on main
-is in the same state — it already references `drums_fx_render`. Re-run after
-the merge lands; the run prints the commit and a SHA-256 of the model files it
-actually rendered, so a stale result is self-identifying.
+### Provenance of the 2026-09-18 re-run
+
+| | |
+|---|---|
+| tree | branch `measure-discrimination-current`, **clean**, off `main` `c752145` |
+| model sha256 (drums_fx + modal_fixed + harness) | `3cf0210cca1aef01` (sixteen-sound run) |
+| corpus | `tidalcycles/sounds-tr808-fischer` `85fbecf`, **116** WAVs, sha256 `e3ad2d77a79cda4a` |
+| split hash | `ab381e78f9f4cc41` (sixteen); `6738610a454806f8` (the published eight, reproduced byte-for-byte) |
+| commands | `model/discrimination_run.py --refs /tmp/tr808-ref --sounds 16 --features both`; `model/discrimination_trajectory.py --refs /tmp/tr808-ref`; `pytest model/test_discrimination.py model/discrimination_features.py model/discrimination_trajectory.py -q` |
+| self-tests | **38 passed** (was 12) |
+| results | `docs/discrimination-results.json` (eight-voice), `docs/discrimination-results-16.json` (sixteen), `docs/discrimination-run.txt`, `docs/discrimination-trajectory.txt` |
+
+**Which measurement path, and PR #132.** PR #132 repairs four estimator
+defects in `model/audio_measure.py` and `tools/run_case.py` and is **open,
+not merged**; this re-run was made on a tree that does **not** contain it.
+It does not matter here, and that is checkable rather than assumed:
+`model/test_discrimination.py` imports nothing from `model/audio_measure.py`.
+Its features are its own log-mel and MFCC code; its diagnostics are its own
+`measure_tau`, `measure_f0`, `band_share` and `partial_ratio`. **No number in
+this document routes through `band_energy`, so the windowing fix worth up to
+6 dB changes none of them.** If the harness is ever made to import the shared
+estimators, this paragraph stops being true and every figure needs re-deriving.
+
+**One thing PR #132 does touch, indirectly.** `drums_fx.CY_DECAY_T20`'s note
+records that the knob-2.5 cymbal file "is the one file of the five whose
+length is shorter than its own decay" and excludes it — which is exactly
+#118's truncation defect, a backward integral reporting the cut rather than
+the decay. The cymbal DECAY law fitted here does not use a Schroeder T20 at
+all; `measure_tau` regresses the log envelope over −3..−27 dB and needs only
+27 dB of record, and it reads that file at 258.5 ms, in order with both its
+neighbours (158 / **258.5** / 393.6 / 466.0 / 510.4 ms). Recorded because the
+two methods disagree about which files are usable, and the drums contract
+took the other one.
 
 Nothing in this test was tuned on a held-out setting. The pre-registered
 split, the equivalence margin and the minimum-N rule were fixed before any
@@ -891,3 +1009,13 @@ rate-independent across 44.1 k and 48 k, floor clamp hides a −76 dBFS
 converter floor, level matching removes a pure gain, a recording never on both
 sides of a split, and that 10-of-20 is reported as an upper bound of 0.68
 rather than as "indistinguishable").
+
+Added with the sixteen-sound extension, and each one exists because it caught
+something: the eight default sounds' register image is byte-identical under
+`kit_with_sounds`, so no previously published arm moved; the stop struck comes
+from `SOUND_STOP` and not from `STOP_NAMES.index`, which raised `ValueError`
+on LC, MC, HC and MA; all sixteen render non-silent and each shared circuit's
+two sounds separate by 1.2–1.5× rms; the extra columns append and never
+reorder the original 320; the CV grouping does not move between processes;
+a sound with no knob can produce no knob-equivalent; and a frozen ruler makes
+the two distances commensurate.
