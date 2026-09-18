@@ -210,6 +210,17 @@ NOT_ASSERTED = {
 #       withdrawn; see the test.
 #   test_cowbell_decay_matches_a_real_machine -- closed: E_CBB is the
 #       measured tau 100 ms, not 30.
+#
+# All five were re-run and classified in docs/drum-verification.md section 9,
+# alongside the eleven outdated expectations that failed with them. ONE RULE
+# CAME OUT OF THAT AUDIT, and it is why the list above is commented rather
+# than deleted: the two bd_attack entries had already been FIXED by 15.7.1 and
+# were still red, because the same two tests also asserted the chart's 56 Hz
+# that DR 0009 had superseded. A strict xfail is meant to go red the moment
+# its defect is fixed and force its entry out of this table; a second,
+# unrelated stale expectation kept it satisfied and hid the closure. So: when
+# an entry here fires, check the failure is the recorded one. A marker
+# satisfied by ANY failure records "this test fails", not "this defect exists".
 KNOWN_DEFECTS = {}
 
 STUB = os.environ.get("TR808_STUB", "")
@@ -578,6 +589,46 @@ def test_bd_decay_control_spans_roland_s_chart_range():
         # would be inventing precision the research did not have.
         assert abs(t20 / chart - 1) <= 0.60, \
             f"knob {knob}: T20 {t20*1e3:.0f} ms against Roland's chart decay {chart*1e3:.0f} ms"
+
+
+# Reference 2's own decay table: the DECAY knob's Q against the time constant
+# the same section tabulates for it. Both columns are the reference's; neither
+# is derived from the other here, which is what makes the pair a check on f0.
+BD_TAU_TABLE = ((0.0, 2.3, 0.015), (1.0, 5.2, 0.033), (5.0, 22.3, 0.144),
+                (9.0, 63.0, 0.408), (10.0, 84.0, 0.544))
+
+
+@pytest.mark.parametrize("knob,q,tau_ref", BD_TAU_TABLE)
+def test_bd_decay_table_is_self_consistent_at_the_schematic_s_f0(knob, q, tau_ref):
+    """[source-verified: reference 2's decay table, Q and tau columns; DR 0009]
+
+    THE INDEPENDENT EVIDENCE FOR DR 0009, asserted rather than only argued.
+
+    Reference 2 tabulates the DECAY knob as a Q *and* as a time constant. A
+    bridged-T's ring satisfies tau = Q / (pi f0), so the two columns together
+    fix f0 -- and they fix it at the schematic's 49.4 Hz, not at the tuning
+    chart's 56. At 49.4 the table closes to 1.5 %; at 56 it is out by up to
+    12.8 %, which is the whole of DR 0009's argument in one line of
+    arithmetic.
+
+    This is deliberately NOT written against `dx.bd_decay_q` alone. The rest
+    of the BD suite derives its reference tau from the model's own Q table and
+    BD_HZ, so those tests move if both move together and can no longer catch a
+    wrong f0. This one holds the reference's two columns fixed and lets only
+    BD_HZ vary, so putting the chart's 56 Hz back turns it red -- see
+    test_meta_bd_tau_column_rejects_the_chart_s_f0.
+
+    Ground truth: arithmetic on the reference's own table; no estimator, so
+    test_audio_measure is not involved. The rendered counterpart is
+    test_bd_rendered_decay_at_each_setting.
+    """
+    assert dx.BD_DECAY_Q[knob] == q, \
+        f"the kit's Q at knob {knob} is {dx.BD_DECAY_Q[knob]}, reference 2 tabulates {q}"
+    tau = q / (math.pi * dx.BD_HZ)
+    assert abs(tau / tau_ref - 1) <= 0.04, (
+        f"knob {knob}: Q {q} at f0 {dx.BD_HZ} Hz gives tau {tau*1e3:.1f} ms where "
+        f"reference 2's own table says {tau_ref*1e3:.0f} ms. The two columns of that "
+        f"table are only consistent at the schematic's f0 (DR 0009).")
 
 
 def test_bd_decay_does_not_move_the_pitch_of_the_ring():
@@ -1425,6 +1476,18 @@ def test_meta_tom_pitch_check_passes_when_a_drop_is_written():
     assert first / settled >= 1.05, f"the pitch-drop check cannot pass even so: {first/settled:.3f}x"
     assert 1.2 <= first / settled <= 2.0, \
         f"the magnitude check cannot pass even so: {first/settled:.3f}x"
+
+
+def test_meta_bd_tau_column_rejects_the_chart_s_f0():
+    """[meta] The injected-bug control for
+    test_bd_decay_table_is_self_consistent_at_the_schematic_s_f0: put the
+    tuning chart's 56 Hz back and the reference's own two columns must stop
+    closing. This is what makes that test evidence for DR 0009 rather than a
+    restatement of it."""
+    worst = max(abs(q / (math.pi * dx.BD_HZ_CHART) / tau_ref - 1)
+                for _, q, tau_ref in BD_TAU_TABLE)
+    assert worst > 0.04, \
+        f"at the chart's {dx.BD_HZ_CHART} Hz the table still closes to {worst*100:.1f} %"
 
 
 @pytest.mark.parametrize("stub", ["silent", "noise"])

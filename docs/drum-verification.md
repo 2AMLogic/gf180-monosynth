@@ -687,3 +687,84 @@ Beyond §7's list, which stands:
 *Measured 2026-09-18 against `sounds-tr808-fischer` @ `85fbecf`, renders from
 `model/drums_fx.py` at contract revision 6. Script: `model/drum_fit.py`,
 validated by `model/test_drum_fit.py`.*
+
+---
+
+## 9. PR #14's acceptance failures, classified
+
+PR #14 was reported as carrying "14 acceptance failures". Reproduced, they are
+what `main`'s copy of `model/test_808_acceptance.py` does when it is run
+against the drum model on the `drums` branch — which is the comparison CI
+could not make, because the suite lives on one branch and the model it
+measures lives on the other. Exactly:
+
+```sh
+git show origin/main:model/test_808_acceptance.py > model/_mainacc_tmp.py
+TR808_STRICT=1 .venv/bin/python -m pytest model/_mainacc_tmp.py -q   # 13 failed, 40 passed
+             .venv/bin/python -m pytest model/_mainacc_tmp.py -q     # 13 failed, 37 passed, 3 xfailed
+```
+
+**13 in either mode, 16 distinct test ids across the two** — the strict run
+shows the tracked defects failing, the default run shows the ones that have
+started passing. Neither run alone shows all of them, which is worth knowing:
+a suite with strict xfails has to be run both ways to be read.
+
+**None of the sixteen is a live defect in the model.** Every one is either an
+expectation the branch has since superseded or a tracked defect that has been
+fixed, and the branch's own copy of the suite is 53/53 green under
+`TR808_STRICT=1` (314/314 for `model` + `spec`).
+
+| # | test | class | the ground truth now, and where it comes from |
+|---|---|---|---|
+| 1–3 | `test_control_bd_decay_coefficients_carry_the_intended_decay[0.1/0.5/0.9]` | outdated expectation | two changes at once: the DECAY knob is the panel's 0–10, not VR6's 0–1 (`tr808-reference.md` §2 tabulates VR6; `drums_fx.BD_DECAY_Q` is keyed on the panel), and f0 is the schematic's **49.4 Hz**, not the chart's 56 (DR 0009) |
+| 4 | `test_control_body_presets_match_the_reference_table[BD…56.0…]` | outdated expectation | 49.4 Hz (DR 0009) |
+| 5–7 | `test_bd_rendered_decay_at_each_setting[0.1/0.5/0.9]` | outdated expectation | same pair of changes; at knob 0.9 on the old scale the render is τ 143 ms against an expected 352 |
+| 8 | `test_bd_decay_control_spans_roland_s_chart_range` | outdated expectation | same |
+| 9–10 | `test_bd_attack_window_is_written_into_the_coefficients`, `…_is_audible_in_the_first_half_cycle` | **tracked defect CLOSED, and it was hiding** | contract 15.7.1 emits the 130 Hz / Q 6 / 4 ms window on every BD hit. See below — these two are the interesting ones |
+| 11 | `test_sd_noise_balance_matches_a_real_machine` | outdated expectation — **method and target both withdrawn** | §8.0/§8.1: the 700 Hz whole-span Hann split is invalid on a decaying one-shot (1.25 % against an exact 18.55 %). Replaced by the validated separator; the machine at SNAPPY 5.0 carries **27.66 %** |
+| 12 | `test_sd_noise_highpass_corner` | outdated expectation | `AttributeError: module 'drums_fx' has no attribute 'M_SDHP'`. The mode is `M_SDN` and its numerator is a **band-pass**, not a high-pass (§8.1, contract 17.22) |
+| 13 | `test_meta_render_manifest_describes_what_was_played` | outdated expectation | asserts the manifest's BD f0 is 56.0; DR 0009 makes it 49.4 |
+| 14–15 | `test_tom_pitch_falls_during_the_ring[LT/HT]` | **unexpectedly passing — good news** | contract 15.7.1 sweeps the tom f0 from ×1.7 over 60 ms, accent-scaled (`tr808-reference.md` §4). Removed from `KNOWN_DEFECTS` |
+| 16 | `test_cowbell_decay_matches_a_real_machine` | **unexpectedly passing — good news** | `E_CBB` is the measured τ = 98 ms, not 30 (§4.6). Removed from `KNOWN_DEFECTS` |
+
+**Zero real defects.** The reconciliation was already done, in
+`drums@e7c9ae6`; this section is the audit of it, and the audit found the
+tolerances were kept or tightened, not loosened — `56.0` became
+`dx.BD_HZ` with the same ±1 %/±3 %/±10 % bands, and the SD filter test gained
+two assertions and went from ±20 % on the corner to ±2 % on the pole.
+
+### The one that is worth reading twice
+
+Entries 9–10 were **`KNOWN_DEFECTS` entries that were still failing for a
+different reason than the one recorded.** The defect they were written for —
+"`kit_808()` writes one coefficient set per voice and never switches it, so
+the bass drum has no attack window" — was fixed by 15.7.1. They stayed red
+because the *same tests* also asserted the chart's 56 Hz, which DR 0009 had
+made wrong. A strict xfail is supposed to go red the moment its defect is
+fixed, and force the entry out of the table. Here a second, unrelated stale
+expectation kept the xfail satisfied, and the closure would have stayed
+invisible for as long as the two were fixed separately.
+
+This is not hypothetical bookkeeping: it is the mechanism by which a defect
+table stops being a defect table. A tracked-defect marker that can be
+satisfied by *any* failure records "this test fails", not "this defect
+exists". Worth a rule: when a `KNOWN_DEFECTS` entry fires, check that the
+failure is the recorded one.
+
+### One gap the audit found, now closed
+
+`main`'s `BD_DECAY` table was three literals — `(0.1, 5.2, 0.029)` and its
+pair — and the reconciliation replaced it with values derived from
+`dx.bd_decay_q()` and `dx.BD_HZ`. That is right for the *control* test (it
+round-trips the register encoding) but it leaves the rendered-decay tests
+comparing the model against itself: change `BD_HZ` and the reference τ moves
+with it, so nothing is left that can catch a wrong f0.
+
+`tr808-reference.md` §2 tabulates the DECAY knob as a Q **and** as a τ, and
+`τ = Q/(π f0)` closes those two columns to **1.5 % at 49.4 Hz** and is out by
+up to **12.8 % at 56 Hz**. That is DR 0009's argument in one line of
+arithmetic, and it was asserted nowhere. It is now
+`test_bd_decay_table_is_self_consistent_at_the_schematic_s_f0`, five
+parametrised cases, with
+`test_meta_bd_tau_column_rejects_the_chart_s_f0` as the injected-bug control
+that puts 56 Hz back and requires the table to stop closing.
