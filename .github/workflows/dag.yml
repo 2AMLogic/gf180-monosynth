@@ -52,16 +52,19 @@ jobs:
       # rather than current the moment somebody remembers to re-render it --
       # which is how the roadmap went stale twice.
       - name: regenerate the board
-        run: python tools/scorecard.py --readme --markdown
+        run: |
+          python tools/scorecard.py --readme --markdown
+          # Sampling every 8th commit keeps this near a minute as history grows.
+          python tools/history.py --readme --every 8 --csv docs/scorecard/history.csv
 
       - name: commit if it moved
         run: |
-          if git diff --quiet -- README.md docs/dag-results.json docs/scorecard/BOARD.md; then
+          if git diff --quiet -- README.md docs/dag-results.json docs/scorecard/BOARD.md docs/scorecard/history.csv; then
             echo "the roadmap is unchanged"; exit 0
           fi
           git config user.name  "dag-bot"
           git config user.email "noreply@anthropic.com"
-          git add README.md docs/dag-results.json docs/scorecard/BOARD.md
+          git add README.md docs/dag-results.json docs/scorecard/BOARD.md docs/scorecard/history.csv
           git commit -m "[dag] regenerate the roadmap from evidence" \
                      -m "Automated. Status is derived by running each node's evidence, not asserted. See tools/compile_dag.py."
           git push

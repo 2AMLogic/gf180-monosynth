@@ -43,6 +43,23 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 Every case is in [`docs/scorecard/BOARD.md`](docs/scorecard/BOARD.md). **Coverage is reported separately from agreement on purpose** — a case without a verdict is missing verification, not evidence the instrument is wrong, and it must not be able to flatter a percentage.
 <!-- BOARD:END -->
 
+### Rate, measured from git
+
+<!-- HISTORY:BEGIN -->
+Measured from git, not remembered. **59 commits over 21 hours.**
+
+| | now | per hour |
+|---|---:|---:|
+| tests | 334 | 16.0 |
+| injected controls | 67 | 3.2 |
+| bit-exact verifiers | 7 | — |
+| lines of RTL | 4,877 | 234 |
+
+**Cycle time, which is the measure that matters.** 46 merged pull requests, **median 14 minutes** from open to merged, and PR size barely moves it — large changes (>1000 lines) median 16 minutes against 14 for small. That is because the work happens in the agent *before* the PR opens, so the real cost is agent wall-clock: **4–25 minutes** for a brief with one deliverable, **2–3.5 hours** for one containing "and" several times over.
+
+**None of this measures whether the instrument sounds right.** A count of tests is not coverage — twenty variations of one assertion count twenty. The acceptance board above is what measures the instrument, and it is the number to watch.
+<!-- HISTORY:END -->
+
 ### The capability graph
 
 <!-- DAG:BEGIN -->
