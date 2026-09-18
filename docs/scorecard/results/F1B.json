@@ -2,23 +2,23 @@
   "engine": "fixed-model",
   "case_id": "F1B",
   "subject": "Cutoff response / mid",
-  "source_commit": "a86415a",
-  "analysis_run": "run_case@c8cfbad67bf4 + audio_measure@288aa83814a5 at 2026-09-18T23:51:23Z",
+  "source_commit": "a830282",
+  "analysis_run": "run_case@c8cfbad67bf4 + audio_measure@288aa83814a5 at 2026-09-18T23:54:21Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "a86415a",
-      "described": "node/D-drums-bitexact-65-ga86415a-dirty",
+      "commit": "a830282",
+      "described": "node/D-drums-bitexact-67-ga830282-dirty",
       "branch": "refs-more-cutoffs",
       "dirty": true,
-      "uncommitted_sha256": "67905317a816ccc7",
-      "untracked_files": 2
+      "uncommitted_sha256": "7efd761e7d6e7039",
+      "untracked_files": 0
     },
     "base_check": {
       "checked": true,
       "origin_main": "a57d469faca0",
       "behind_commits": 0,
-      "ahead_commits": 3,
+      "ahead_commits": 5,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
@@ -30,7 +30,7 @@
       },
       "allow_stale": false,
       "problems": [],
-      "ahead_note": "3 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: refprofile/profile.json. That is not a stale premise -- the tree contains everything origin/main has."
+      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: refprofile/profile.json. That is not a stale premise -- the tree contains everything origin/main has."
     },
     "command": "tools/run_case.py F1A F1B F1C",
     "config": {
@@ -43,7 +43,7 @@
       "inject": null
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T23:51:23Z",
+    "run_at": "2026-09-18T23:54:21Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
