@@ -1,0 +1,121 @@
+# The expensive checks, nightly.
+#
+# Per-push CI runs what is fast. The checks that would actually have caught
+# this project's failures are the slow ones: the full 255,060-frame voice run,
+# the 348,554-sample drum run, and every injected-defect control. Those ran
+# only when somebody remembered, which is the same as not running.
+#
+# WHAT CANNOT RUN HERE, and why it is not silently omitted: the reference
+# comparison against Surge XT, Arturia Mini V3 and u-he Diva needs licensed
+# plugins installed on a workstation. GitHub-hosted runners do not have them.
+# That half runs from `make -f Makefile.nightly local` on a machine that does,
+# and `nightly-local-required` below fails if its result is stale, so the gap
+# is visible rather than assumed.
+name: nightly
+
+on:
+  schedule:
+    - cron: '0 7 * * *'        # 07:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------- the slow
+  # bit-exactness runs. These are the ones a push cannot afford.
+  full-rtl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: M1 -- the voice, full set (255,060 frames)
+        run: python rtl-sketch/verify_voice.py --set full
+      - name: D -- the drum kit (348,554 samples)
+        run: python rtl-sketch/verify_drums.py
+      - name: F2 -- the modal bank
+        run: python rtl-sketch/verify_modal.py
+      - name: I4 -- the whole chip at its pins
+        run: python rtl-sketch/verify_synth_top.py
+
+  # --------------------------------------------------------------- controls
+  # A nightly run whose injected defects do not fire is a BROKEN nightly run,
+  # not a quiet one. Every control here has been seen failing locally; if one
+  # stops failing, either the defect stopped being injected or the check
+  # stopped checking, and both are worse than a red build.
+  controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: the control link -- the exact defect that shipped
+        run: |
+          python rtl-sketch/verify_ctl.py --inject SPI_ADDR7  --expect-fail
+          python rtl-sketch/verify_ctl.py --inject SPI_DATA24 --expect-fail
+      - name: the chip at its pins
+        run: |
+          python rtl-sketch/verify_synth_top.py --inject VOICE_MASTER_PRESHIFT --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject VOICE_DRUM_CLAMP16    --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject I2S_SHIFT             --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject I2S_SWAP              --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject MODAL_NUM_HOLD        --expect-fail
+          python rtl-sketch/verify_synth_top.py --inject DRUM_ENV_FLOOR        --expect-fail
+      - name: the acceptance suites, against a do-nothing stub
+        run: |
+          TR808_STUB=silent python -m pytest model/test_808_acceptance.py -q && \
+            { echo "the silent stub PASSED the 808 suite -- the suite tests nothing"; exit 1; } || \
+            echo "silent stub correctly red"
+
+  # ------------------------------------------------------------ measurement
+  # Per voice and per property, never aggregated: an overall improvement must
+  # not be able to hide a worse snare. This is the job that should hand the
+  # next agent "CP decay tau 34.5 ms against a 47 ms target" rather than a
+  # pass/fail it has to go looking behind.
+  sound-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install --upgrade pip numpy scipy pytest
+      - name: per-voice measurements against declared targets
+        run: |
+          if [ -f model/sound_report.py ]; then
+            python model/sound_report.py --all --out nightly-report
+          else
+            echo "model/sound_report.py not present yet -- see issue #44"; exit 0
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: sound-report, path: nightly-report/, if-no-files-found: ignore }
+
+  # ------------------------------------------------ the half that needs a Mac
+  # Surge XT, Arturia Mini V3 and u-he Diva are licensed and installed on a
+  # workstation, not on a hosted runner. This job does not pretend to run them;
+  # it fails if the locally-produced result has gone stale, so "we have not
+  # compared against the references lately" is a red build rather than silence.
+  reference-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the reference comparison must not go stale
+        run: |
+          R=docs/reference-comparison-results.md
+          if [ ! -f "$R" ]; then
+            echo "no reference comparison result committed -- the voice is UNVALIDATED against anything external"
+            exit 1
+          fi
+          AGE=$(( ( $(date +%s) - $(git log -1 --format=%ct -- "$R") ) / 86400 ))
+          echo "reference comparison last updated $AGE days ago"
+          if [ "$AGE" -gt 14 ]; then
+            echo "stale: re-run 'make -f Makefile.nightly local' on a machine with the plugins"
+            exit 1
+          fi
