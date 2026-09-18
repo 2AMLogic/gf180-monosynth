@@ -6,3 +6,5 @@ audio/
 *.wav
 *.vvp
 rtl-sketch/build/
+pnr/orfs/work/
+pnr/klt/*/.klt/
