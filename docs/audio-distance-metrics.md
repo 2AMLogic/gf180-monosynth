@@ -4,12 +4,20 @@
 enter this project's measurement loop, and in exactly what role.**
 
 Instrument: [`tools/probes/audio_distance_floor.py`](../tools/probes/audio_distance_floor.py).
-Every number tagged **[measured]** below came out of it, on this repository's
-own signals, and can be reproduced with:
+Numbers: [`audio-distance-metrics-results.json`](audio-distance-metrics-results.json).
+Every figure tagged **[measured]** below came out of that probe, on this
+repository's own signals, **measured at `ba14af2` — after #132's repaired
+measurement path**, and reproducible with:
 
 ```sh
 .venv/bin/python tools/probes/audio_distance_floor.py --json out.json
+#   exit 0
 ```
+
+It was drafted against `c752145` and re-measured in full when #132 landed,
+because #132 changes the `prepare()` this probe depends on. **Every conclusion
+survived; two got stronger.** What changed is in
+[§6](#6-the-alignment-problem-which-gates-everything-else).
 
 ---
 
@@ -19,13 +27,14 @@ own signals, and can be reproduced with:
 after the alignment problem below is solved.**
 
 The short reason, and it is measured rather than argued: on our own bass drum,
-a multi-scale spectral distance reads **0.311** for an f0 error the size of the
+a multi-scale spectral distance reads **0.307** for an f0 error the size of the
 TR-808's own session-to-session spread — a difference we have already decided
-is *not* a defect — and **0.322 to 0.385** for the tom pitch-drop defect that
+is *not* a defect — and **0.336 to 0.406** for the tom pitch-drop defect that
 ships today at ×1.7 against hardware measured at ×1.06–×1.24. **The defect and
-the floor are the same number.** The board's own per-property estimator
-separates the same five renders cleanly and monotonically, 43.1 Hz down to
-−0.15 Hz.
+the floor are the same number**, and on two of the four distances three of the
+four defect rungs land *below* the floor. The board's own per-property
+estimator separates the same five renders cleanly and monotonically, 43.9 Hz
+down to −0.97 Hz.
 
 Worse, all four distances **rank the tom defect wrongly**: every one of them
 puts ×1.14 *further* from the shipped ×1.7 than ×1.06 is, which is backwards.
@@ -36,13 +45,14 @@ exact defect we most need to see.
 defects a fixed-point drum machine can actually have — a −40 dBFS 12 kHz tone,
 a 6-bit requantisation, a non-decaying tail noise floor — **pass every one of
 the board's per-property BD metrics** with an order of magnitude to spare, and
-the DAC multi-scale mel distance flags them at **71×, 239× and 354×** its own
+the DAC multi-scale mel distance flags them at **71×, 238× and 356×** its own
 floor ([§7](#7-the-guard-hypothesis-tested)). Our per-property coverage is three
 properties per voice, and that is a real hole of exactly this shape.
 
 **One precondition gates the whole adopt row, and it is not met today:**
-2 ms of onset disagreement reads *larger* than the entire tom defect, and
-non-monotonically ([§6](#6-the-alignment-problem-which-gates-everything-else)).
+2 ms of onset disagreement reads 0.373 on the tom render, squarely inside the
+defect's own 0.336–0.406 range, and the misalignment sweep is non-monotone
+([§6](#6-the-alignment-problem-which-gates-everything-else)).
 
 The recommendation table is [§9](#9-recommendation).
 
@@ -71,6 +81,17 @@ so.
 `tools/refprofile.py --list` reports all fourteen as `(NOT CACHED HERE)`, which
 is the correct outcome on a host without the plugins — so nothing here is
 measured on the Filters material, and every measurement below is on drums.
+
+**The board's own BD reference has no readable decay, so the sweeps are taken
+on a different file.** #132's truncation guard refuses `schroeder_t20` on
+`bd8/BD5050.WAV` — *"the record ends before the decay does: only 845 ms follow
+the −25 dB point and a T20 of 537 ms needs 1074 ms after it"* — and D01A's
+`decay` metric is a stated no-verdict on `main` for exactly that reason. The
+decay sweep here perturbs the signal's **own** measured T20 by a stated
+percentage, so it had nothing to aim at. The probe now asserts that
+precondition at the point of use, **exits 2, and prints the files whose T20 the
+current estimator does accept**; the sweeps are taken on `bd8/BD2550.WAV`
+(T20 408.3 ms), which passes. **[measured]**
 
 **There is no second recording session of the reference on this host.**
 `/tmp/tr808-ref` holds the Fischer set; the From Mars packs whose current and
@@ -185,13 +206,13 @@ against a new metric. **[measured]**
 
 | shift | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|--:|
-| 1 sample | 0.023 ms | 0.0045 | 0.0071 | 0.0125 | 0.0119 |
-| 4 samples | 0.091 ms | 0.0178 | 0.0181 | 0.0398 | 0.0386 |
-| 16 samples | 0.363 ms | 0.0691 | 0.0401 | 0.1243 | 0.1058 |
-| 48 samples | 1.088 ms | 0.1958 | 0.0697 | 0.3061 | 0.2098 |
-| 96 samples | 2.177 ms | 0.3446 | 0.0931 | 0.4967 | 0.3096 |
-| 240 samples | 5.442 ms | **0.5088** | 0.1199 | **0.6923** | 0.4166 |
-| 480 samples | 10.884 ms | *0.2707* | *0.0885* | *0.4812* | *0.2775* |
+| 1 sample | 0.023 ms | 0.0047 | 0.0066 | 0.0123 | 0.0114 |
+| 4 samples | 0.091 ms | 0.0184 | 0.0175 | 0.0399 | 0.0383 |
+| 16 samples | 0.363 ms | 0.0714 | 0.0420 | 0.1294 | 0.1070 |
+| 48 samples | 1.088 ms | 0.2005 | 0.0733 | 0.3143 | 0.2070 |
+| 96 samples | 2.177 ms | 0.3568 | 0.0957 | 0.5189 | 0.2986 |
+| 240 samples | 5.442 ms | **0.5234** | 0.1213 | **0.7076** | 0.3978 |
+| 480 samples | 10.884 ms | *0.3176* | *0.0984* | *0.5516* | *0.2878* |
 
 Three things fall out of this table, and each one is on its own sufficient to
 disqualify a whole-file spectral distance as a target.
@@ -202,8 +223,8 @@ disqualify a whole-file spectral distance as a target.
 and puts a precursor ahead of every strike", and `run_case.prepare` aligns by a
 2 %-of-peak threshold crossing with a 1 ms lead — not a cross-correlation, and
 not sample-accurate between two different instruments. At **5.4 ms** of
-misalignment `mss_l1` reads 0.509, which is **42 % of the entire bass-drum-
-versus-snare-drum distance** (1.211, [§2.6](#26-the-ceiling-and-the-exchange-rate)) — for two copies
+misalignment `mss_l1` reads 0.523, which is **43 % of the entire bass-drum-
+versus-snare-drum distance** (1.229, [§2.6](#26-the-ceiling-and-the-exchange-rate)) — for two copies
 of one recording. **[measured]**
 
 **It is not monotone.** 10.9 ms of misalignment reads *less* than 5.4 ms, on
@@ -225,33 +246,34 @@ above 200 Hz, zero-phase; the gain is a scalar. **[measured]**
 
 | error | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| 1.30 % *(the machine's own spread)* | 0.0128 | 0.0071 | 0.0159 | 0.0310 |
-| 2.5 % | 0.0246 | 0.0142 | 0.0310 | 0.0594 |
-| 5 % | 0.0491 | 0.0307 | 0.0642 | 0.1180 |
-| 10 % | 0.0982 | 0.0710 | 0.1373 | 0.2321 |
-| 25 % | 0.2444 | 0.2356 | 0.3955 | 0.5433 |
-| 50 % | 0.4837 | 0.5371 | 0.8399 | 0.9500 |
+| 1.30 % *(the machine's own spread)* | 0.0138 | 0.0102 | 0.0199 | 0.0403 |
+| 2.5 % | 0.0265 | 0.0208 | 0.0394 | 0.0776 |
+| 5 % | 0.0530 | 0.0468 | 0.0839 | 0.1552 |
+| 10 % | 0.1061 | 0.1145 | 0.1877 | 0.3090 |
+| 25 % | 0.2673 | 0.3917 | 0.5685 | 0.7335 |
+| 50 % | 0.5413 | 0.8570 | 1.1921 | 1.2843 |
 
 Decay is the one property where a spectral distance behaves well: monotone,
 close to linear in the error over the range that matters, and a 5 % error
-(0.0491 on `mss_l1`) sits comfortably above the machine's own 1.30 % (0.0128).
-**A 5 % decay error is resolvable — by a factor of 3.8 over the machine's own
+(0.0530 on `mss_l1`) sits comfortably above the machine's own 1.30 % (0.0138).
+**A 5 % decay error is resolvable — by a factor of 3.9 over the machine's own
 decay spread.** **[measured]**
 
 **Band tilt (partial imbalance), and the band-weighting trap**
 
 | tilt above 200 Hz | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| 0.159 dB *(the machine's own spread)* | 0.0002 | 0.0020 | 0.0025 | 0.0085 |
-| 1 dB | 0.0015 | 0.0143 | 0.0179 | 0.0549 |
-| 3 dB *(the board's tolerance)* | 0.0050 | 0.0584 | 0.0706 | 0.1741 |
-| **8 dB** | **0.0185** | 0.2911 | 0.3361 | 0.5226 |
+| 0.159 dB *(the machine's own spread)* | 0.0006 | 0.0028 | 0.0039 | 0.0113 |
+| 1 dB | 0.0036 | 0.0180 | 0.0256 | 0.0631 |
+| 3 dB *(the board's tolerance)* | 0.0123 | 0.0702 | 0.0960 | 0.1918 |
+| **8 dB** | **0.0456** | 0.3266 | 0.4230 | 0.5622 |
 
-**An 8 dB partial imbalance reads 0.0185 on `mss_l1` — the same as a 4-sample
-(0.09 ms) editing shift, and less than a 0.16 dB broadband gain change.**
-**[measured]** Linear-magnitude MSS on a bass drum is dominated by the ~50 Hz
-fundamental, so an 8 dB error everywhere above 200 Hz is nearly invisible to it.
-`mel_dac` reads 0.523 for the same signal and sees it perfectly well.
+**An 8 dB partial imbalance reads 0.0456 on `mss_l1` — less than a 0.4 dB
+broadband gain change, and about the same as a 10-sample (0.2 ms) editing
+shift.** **[measured]** Linear-magnitude MSS on a bass drum is dominated by the
+~50 Hz fundamental, so an 8 dB error everywhere above 200 Hz is nearly
+invisible to it. `mel_dac` reads 0.562 for the same signal and sees it
+perfectly well — a factor of **12** between the two conventions on one signal.
 
 **Which of the four you pick decides whether the metric can see a partial
 imbalance at all, and there is no way to pick without already knowing which
@@ -268,14 +290,14 @@ moves f0 and nothing else. **[measured]**
 
 | f0 error | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|---|--:|--:|--:|--:|
-| **+2.74 %** *(the machine's own spread)* | 46.8 cents | **0.3115** | **0.0496** | **0.3875** | **0.2677** |
-| +5.95 % | 100 cents | 0.3615 | 0.0653 | 0.4806 | 0.3582 |
-| +10.0 % *(the board's tolerance)* | 165 cents | 0.3872 | 0.0685 | 0.5100 | 0.3747 |
-| +26.0 % | 400 cents | 0.4882 | 0.0804 | 0.5969 | 0.4405 |
-| **+100 %** *(an octave)* | 1200 cents | **0.7472** | **0.1037** | **0.8300** | **0.5364** |
+| **+2.74 %** *(the machine's own spread)* | 46.8 cents | **0.3065** | **0.0492** | **0.3856** | **0.2643** |
+| +5.95 % | 100 cents | 0.3572 | 0.0648 | 0.4785 | 0.3542 |
+| +10.0 % *(the board's tolerance)* | 165 cents | 0.3833 | 0.0682 | 0.5068 | 0.3707 |
+| +26.0 % | 400 cents | 0.4794 | 0.0807 | 0.5888 | 0.4363 |
+| **+100 %** *(an octave)* | 1200 cents | **0.7481** | **0.1061** | **0.8348** | **0.5334** |
 
 Read the first and last rows together. **A pitch error the size of the
-machine's own session-to-session wander reads 42 % of what a full octave error
+machine's own session-to-session wander reads 41 % of what a full octave error
 reads.** A 36-fold increase in the pitch error buys a 2.4-fold increase in the
 distance. **[measured]** This is the compressive, saturating response Turian &
 Henry describe as "at great distances it has no sense of pitch orientation
@@ -293,17 +315,17 @@ render is *correct* and the reference simply came from a different session.
 
 | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| from 1.30 % T20 | 0.0128 | 0.0071 | 0.0159 | 0.0310 |
-| from 0.159 dB band | 0.0002 | 0.0020 | 0.0025 | 0.0085 |
-| **from 2.74 % f0** | **0.3115** | **0.0496** | **0.3875** | **0.2677** |
-| **constructed floor (worst)** | **0.311** | **0.050** | **0.388** | **0.268** |
+| from 1.30 % T20 | 0.0138 | 0.0102 | 0.0199 | 0.0403 |
+| from 0.159 dB band | 0.0006 | 0.0028 | 0.0039 | 0.0113 |
+| **from 2.74 % f0** | **0.3065** | **0.0492** | **0.3856** | **0.2643** |
+| **constructed floor (worst)** | **0.307** | **0.049** | **0.386** | **0.264** |
 
 **[measured, on a constructed stimulus]** — the perturbations are exact, the
 2.74 / 1.30 / 0.159 figures are measured elsewhere in this repository, but this
 is not a distance taken between two real recording sessions, because no second
 session is on this host.
 
-**f0 dominates the floor by a factor of twenty-four.** A whole-clip spectral
+**f0 dominates the floor by a factor of twenty-two.** A whole-clip spectral
 distance against a real recording is, to first order, an f0 comparator with a
 very coarse scale — and 2.74 % of f0 is a difference the board deliberately
 passes, since the frequency tolerance is 10 %.
@@ -324,19 +346,20 @@ changed, against the shipped ×1.7. **[measured]**
 | vs shipped ×1.7 | true error | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|---|--:|--:|--:|--:|
 | *floor: same patch twice* | — | **0.0000** | 0.0000 | 0.0000 | 0.0000 |
-| *floor: 1-sample shift* | — | 0.0061 | 0.0036 | 0.0112 | 0.0067 |
-| *constructed reference floor* ([§2.3](#23-the-floor-that-decides-it)) | — | *0.311* | *0.050* | *0.388* | *0.268* |
-| ×1.236 More Accent | smallest | 0.3218 | 0.0399 | 0.4468 | 0.2240 |
-| ×1.140 Accent | ↓ | 0.3852 | 0.0629 | 0.5522 | 0.3621 |
-| ×1.063 unaccented | ↓ | 0.3578 | 0.0418 | 0.5098 | 0.2470 |
-| ×1.000 no drop | largest | 0.3827 | 0.0599 | 0.5498 | 0.3556 |
+| *floor: 1-sample shift* | — | 0.0062 | 0.0036 | 0.0113 | 0.0067 |
+| *constructed reference floor* ([§2.3](#23-the-floor-that-decides-it)) | — | *0.307* | *0.049* | *0.386* | *0.264* |
+| ×1.236 More Accent | smallest | 0.3358 | 0.0379 | 0.4657 | 0.2100 |
+| ×1.140 Accent | ↓ | 0.3991 | 0.0612 | 0.5634 | 0.3499 |
+| ×1.063 unaccented | ↓ | 0.3894 | 0.0401 | 0.5463 | 0.2336 |
+| ×1.000 no drop | largest | 0.4064 | 0.0443 | 0.5671 | 0.2635 |
 
 **Every one of the four distances gets the ranking wrong.** The true ordering of
-error magnitude is ×1.236 < ×1.140 < ×1.063 < ×1.000. All four report ×1.140 as
-*further* from the shipped ×1.7 than ×1.063 is, and all four additionally report
-×1.000 — the largest possible error, no drop at all — as *closer* than ×1.140:
-0.3827 < 0.3852, 0.0599 < 0.0629, 0.5498 < 0.5522, 0.3556 < 0.3621.
-**[measured]**
+error magnitude is ×1.236 < ×1.140 < ×1.063 < ×1.000. **All four report ×1.140
+as *further* from the shipped ×1.7 than ×1.063 is**, which is backwards
+(0.3991 > 0.3894, 0.0612 > 0.0401, 0.5634 > 0.5463, 0.3499 > 0.2336). And two
+of them — `mss_log` and `mel_dac` — additionally report ×1.000, the largest
+possible error with no drop at all, as *closer* than ×1.140 (0.0443 < 0.0612,
+0.2635 < 0.3499). **[measured]**
 
 **Not one of the four separates the defect from the floor by a usable margin,
 and two of them do not separate it at all.** Against the constructed reference
@@ -344,26 +367,27 @@ floor: **[measured]**
 
 | | floor | defect range | verdict |
 |---|--:|--:|---|
-| `mss_l1` | 0.311 | 0.322 – 0.385 | clears, by **1.04× to 1.24×** |
-| `mss_log` | 0.050 | 0.040 – 0.063 | **two of four rungs below the floor** |
-| `mrstft` | 0.388 | 0.447 – 0.552 | clears, by **1.15× to 1.42×** |
-| `mel_dac` | 0.268 | 0.224 – 0.362 | **two of four rungs below the floor** |
+| `mss_l1` | 0.307 | 0.336 – 0.406 | clears, by **1.10× to 1.33×** |
+| `mss_log` | 0.049 | 0.038 – 0.061 | **three of four rungs below the floor** |
+| `mrstft` | 0.386 | 0.466 – 0.567 | clears, by **1.21× to 1.47×** |
+| `mel_dac` | 0.264 | 0.210 – 0.350 | **three of four rungs below the floor** |
 
-The best of the four clears its own floor by 4 % on the smallest rung. For
-comparison, `docs/bd-repeatability-measurement.md` records that the *tightest*
-ratio anywhere on the board is the f0 tolerance at **3.7×** the machine's
-spread, and calls that the one with no headroom.
+The best of the four clears its own floor by 10 % on the smallest rung; the
+other two spend three rungs out of four *underneath* it. For comparison,
+`docs/bd-repeatability-measurement.md` records that the *tightest* ratio
+anywhere on the board is the f0 tolerance at **3.7×** the machine's spread, and
+calls that the one with no headroom.
 
 **What the board's own estimator does on the same five renders**, using
 `run_case._pitch_drop("LT")` unmodified:
 
 | render | Pitch drop (Hz) |
 |---|--:|
-| ×1.70 shipped | **43.12** |
-| ×1.236 | 13.09 |
-| ×1.140 | 7.37 |
-| ×1.063 | 3.14 |
-| ×1.000 | −0.15 |
+| ×1.70 shipped | **43.87** |
+| ×1.236 | 14.15 |
+| ×1.140 | 8.02 |
+| ×1.063 | 3.44 |
+| ×1.000 | −0.97 |
 
 Monotone, in hertz, directly comparable with a frequency tolerance, and it says
 *which property is wrong*. **[measured]** There is no version of this comparison
@@ -377,14 +401,17 @@ to the first 60 ms: **[measured]**
 
 | vs shipped ×1.7, first 60 ms | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| *floor: 1-sample shift, same window* | 0.0066 | 0.0231 | 0.0310 | 0.0193 |
-| ×1.236 | 0.4046 | 0.1535 | 0.6187 | 0.4811 |
-| ×1.140 | 0.4784 | 0.1818 | 0.7164 | 0.5834 |
-| ×1.063 | 0.5150 | 0.1972 | 0.7634 | 0.6423 |
-| ×1.000 | 0.5172 | 0.1772 | 0.7513 | 0.5975 |
+| *floor: 1-sample shift, same window* | 0.0070 | 0.0196 | 0.0279 | 0.0167 |
+| ×1.236 | 0.4594 | 0.1566 | 0.6797 | 0.4720 |
+| ×1.140 | 0.4928 | 0.1633 | 0.7168 | 0.5074 |
+| ×1.063 | 0.5694 | 0.1883 | 0.8107 | 0.5884 |
+| ×1.000 | 0.5960 | 0.1869 | 0.8366 | 0.5973 |
 
-`mss_l1` is now **monotone across all four rungs** and 61–78× its own alignment
-floor. The other three are still non-monotone at the last rung. **[measured]**
+**Three of the four are now monotone across all four rungs** — `mss_l1`,
+`mrstft` and `mel_dac` — at 28–88× their own alignment floor in this window.
+Only `mss_log` still inverts, at the last rung. **[measured]** *(This is one of
+the two results that got stronger under #132: before it, only `mss_l1` was
+monotone here.)*
 
 **This is the finding that settles the role question.** The distance becomes a
 usable instrument exactly when you tell it *which 60 ms window* the defect
@@ -400,12 +427,12 @@ metric plausibly produces on this material: **[measured]**
 
 | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| BD vs SD | 1.211 | 0.688 | 1.661 | 1.891 |
-| BD vs CH | 1.184 | 0.548 | 1.553 | 1.900 |
-| LT vs MT | 0.722 | 0.195 | 0.904 | 0.523 |
+| BD vs SD | 1.229 | 0.698 | 1.666 | 1.888 |
+| BD vs CH | 1.242 | 0.564 | 1.570 | 1.905 |
+| LT vs MT | 0.690 | 0.196 | 0.894 | 0.518 |
 
-So on `mss_l1`, the usable band between "the machine repeating itself" (0.311)
-and "a completely different drum" (1.211) is a factor of **3.9** — and the tom
+So on `mss_l1`, the usable band between "the machine repeating itself" (0.307)
+and "a completely different drum" (1.229) is a factor of **4.0** — and the tom
 defect and an octave error both land inside the lower third of it.
 
 **The exchange rate.** For each distance, the broadband **gain** error that
@@ -413,14 +440,14 @@ reads the same value as a **5 % decay** error: **[measured]**
 
 | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| value of a 5 % decay error | 0.0491 | 0.0307 | 0.0642 | 0.1180 |
-| gain error reading the same | **0.417 dB** | 1.271 dB | 0.457 dB | 1.292 dB |
+| value of a 5 % decay error | 0.0530 | 0.0468 | 0.0839 | 0.1552 |
+| gain error reading the same | **0.448 dB** | 1.734 dB | **0.587 dB** | 1.716 dB |
 
 `run_case.prepare` **peak-normalises both sides**, because the Fischer set's
 levels are not the machine's — so level is deliberately outside what the board
 scores, and a few tenths of a dB of residual level difference between a
 peak-normalised render and a peak-normalised recording is entirely ordinary.
-**A scalar that cannot tell a 0.4 dB level residual from a 5 % decay error
+**A scalar that cannot tell a 0.45 dB level residual from a 5 % decay error
 cannot drive a design loop**, because the two have opposite correct responses:
 one is to be ignored, the other fixed. **[inference]**
 
@@ -482,7 +509,7 @@ scope.** Appendix A.1 models only frequency-ratio distance and excludes the
 helical dimension where octaves wrap, calling it "an open question".
 **[sourced]** So the paper does not license a claim about octave errors
 specifically; our [§2.2](#22-single-property-sweeps) measures one directly
-(octave = 0.747 against a 2.74 % floor of 0.311) and that number stands on its
+(octave = 0.748 against a 2.74 % floor of 0.307) and that number stands on its
 own.
 
 ### 3.2 Codec losses are the same family, and they are training objectives
@@ -679,18 +706,19 @@ so the comparison is same-signal: **[measured]**
 
 | shift | | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|--:|
-| 1 sample | 0.021 ms | 0.0061 | 0.0036 | 0.0112 | 0.0067 |
-| 4 samples | 0.083 ms | 0.0238 | 0.0079 | 0.0378 | 0.0212 |
-| 16 samples | 0.333 ms | 0.0930 | 0.0157 | 0.1334 | 0.0630 |
-| 48 samples | 1.000 ms | 0.2456 | 0.0311 | 0.3404 | 0.1300 |
-| **96 samples** | **2.000 ms** | **0.3787** | 0.0442 | **0.5021** | 0.1861 |
-| 240 samples | 5.000 ms | *0.2031* | *0.0279* | *0.3447* | *0.1364* |
-| 480 samples | 10.000 ms | 0.3274 | 0.0380 | 0.4735 | 0.1800 |
+| 1 sample | 0.021 ms | 0.0062 | 0.0036 | 0.0113 | 0.0067 |
+| 4 samples | 0.083 ms | 0.0243 | 0.0078 | 0.0383 | 0.0212 |
+| 16 samples | 0.333 ms | 0.0928 | 0.0156 | 0.1331 | 0.0627 |
+| 48 samples | 1.000 ms | 0.2501 | 0.0319 | 0.3387 | 0.1321 |
+| **96 samples** | **2.000 ms** | **0.3730** | 0.0444 | **0.4903** | 0.1857 |
+| 240 samples | 5.000 ms | *0.2208* | *0.0300* | *0.3755* | *0.1411* |
+| 480 samples | 10.000 ms | 0.3519 | 0.0404 | 0.5176 | 0.1854 |
 
-**Two milliseconds of onset disagreement reads 0.379 on `mss_l1`. The entire
-tom pitch-drop defect reads 0.322 to 0.385.** On the same signal, with the same
-metric. **[measured]** And the sweep is again non-monotone: 5 ms reads *less*
-than 2 ms, and 10 ms reads less than 2 ms too.
+**Two milliseconds of onset disagreement reads 0.373 on `mss_l1`. The entire
+tom pitch-drop defect reads 0.336 to 0.406.** On the same signal, with the same
+metric — the misalignment lands *inside* the defect's own range. **[measured]**
+And the sweep is again non-monotone: 5 ms reads *less* than 2 ms, and 10 ms
+reads less than 2 ms too.
 
 **This is a precondition, and it is not currently met.** **[inference]**
 `run_case.prepare` aligns by a 2 %-of-peak threshold crossing with a 1 ms lead.
@@ -707,6 +735,33 @@ record** — and on two *different instruments* playing the same nominal sound,
 it is not obvious that a sample-accurate alignment even exists to be found.
 That is an open question, not a solved engineering step. **[inference]**
 
+### What #132 already fixed, and what it did not
+
+This document was drafted against `c752145` and re-measured against `ba14af2`
+(#132, *"the repaired measurement path"*), which landed while it was being
+written. #132 changes `run_case.prepare` to **guarantee** `required_lead_samples(sr)
++ 1 ms` of true silence before the strike **on both sides** — at least 10 ms, or
+20 × the band-pass `padlen`, whichever is larger. Its own commit records what it
+was fixing: the reference side was getting 0.11–1.18 ms of lead while our
+renders, which begin at exact digital silence, got none.
+
+**That removes a systematic lead asymmetry of up to 1.18 ms between our side and
+the reference side.** Read against the table above, a 1 ms shift is worth 0.25 on
+`mss_l1` for the tom render. So before #132, a spectral distance taken between
+our render and a reference would have carried up to that much of pure apparatus
+offset — comparable with the entire tom defect. **[measured, against §6's own
+table]**
+
+**What #132 does not do, and what a spectral distance would still need.**
+**[inference]** It pins both sides to the same 2 %-of-peak crossing with the same
+lead; it does not cross-correlate, and the crossing itself does not *correspond*
+between a digital render, whose first sample above threshold is exact, and a
+recorded analogue strike through a 1994 converter. The residual is unmeasured.
+Every per-property estimator on the board is invariant to it — they are
+frequencies, intervals and ratios. A whole-file spectral distance is invariant to
+none of them, so the residual would have to be measured and bounded before any
+such distance could be read, and that work does not exist.
+
 ### And a second precondition: the reference has a noise floor and we do not
 
 Our renders lead with exact digital silence and decay to exact zero. The Fischer
@@ -720,18 +775,18 @@ a change that removes no voice and is inaudible: **[measured]**
 
 | gate | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` |
 |---|--:|--:|--:|--:|
-| below −60 dBFS of peak | 0.0043 | 0.0801 | 0.0808 | **0.2514** |
-| below −50 dBFS | 0.0205 | 0.3470 | 0.3518 | 0.8020 |
-| below −40 dBFS | 0.0637 | 0.7090 | 0.7249 | 1.3452 |
-| tail after 1.0 s zeroed | 0.0143 | 0.0584 | 0.0717 | 0.4197 |
+| below −60 dBFS of peak | 0.0040 | 0.0812 | 0.0819 | **0.2512** |
+| below −50 dBFS | 0.0192 | 0.3498 | 0.3545 | 0.7982 |
+| below −40 dBFS | 0.0599 | 0.7105 | 0.7260 | 1.3373 |
+| tail after 1.0 s zeroed | 0.0148 | 0.0621 | 0.0759 | 0.4334 |
 
 **Removing inaudible material below −60 dBFS moves the DAC mel loss by 0.251 —
-as much as the entire constructed machine-repeatability floor (0.268).**
+as much as the entire constructed machine-repeatability floor (0.264).**
 **[measured]** A decaying one-shot spends most of its duration below −60 dB of
 its own peak, and a log-domain distance weights every bin equally, so the metric
 is substantially reading the region where the drum is already over.
 
-`mss_l1` is almost immune (0.0043), for the same reason it is almost blind to an
+`mss_l1` is almost immune (0.0040), for the same reason it is almost blind to an
 8 dB partial imbalance: linear magnitude is dominated by the loudest content.
 **The linear form is robust to the noise floor and blind to the high band; the
 log forms see the high band and are dominated by the noise floor. There is no
@@ -752,10 +807,10 @@ each** and each distance reported against its own floor. **[measured]**
 
 | injected defect | `mss_l1` | `mss_log` | `mrstft` | `mel_dac` | board's 3 metrics |
 |---|--:|--:|--:|--:|---|
-| *floor: 1-sample shift* | 0.0040 | 0.0036 | 0.0081 | 0.0086 | — |
-| −40 dBFS 12 kHz tone *(clock/LFO feedthrough)* | 0.0860 | 0.1751 | 0.2101 | **0.6066** | **all pass** |
-| 6-bit requantisation *(a narrowed word)* | 0.2949 | 1.4460 | 1.4835 | **2.0473** | **all pass** |
-| −45 dBFS tail noise after 250 ms | 0.4173 | 2.7540 | 2.7779 | **3.0346** | **all pass** |
+| *floor: 1-sample shift* | 0.0041 | 0.0035 | 0.0082 | 0.0085 | — |
+| −40 dBFS 12 kHz tone *(clock/LFO feedthrough)* | 0.0844 | 0.1750 | 0.2095 | **0.6071** | **all pass** |
+| 6-bit requantisation *(a narrowed word)* | 0.2828 | 1.4337 | 1.4705 | **2.0287** | **all pass** |
+| −45 dBFS tail noise after 250 ms | 0.4004 | 2.7550 | 2.7786 | **3.0329** | **all pass** |
 
 What the board reads on those same three signals — worst case across all nine
 measurements is **0.138 of tolerance**: **[measured]**
@@ -764,14 +819,14 @@ measurements is **0.138 of tolerance**: **[measured]**
 |---|---|---|---|
 | 12 kHz tone | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.372 dB, **0.000** | 334.7 → 357.8 ms, **0.138** |
 | 6-bit | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.377 dB, **0.002** | 334.7 → 339.6 ms, **0.029** |
-| tail noise | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.372 dB, **0.000** | 334.7 → 347.4 ms, **0.076** |
+| tail noise | 49.42 → 49.42 Hz, **0.000** | −10.372 → −10.372 dB, **0.000** | 334.7 → 348.5 ms, **0.082** |
 
 *(each figure is the error divided by that metric's own tolerance; ≤ 1 passes)*
 
 **The guard hypothesis is confirmed, and by a wide margin.** All three defects
 pass every per-property metric with an order of magnitude to spare, and every
-distance flags all three: **22× to 105×** its floor for linear `mss_l1`, and
-**49× to 776×** for the log-domain forms. Two of them
+distance flags all three: **21× to 99×** its floor for linear `mss_l1`, and
+**49× to 778×** for the log-domain forms. Two of them
 (requantisation, tail noise) read *above the BD-versus-snare-drum ceiling* —
 the metric's way of saying "this is not the same instrument". **[measured]**
 
@@ -793,9 +848,9 @@ it.** **[inference]**
    our own deterministic render, so the floor is 0.0086. Used as designed —
    our render against the reference recording — the defect's contribution rides
    on top of a baseline that already includes the constructed reference floor
-   (0.268 on `mel_dac`), and distances do not add. Even pessimistically
+   (0.264 on `mel_dac`), and distances do not add. Even pessimistically
    treating the floor as additive, the 12 kHz tone clears it by 2.3× and the
-   other two by 8–11×, so the conclusion survives; but **the guard's threshold
+   other two by 7.7–11.5×, so the conclusion survives; but **the guard's threshold
    must be set against a measured our-versus-reference baseline, not against
    the self-comparison floor measured here.** That baseline is not measured in
    this document.
@@ -874,9 +929,9 @@ recommendation I would make for the next issue.
 
 | metric | what it would catch that we miss today | what it costs | verdict |
 |---|---|---|---|
-| **`mel_dac` (DAC multi-scale mel, log) as a blind-spot guard** | additive/broadband defects invisible to our three-per-voice property list: spurious tones, requantisation noise, a non-decaying noise floor — measured at **71×, 239× and 354× its own floor**, all passing every board metric ([§7](#7-the-guard-hypothesis-tested)) | ~90 lines of numpy, no new dependency; a measured our-versus-reference baseline per voice; a gate or window to keep it out of the sub-−60 dB region ([§6](#6-the-alignment-problem-which-gates-everything-else)) | **adopt as guard only** — diagnostics block, never a tolerance, never in the case's worst, and firing means *write a new estimator*, not *tune until quiet* |
-| **`mss_l1` (linear multi-scale spectral)** | little. Blind to an 8 dB partial imbalance (0.0185, less than a 0.16 dB level change), and the only distance that survives the reference's noise floor | same as above | **reject** — the one form robust to [§6](#6-the-alignment-problem-which-gates-everything-else)'s second precondition is the one blind to the errors we care about |
-| **any multi-scale spectral distance as a scorecard target** | nothing it catches survives its floor: ranks the tom defect wrongly on all four variants; floor 0.311 against a defect of 0.322–0.385; 2 ms of misalignment outweighs the whole defect | would repeal the board's own rule against averaging across units | **reject** — four independent disqualifications, [§8](#8-the-role-question-answered) |
+| **`mel_dac` (DAC multi-scale mel, log) as a blind-spot guard** | additive/broadband defects invisible to our three-per-voice property list: spurious tones, requantisation noise, a non-decaying noise floor — measured at **71×, 238× and 356× its own floor**, all passing every board metric ([§7](#7-the-guard-hypothesis-tested)) | ~90 lines of numpy, no new dependency; a measured our-versus-reference baseline per voice; a gate or window to keep it out of the sub-−60 dB region ([§6](#6-the-alignment-problem-which-gates-everything-else)) | **adopt as guard only** — diagnostics block, never a tolerance, never in the case's worst, and firing means *write a new estimator*, not *tune until quiet* |
+| **`mss_l1` (linear multi-scale spectral)** | little. Nearly blind to an 8 dB partial imbalance (0.0456, less than a 0.45 dB level change — `mel_dac` reads 12× more on the same signal), and the only distance that survives the reference's noise floor | same as above | **reject** — the one form robust to [§6](#6-the-alignment-problem-which-gates-everything-else)'s second precondition is the one blind to the errors we care about |
+| **any multi-scale spectral distance as a scorecard target** | nothing it catches survives its floor: ranks the tom defect wrongly on all four variants; floor 0.307 against a defect of 0.336–0.406, with three of four rungs *below* the floor on two of the metrics; 2 ms of misalignment lands inside the defect's own range | would repeal the board's own rule against averaging across units | **reject** — four independent disqualifications, [§8](#8-the-role-question-answered) |
 | **A learned paired distance (CDPAM, OpenL3/VGGish/CLAP cosine)** | genuinely: timbral properties nobody has written an estimator for. This is a real gap | torch; a frozen, hashed checkpoint (a silent upstream weight change moves every historical result); a full floor characterisation, i.e. all of [§2](#2-what-a-multi-scale-spectral-distance-actually-reads-on-our-signals) repeated. **Unmeasurable on this host** | **reject for now** — not refuted, *unmeasured*. OpenL3 is at chance (0.507) on coarse pitch ordering ([§3.1](#31-the-result-that-decides-the-pitch-case)) and CDPAM's own abstract concedes the family generalises poorly outside its training perturbations, which do not include synth parameter errors |
 | **FAD / MMD / any distributional metric** | nothing — it is not defined on our inputs. A population of one has no covariance | — | **reject** — definitional, not empirical ([§1](#1-why-most-of-this-literature-is-not-about-our-problem)) |
 | **A trained discriminator (MPD / MS-STFT / sub-band CQT)** | in principle, *where* two signals differ — a map, not a scalar | adversarial training against a corpus we do not have; one reference recording per voice; an uncharacterisable floor | **reject as built** — but see the row below, which is the same idea without the training |
@@ -909,11 +964,20 @@ controls or by reading output rather than by inspection:
 | what | wrong | right | caught by |
 |---|---|---|---|
 | DAC mel filterbank, empty low bands | ×2 gain read 0.6247 | 0.69313 (ln 2) | the E0 ground-truth gate |
-| decay perturbation, seconds read as ms | sweep read 1e128, then NaN | 0.0128–0.484 | reading the sweep; **the gate passed**, because the bug was in the stimulus, not the metric |
+| decay perturbation, seconds read as ms | sweep read 1e128, then NaN | 0.0138–0.541 | reading the sweep; **the gate passed**, because the bug was in the stimulus, not the metric |
 | "pre-onset noise floor" field | −3.6 dBFS | not a noise floor at all — `prepare` had already trimmed to 1 ms before onset | noticing the number was implausible |
+| every number in the first draft | measured at `c752145`, before #132 changed the `prepare()` the probe depends on | re-measured at `ba14af2`; all conclusions held, two strengthened | rebasing onto `main` and re-running **before** reporting, not after |
+| the whole probe, post-rebase | died with a traceback on `bd8/BD5050.WAV` | REFUSES with exit 2 and names the files that work | #132's truncation guard, which is a control I did not write |
 
 The second is the useful one: a ground-truth gate on the estimator does not
 cover the stimulus, and it looked exactly like a passing run.
+
+The fourth is the one worth generalising. **A survey measured against a
+worktree is measured against a stale premise the moment `main` moves**, and
+`main` moves several times an hour here. #132 changed `prepare()` — the
+alignment step this entire document is about — while the document was being
+written. Had it been reported without the re-run, every table would have been
+honestly produced and quietly wrong.
 
 ---
 
