@@ -126,22 +126,30 @@ def test_a_noise_rumble_does_not_fake_a_drop():
         assert r["ratio_at_onset"] < 1.05, (nm, r["ratio_at_onset"])
 
 
-def test_a_coherent_neighbour_is_the_known_weakness():
-    """Documented, not hidden: a coherent line at -25 dB CAN fake a drop. This
-    is why the measurement's artefact bound is taken from the accent-A
-    recordings rather than from a synthetic, and why `neighbour_db` is reported
-    with every row."""
-    faked = []
+def test_a_coherent_neighbour_is_survived_or_refused():
+    """A coherent line near the fundamental is this estimator's worst confound:
+    before the extrapolation guard existed, a -25 dB companion at 0.5 x f0
+    made a drop-free tom read x1.35. The guard (a fitted onset excess more than
+    EXTRAP_MAX times the largest OBSERVED excess, or a tau below one period of
+    the carrier, is not a measurement) now refuses those.
+
+    This test does not assert the confound is gone -- it asserts the probe
+    either refuses or stays inside the tolerance the results are quoted with,
+    and it returns what actually happened so the bound is re-derived rather
+    than assumed."""
+    outcomes = []
     for nm, f0, q in VOICES:
-        y = _synth(nm, f0, q, shape="none", seed=3)
-        t = np.arange(len(y)) / SR
-        m = np.cos(2 * np.pi * 0.5 * f0 * t + 0.7) * np.exp(-t / (0.6 * P.tau_from_q(f0, q)))
-        y = y + m / np.abs(m).max() * np.abs(y).max() * 10 ** (-25 / 20)
-        r = P.measure(y, SR, label=nm)
-        if r["verdict"] != "REFUSED" and r.get("ratio_at_onset", 1.0) > 1.05:
-            faked.append((nm, r["ratio_at_onset"], r.get("neighbour_db")))
-    assert faked, "the known weakness stopped reproducing; re-derive the artefact bound"
-    return faked
+        for rel, mult in ((-25, 0.5), (-30, 0.5), (-25, 1.35), (-30, 2.7)):
+            y = _synth(nm, f0, q, shape="none", seed=3)
+            t = np.arange(len(y)) / SR
+            m = (np.cos(2 * np.pi * mult * f0 * t + 0.7)
+                 * np.exp(-t / (0.6 * P.tau_from_q(f0, q))))
+            y = y + m / np.abs(m).max() * np.abs(y).max() * 10 ** (rel / 20)
+            r = P.measure(y, SR, label=nm)
+            got = r.get("ratio_at_onset") if r["verdict"] == "OK" else None
+            outcomes.append((nm, rel, mult, r["verdict"], got, r.get("neighbour_db")))
+            assert got is None or abs(got - 1.0) <= 0.05, (nm, rel, mult, got)
+    return outcomes
 
 
 def test_band_limiting_is_worse_and_is_therefore_off():
@@ -193,10 +201,15 @@ def main() -> int:
     print("  tells an exponential drop from a linear one       OK")
     test_a_noise_rumble_does_not_fake_a_drop()
     print("  a -20 dB pink rumble does not fake a drop         OK")
-    faked = test_a_coherent_neighbour_is_the_known_weakness()
-    print("  KNOWN WEAKNESS reproduced (a -25 dB coherent line can fake a drop):")
-    for nm, r, nb in faked:
-        print(f"      {nm}: reads x{r:.4f}, settled neighbour {nb:.1f} dB")
+    oc = test_a_coherent_neighbour_is_survived_or_refused()
+    nref = sum(1 for o in oc if o[3] == "REFUSED")
+    worst = max((abs(o[4] - 1.0) for o in oc if o[4] is not None), default=0.0)
+    print(f"  a coherent neighbour is refused or survived        {nref} of {len(oc)} refused, "
+          f"worst surviving |R-1| {worst:.4f}")
+    for nm, rel, mult, verd, got, nb in oc:
+        print(f"      {nm} {rel:+d} dB at {mult:.2f} f0: {verd:<20s}"
+              + (f" x{got:.4f}" if got else "") + f"   settled neighbour {nb:.1f} dB"
+              if nb is not None else "")
     bp = test_band_limiting_is_worse_and_is_therefore_off()
     print(f"  band-limiting is worse, so it is off              "
           f"excess err bp {100*bp[0]:.1f} % vs raw {100*bp[1]:.1f} %; "
