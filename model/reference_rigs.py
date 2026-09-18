@@ -471,6 +471,37 @@ class SurgeRig(_Plugin):
         y = self.render(x, 0.70)
         return y[int(0.42 * SR):int(0.65 * SR)]
 
+    # Surge's Classic oscillator: Shape morphs saw -> pulse, Width sets the
+    # duty. There is no triangle, so Surge has no counterpart for ours -- that
+    # is a finding about the comparison, not an error in it.
+    WAVES = {"saw": (0.0238, 0.0, 0.5), "square": (0.0238, 1.0, 0.5),
+             "pulse25": (0.0238, 1.0, 0.25), "sine": (0.0938, None, None)}
+
+    def osc_tone(self, wave, note, seconds=0.5):
+        """One oscillator, FILTER OFF, flat gate: the waveform as the
+        instrument makes it, with nothing else in the path."""
+        if wave not in self.WAVES:
+            raise NotImplementedError(f"Surge's Classic oscillator has no {wave!r}")
+        typ, shape, width = self.WAVES[wave]
+        self.set(self.I['osc1_type'], typ)
+        self.set(self.I['f1_type'], 0.0)                 # filter OFF
+        # Surge RENAMES parameters 259-267 with the oscillator type, and the
+        # new names are not in effect until the processor has run. Writing
+        # Shape and Width immediately after the type change writes them into
+        # the PREVIOUS type's parameters -- which is why the first run of this
+        # probe reported a "square" with h2 at +79.6 dB.
+        self.render(np.zeros(1), 0.05)
+        if shape is not None:
+            got = (self.p.get_parameter_name(259), self.p.get_parameter_name(260))
+            want = ('A Osc 1 Shape', 'A Osc 1 Width 1')
+            if got != want:
+                raise RuntimeError(f"Surge osc 1 parameters are {got}, expected {want}")
+            self.set(259, shape)
+            self.set(260, width)
+        self.note = int(note)
+        y = self.render(np.zeros(1), seconds + 0.25)
+        return y[int(0.2 * SR):int(0.2 * SR) + int(seconds * SR)]
+
     def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
         """A steady carrier through the cutoff swept lo -> hi by parameter
         AUTOMATION, which is how a host moves a control and the only way to
@@ -577,6 +608,29 @@ class MiniV3Rig(_Plugin):
                             amp * np.sin(2 * math.pi * f * np.arange(n) / SR)])
         y = self.render(x, 0.78)
         return y[int(0.48 * SR):int(0.70 * SR)]
+
+    # The Model D's six waveforms, in panel order, as Mini V3 enumerates them.
+    # Ours has four of these and a sine the Model D does not have; the Model D
+    # has a shark-tooth we do not. Both gaps are findings.
+    WAVES = {"tri": 0.075, "shark": 0.2417, "saw": 0.4083, "square": 0.575,
+             "wide_rect": 0.7417, "narrow_rect": 0.9167}
+
+    def osc_tone(self, wave, note, seconds=0.5):
+        """One oscillator, filter wide open, flat gate. Mini V3's filter
+        cannot be bypassed, so `cutoff` is at maximum and its residual
+        response is stated with any result that depends on the top octave."""
+        self.set(48, self.WAVES[wave])
+        # Range Osc1. Its default is 'Low' -- the Model D's sub-audio setting --
+        # so without this the oscillator is an LFO and every harmonic
+        # measurement refuses. It is a sound-changing control that was not
+        # pinned, which is exactly the class of omission this rig now guards.
+        self.set(45, 0.575)                              # "8'"
+        self.set(self.I['lvl_ext'], 0.0); self.set(self.I['ext_sw'], 0.0)
+        self.set(self.I['lvl_o1'], 0.9); self.set(self.I['o1'], 1.0)
+        self.set(self.I['cutoff'], 1.0); self.set(self.I['emphasis'], 0.0)
+        self.note = int(note)
+        y = self.render(np.zeros(1), seconds + 0.3)
+        return y[int(0.25 * SR):int(0.25 * SR) + int(seconds * SR)]
 
     def swept_cutoff(self, carrier, lo, hi, seconds, cache=None, res=0.1, amp=0.25):
         """Mini V3's cutoff knob has no units, so the sweep's endpoints come
