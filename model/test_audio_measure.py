@@ -313,7 +313,30 @@ def test_onsets_finds_hits_at_unequal_amplitudes():
     got = am.onsets(x, SR, min_gap_s=0.1)
     assert len(got) == 3, f"found {len(got)} onsets at {[round(i/SR,3) for i in got]}, truth {truth}"
     for g, t0 in zip(got, truth):
-        assert abs(g / SR - t0) <= 0.004, f"onset {g/SR:.4f} s vs {t0} s"
+        # 10 ms, which is what the Hilbert precursor leaves: enough to tell one
+        # hit from another, nowhere near enough to measure an attack time.
+        assert abs(g / SR - t0) <= 0.010, f"onset {g/SR:.4f} s vs {t0} s"
+
+
+def test_onsets_are_not_hidden_by_the_hilbert_precursor():
+    """The analytic envelope rises tens of ms BEFORE a sharp strike, because
+    the Hilbert transform is not causal. With a 10 ms run-in before the first
+    hit that precursor flattens the rise enough to hide it: the analytic
+    detector found two onsets, in the wrong places, where the RMS detector
+    finds three in the right ones."""
+    n = int(1.6 * SR)
+    x = np.zeros(n)
+    truth = [0.010, 0.510, 1.010]
+    for t0, amp in zip(truth, (1.0, 0.6, 1.4)):
+        seg = damped(56.0, 0.127, seconds=0.5, amp=amp)
+        i = int(t0 * SR)
+        x[i:i + len(seg)] += seg
+    got = am.onsets(x, SR, min_gap_s=0.1)
+    assert len(got) == 3, f"found {[round(i/SR, 4) for i in got]}, truth {truth}"
+    for g, t0 in zip(got, truth):
+        # 10 ms, which is what the precursor leaves: enough to tell one hit
+        # from another, nowhere near enough to measure an attack time.
+        assert abs(g / SR - t0) <= 0.010, f"onset {g/SR:.4f} s vs {t0} s"
 
 
 def test_onsets_on_silence_is_empty():
@@ -773,3 +796,101 @@ def test_event_slices_splits_a_gate_into_notes():
     assert am.event_slices(g) == [(100, 200), (500, 900)]
     assert am.event_slices(np.zeros(10)) == []
     assert am.event_slices(np.ones(10)) == [(0, 10)]
+
+
+# ===========================================================================
+# choosing the right envelope, and knowing when tau cannot be measured
+# ===========================================================================
+def test_analytic_and_rms_envelopes_agree_on_a_damped_sinusoid():
+    """One component: both envelopes are the same exponential, so either
+    estimator may be used and they must not disagree."""
+    for f, tau in ((300.0, 0.050), (7100.0, 0.020)):
+        x = damped(f, tau, seconds=8 * tau)
+        a = am.decay_tau(x, SR).require("analytic")
+        r = am.decay_tau(x, SR, envelope="rms", rms_window_ms=3.0).require("rms")
+        assert abs(a / tau - 1) <= 0.08 and abs(r / tau - 1) <= 0.10, f"{a*1e3:.1f} / {r*1e3:.1f} vs {tau*1e3}"
+
+
+def test_rms_envelope_is_the_right_envelope_for_a_broadband_voice():
+    """A dense inharmonic comb under one exponential envelope: the shape of a
+    hi-hat. Its INSTANTANEOUS amplitude swings by tens of dB as the components
+    beat -- that is the signal, not an artefact -- so the analytic envelope is
+    not monotone and its maximum lands on a beat. The short-time RMS is the
+    envelope, and only it recovers the decay.
+
+    This is the failure that made the open hat's "envelope" rise for 50 ms
+    after the strike."""
+    tau = 0.060
+    t = np.arange(int(0.5 * SR)) / SR
+    rng = np.random.default_rng(3)
+    comb = sum(np.sin(2 * math.pi * f * t + rng.uniform(0, 2 * math.pi))
+               for f in rng.uniform(6000, 14000, 40))
+    x = comb * np.exp(-t / tau)
+    a_env = am.analytic_envelope(x)
+    r_env = am.rms_envelope(x, 5.0, SR)
+    i0, i1 = int(0.004 * SR), int(0.10 * SR)
+    swing = am.db(a_env[i0:i1].max(), np.median(a_env[i0:i1]))
+    assert swing > 10.0, f"the comb's instantaneous amplitude only swung {swing:.1f} dB"
+    assert am.db(r_env[i0:i1].max(), np.median(r_env[i0:i1])) < 8.0, "the RMS envelope is not smooth"
+    got = am.decay_tau(x, SR, envelope="rms", rms_window_ms=5.0).require("rms decay")
+    assert abs(got / tau - 1) <= 0.12, f"rms envelope measured {got*1e3:.1f} ms vs {tau*1e3:.0f} ms"
+    a = am.decay_tau(x, SR)
+    assert (not a.ok) or abs(a.value / tau - 1) > 0.15, \
+        "the analytic envelope happened to work on a broadband voice; re-derive the rule"
+
+
+def test_rms_envelope_recovers_a_noise_burst_decay():
+    """Noise under an exponential, several seeds: the clap and the snare's
+    snap. The analytic envelope of noise is Rayleigh-distributed sample by
+    sample; the RMS envelope is the decay."""
+    for seed in (1, 2, 3):
+        tau = 0.047
+        n = int(0.4 * SR)
+        x = band_noise(n, 600.0, 1600.0, seed) * np.exp(-np.arange(n) / SR / tau)
+        # One realisation of noise has a ragged RMS envelope even at 6 ms, so
+        # the single-exponential check is loosened -- not removed, or a
+        # two-slope tail would pass. The clap averages renders instead.
+        got = am.decay_tau(x, SR, envelope="rms", rms_window_ms=6.0,
+                           max_residual_db=11.0).require(f"seed {seed}")
+        assert abs(got / tau - 1) <= 0.15, f"seed {seed}: {got*1e3:.1f} ms vs 47 ms"
+
+
+@pytest.mark.parametrize("tau", [0.029, 0.127, 0.352])
+def test_damped_sinusoid_refuses_a_tau_its_residual_cannot_resolve(tau):
+    """The two-pole fit is exact on a clean signal and badly biased on a
+    quantised one. A 16-bit integer ring at 56 Hz with tau = 127 ms has
+    1 - r = 1.6e-4 per sample; the least-squares fit's own residual is of the
+    same order, and it reported 63 ms -- half the truth -- with a residual that
+    looked excellent.
+
+    So the estimator must refuse tau when the fit residual is comparable with
+    the per-sample decay, while still reporting the FREQUENCY, which survives.
+    Where it does answer, it must be right."""
+    x = np.round(damped(56.0, tau, seconds=min(9 * tau, 3.0), amp=16000.0)).astype(float)
+    d = am.damped_sinusoid(x, SR)
+    assert abs(d.freq.require("frequency") / 56.0 - 1) <= 0.01, "the frequency must survive quantisation"
+    if d.tau.ok:
+        assert abs(d.tau.value / tau - 1) <= 0.15, \
+            f"accepted tau {d.tau.value*1e3:.1f} ms against a truth of {tau*1e3:.0f} ms"
+    else:
+        assert "unresolvable" in d.tau.reason
+    env = am.decay_tau(x, SR).require("envelope tau")
+    assert abs(env / tau - 1) <= 0.10, f"the envelope fit must still work: {env*1e3:.1f} vs {tau*1e3:.0f} ms"
+
+
+def test_natural_frequency_from_peak_matches_the_closed_form():
+    """f0, the -3 dB corner and the resonant peak are three different numbers
+    for a resonant filter. At Q 2.5 the corner sits about 28 % below f0 and the
+    peak about 4 % above it, so comparing a measured corner with a table's f0
+    is an error of that size -- which is how a hi-hat high-pass looked 22 %
+    wrong when it was 2 % right."""
+    for f0, q in ((7800.0, 2.5), (11700.0, 2.5)):
+        ir, _ = two_pole_ir(f0, q, n=16384, numerator="hp")
+        peak = am.resonant_peak(ir, SR).require("peak")
+        corner = am.corner_3db(ir, "highpass", SR).require("corner")
+        assert abs(am.natural_frequency_from_peak(peak, q) / f0 - 1) <= 0.03, \
+            f"peak {peak:.0f} Hz implies f0 {am.natural_frequency_from_peak(peak, q):.0f}, truth {f0}"
+        assert corner < f0 * 0.85, f"the -3 dB corner {corner:.0f} Hz is not well below f0 {f0}"
+        assert peak > f0, f"the resonant peak {peak:.0f} Hz is not above f0 {f0}"
+    with pytest.raises(InsufficientEvidence):
+        am.natural_frequency_from_peak(1000.0, 0.7)
