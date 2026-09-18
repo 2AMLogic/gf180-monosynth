@@ -167,6 +167,32 @@ Say what you are blocked on and end the turn. Do not spin. The coordinator can
 read your worktree directly, and has had to several times — every agent whose
 work was harvested that way had already finished it.
 
+## Your instrument is a deliverable, not scaffolding
+
+**Commit the code that produced your numbers, to your branch, as you go.**
+Not at the end, and not into the scratchpad.
+
+This is not tidiness. An agent here spent a long investigation on the 808 hat
+and cymbal high band, refuted its own hypothesis at the first step -- the best
+outcome an experiment can have -- and committed nothing. Its branch had zero
+commits and its six probe scripts sat in a session scratchpad. The findings
+survived only because they were transcribed by hand into a docstring. The
+scripts were recovered, but by luck: the files happened to still be on disk.
+
+**The line between an intermediate and a deliverable.** The scratchpad is for
+render dumps and throwaway one-liners. The thing that *measured* something goes
+in `tools/` or `model/`, on your branch, with its validation cases. A number
+without the code that produced it is a claim, not evidence -- the same standard
+`tools/run_case.py` already enforces on every result through provenance.
+
+The most valuable file in that rescue was `hh_probe4.py`, whose whole job was to
+record that an earlier result of 7.2 was actually 30.6 because an emulator had
+been used for a knob it was never validated for. **A record of a result that
+looked good and was wrong is worth more than one that was right first time**,
+and it is exactly the file that gets deleted.
+
+A worktree is not durable storage either. Commit early; you can always rebase.
+
 ## Worktrees
 
 Several agents work here at once. Use your own:
