@@ -9,3 +9,6 @@ rtl-sketch/build/
 pnr/orfs/work/
 pnr/klt/*/.klt/
 fpga/build/
+pnr/orfs/collect.out
+pnr/orfs/collect.sh
+pnr/orfs/joined.sh

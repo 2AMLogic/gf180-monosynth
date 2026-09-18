@@ -1,0 +1,25 @@
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_2_floorplan_macro.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+[INFO TAP-0004] Inserted 660 endcaps.
+[INFO TAP-0005] Inserted 1992 tapcells.
+Design area 1991022 um^2 119% utilization.
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_3_floorplan_tapcell.odb
+Elapsed time: 0:02.81[h:]min:sec. CPU time: user 2.15 sys 0.22 (84%). Peak memory: 215672KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+2_3_floorplan_tapcell     .odb            2            210 16b6cdb97cf309dd49a3
+/OpenROAD-flow-scripts/flow/scripts/flow.sh 2_4_floorplan_pdn pdn
+Running pdn.tcl, stage 2_4_floorplan_pdn
+read_liberty /OpenROAD-flow-scripts/flow/platforms/gf180/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib.gz
+read_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_3_floorplan_tapcell.odb
+read_sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc
+source /OpenROAD-flow-scripts/flow/platforms/gf180/setRC.tcl
+[INFO PDN-0001] Inserting grid: block
+[INFO PDN-0500] Runtime: 1.45s
+Design area 1991022 um^2 119% utilization.
+write_db /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_4_floorplan_pdn.odb
+Elapsed time: 0:05.37[h:]min:sec. CPU time: user 4.39 sys 0.31 (87%). Peak memory: 278008KB.
+Log                       Ext     Elapsed/s Peak Memory/MB sha1sum result [0:20)
+2_4_floorplan_pdn         .odb            5            271 da84fd941c6ee154ef32
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_4_floorplan_pdn.odb /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_floorplan.odb
+cp /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_1_floorplan.sdc /private/tmp/wt-par/pnr/orfs/work/results/gf180/synth_top/base/2_floorplan.sdc
