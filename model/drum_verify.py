@@ -53,6 +53,11 @@ from scipy.signal import find_peaks, get_window
 
 warnings.filterwarnings("ignore", message=".*EOF.*")
 
+# The sixteen sounds, in the order model/drums_fx_render.py numbers the solo
+# renders (drums_fx.SOUND_NAMES). STOPS is kept as the revision-8 subset so a
+# caller can still ask for just those eight.
+SOUNDS = ["BD", "SD", "LT", "LC", "MT", "MC", "HT", "HC",
+          "RS", "CL", "CP", "MA", "CB", "CY", "OH", "CH"]
 STOPS = ["BD", "SD", "LT", "HT", "CH", "OH", "CP", "CB"]
 HIT_TIMES = (0.05, 0.75, 1.45)          # drums_fx_render.solo_renders
 HIT_ACCENTS = (1.0, 1.4, 0.6)
@@ -67,6 +72,15 @@ REF_MAIN = {
     "OH": ("oh8/OH50.WAV", "DECAY 5.0"),
     "CP": ("cp8/CP.WAV", "no knob"),
     "CB": ("cb8/CB.WAV", "no knob"),
+    # revision 9's eight
+    "LC": ("lc8/LC50.WAV", "TUNING 5.0"),
+    "MT": ("mt8/MT50.WAV", "TUNING 5.0"),
+    "MC": ("mc8/MC50.WAV", "TUNING 5.0"),
+    "HC": ("hc8/HC50.WAV", "TUNING 5.0"),
+    "RS": ("rs8/RS.WAV", "no knob"),
+    "CL": ("cl8/CL.WAV", "no knob"),
+    "MA": ("ma8/MA.WAV", "no knob"),
+    "CY": ("cy8/CY5025.WAV", "TONE 5.0, DECAY 5.0"),
 }
 # Knob sweeps, for the laws rather than the single points.
 REF_SWEEPS = {
@@ -83,31 +97,96 @@ REF_SWEEPS = {
 # Bands the centroid and the line test are taken over, and what
 # docs/tr808-reference.md section 12 says to expect.
 BAND = {"BD": (20, 2000), "SD": (20, 16000), "LT": (20, 2000), "HT": (20, 2000),
-        "CH": (2000, 20000), "OH": (2000, 20000), "CP": (200, 16000), "CB": (200, 16000)}
-LINE_BAND = {"CH": (5000, 15000), "OH": (5000, 15000), "CB": (400, 6000)}
+        "CH": (2000, 20000), "OH": (2000, 20000), "CP": (200, 16000), "CB": (200, 16000),
+        "LC": (20, 2000), "MT": (20, 2000), "MC": (20, 2000), "HC": (20, 2000),
+        "RS": (20, 8000), "CL": (200, 8000), "MA": (2000, 20000), "CY": (200, 20000)}
+LINE_BAND = {"CH": (5000, 15000), "OH": (5000, 15000), "CB": (400, 6000),
+             "CY": (2000, 12000)}
 # Envelope RMS window: several periods of the voice's own fundamental, so the
 # moving RMS does not ripple at 2*f0 (BD at 50 Hz needs 12 ms; a hat does not).
 ENV_WIN_MS = {"BD": 12.0, "SD": 6.0, "LT": 10.0, "HT": 6.0,
-              "CH": 3.0, "OH": 4.0, "CP": 4.0, "CB": 6.0}
+              "CH": 3.0, "OH": 4.0, "CP": 4.0, "CB": 6.0,
+              "LC": 8.0, "MT": 8.0, "MC": 5.0, "HC": 4.0,
+              "RS": 2.0, "CL": 2.0, "MA": 1.5, "CY": 3.0}
 # Spectrogram / spectrum ceiling: showing a 50 Hz kick on a 16 kHz axis is a
 # black rectangle.
 PLOT_FMAX = {"BD": 600, "SD": 12000, "LT": 900, "HT": 1200,
-             "CH": 16000, "OH": 16000, "CP": 12000, "CB": 8000}
+             "CH": 16000, "OH": 16000, "CP": 12000, "CB": 8000,
+             "LC": 1600, "MT": 1200, "MC": 2000, "HC": 2800,
+             "RS": 8000, "CL": 8000, "MA": 20000, "CY": 20000}
 # Bands the energy split is reported over: "body" vs "noise/air".
 SPLIT_HZ = {"BD": 200, "SD": 700, "LT": 400, "HT": 600,
-            "CH": 9000, "OH": 9000, "CP": 2000, "CB": 1400}
+            "CH": 9000, "OH": 9000, "CP": 2000, "CB": 1400,
+            "LC": 700, "MT": 500, "MC": 900, "HC": 1300,
+            "RS": 1000, "CL": 3000, "MA": 9000, "CY": 5000}
 
-SPEC = {  # docs/tr808-reference.md section 12 + 14, at the chart's knob positions
+# WHAT `tau_ms` IS, and why two of these rows changed on 2026-09-18.
+#
+# `tau_ms` is WHAT THE VOICE SHOULD MEASURE under `decay_fit` -- the number a
+# regression reporter compares a render against. It is NOT automatically
+# reference section 12's figure, and for two voices it stopped being that:
+#
+#  * CB carried 22 ms, which is Roland's chart 50 ms read as 2.3 tau. DR 0010
+#    MOVED THE COWBELL'S TAIL to ~100 ms on purpose, because the real machine
+#    measures 98 ms (docs/drum-verification.md section 4.6: "the tail is 3x too
+#    short... E_CBB's 30 ms should be ~100 ms"). The kit was fixed and this
+#    table was not, so it went on pointing at a number the project had already
+#    withdrawn -- and a reporter reading it says a correct cowbell is 4x wrong.
+#    Re-measured here off cb8/CB.WAV with this file's own `decay_fit`: 92.7 ms,
+#    R^2 0.887. Set to the published 98.0.
+#  * CP carried 47 ms, which is reference 7's E_CPTAIL RC. That is a REGISTER,
+#    not the voice's decay: the clap's envelope is three bursts and a tail, and
+#    what `decay_fit` measures over -3..-30 dB is the compound of both.
+#    cp8/CP.WAV measures 33.0 ms (R^2 0.919) and ours 34.5, so the voice was
+#    right and the comparand was a different quantity. Set to 33.0; the 47 ms
+#    is still in `note`.
+#
+# Both are the same failure -- a claim outliving its evidence -- so every row
+# now says where its number comes from in `source`, and a row whose value is a
+# hardware measurement says which file it came off. The six rows left on a
+# schematic or chart figure are the ones no recording can improve on: BD (DR
+# 0009's computed f0), SD, LT, HT (all three already inside 3 % of the machine)
+# and the two hat rows, whose tau is a knob position and not a fixed value.
+SPEC = {
     # Contract revision 6 (DR 0009): the BD's f0 is the circuit's 49.4 Hz, not
     # the chart's 56, and tau follows it -- 144 ms, reference 2's own table.
-    "BD": dict(f0=49.4, tau_ms=144.0, chart_ms=300.0, note="attack ~130 Hz for 4 ms (15.7.1)"),
-    "SD": dict(f0=173.0, tau_ms=30.0, chart_ms=60.0, note="+336 Hz mode, noise BP 2.75 kHz"),
-    "LT": dict(f0=90.0, tau_ms=88.0, chart_ms=200.0, note="pink noise, 1-pole LP 400 Hz"),
-    "HT": dict(f0=185.0, tau_ms=43.0, chart_ms=100.0, note="pink noise, 1-pole LP 400 Hz"),
-    "CH": dict(f0=None, tau_ms=22.0, chart_ms=50.0, note="6 squares -> BP 7.1k -> HP 11.7k Q2.5"),
-    "OH": dict(f0=None, tau_ms=196.0, chart_ms=450.0, note="6 squares -> BP 7.1k -> HP 7.8k Q2.5"),
-    "CP": dict(f0=1071.0, tau_ms=47.0, chart_ms=100.0, note="3 bursts ~10 ms in 30 ms + tail"),
-    "CB": dict(f0=800.0, tau_ms=22.0, chart_ms=50.0, note="squares 540 + 800 -> BP"),
+    "BD": dict(f0=49.4, tau_ms=144.0, chart_ms=300.0, source="reference 2 (DR 0009)",
+               note="attack ~130 Hz for 4 ms (15.7.1)"),
+    "SD": dict(f0=173.0, tau_ms=30.0, chart_ms=60.0, source="reference 3",
+               note="+336 Hz mode, noise BP 2.75 kHz"),
+    "LT": dict(f0=90.0, tau_ms=88.0, chart_ms=200.0, source="reference 4 (machine 87.6)",
+               note="pink noise, 1-pole LP 400 Hz"),
+    "HT": dict(f0=185.0, tau_ms=43.0, chart_ms=100.0, source="reference 4 (machine 41.7)",
+               note="pink noise, 1-pole LP 400 Hz"),
+    "CH": dict(f0=None, tau_ms=22.0, chart_ms=50.0, source="reference 11, chart/2.3",
+               note="6 squares -> BP 7.1k -> HP 11.7k Q2.5; machine 16.0 ms"),
+    "OH": dict(f0=None, tau_ms=196.0, chart_ms=450.0, source="reference 11, chart/2.3",
+               note="the DECAY knob, not a fixed value; kit ships 150 ms, machine 84.9 at DECAY 5"),
+    "CP": dict(f0=1071.0, tau_ms=33.0, chart_ms=100.0, source="hardware cp8/CP.WAV",
+               note="3 bursts ~10 ms in 30 ms + tail; E_CPTAIL's RC is 47 ms, which is not this"),
+    "CB": dict(f0=800.0, tau_ms=98.0, chart_ms=50.0, source="hardware cb8/CB.WAV (DR 0010)",
+               note="squares 540 + 800 -> BP 1100 Hz Q 2.8; was 22 ms, withdrawn by DR 0010"),
+    # revision 9. Every conga tau is the machine's; reference 4's inferred conga
+    # Q column is 12-30 % long and is amended by it. The toms keep the
+    # reference's, which already land within 3 %.
+    "LC": dict(f0=185.0, tau_ms=76.9, chart_ms=180.0, source="hardware lc8/LC50.WAV",
+               note="the LT circuit with C77 switched out; machine reads f0 200 Hz"),
+    "MT": dict(f0=135.0, tau_ms=57.7, chart_ms=130.0, source="hardware mt8/MT50.WAV",
+               note="reference 4 says 58 ms -- the one row that needed no amendment"),
+    "MC": dict(f0=280.0, tau_ms=38.7, chart_ms=100.0, source="hardware mc8/MC50.WAV",
+               note="reference 4 infers 43 ms; machine reads f0 282 Hz"),
+    "HC": dict(f0=400.0, tau_ms=34.3, chart_ms=80.0, source="hardware hc8/HC50.WAV",
+               note="reference 4 infers 45 ms; machine reads f0 413 Hz"),
+    "RS": dict(f0=455.0, tau_ms=3.2, chart_ms=10.0, source="hardware rs8/RS.WAV",
+               note="two bridged-T at 455 and 1786 Hz into the swing VCA; R^2 only 0.896"),
+    "CL": dict(f0=2500.0, tau_ms=9.6, chart_ms=25.0, source="hardware cl8/CL.WAV",
+               note="machine reads f0 2424 Hz; the 22 ms gate is what stops it"),
+    "MA": dict(f0=None, tau_ms=12.0, chart_ms=30.0, source="reference 8 (chart 25-35 ms)",
+               note="NOT the machine's tau: ma8/MA.WAV RISES for 18.2 ms and then falls with "
+                    "tau 2.65 ms, and this envelope generator has no attack ramp. Both are "
+                    "~28 ms events; only the shape differs"),
+    "CY": dict(f0=3453.0, tau_ms=256.4, chart_ms=800.0, source="hardware cy8/CY5025.WAV",
+               note="T20 798 ms is the honest figure; a single tau fits it only at R^2 0.955"),
 }
 
 # The six Schmitt-trigger oscillators, docs/tr808-reference.md section 1.5.
@@ -566,19 +645,26 @@ def main() -> int:
     ap.add_argument("--refs", required=True,
                     help="root of the Fischer CC0 set (contains bd8/, sd8/, ...)")
     ap.add_argument("--ours", default="/tmp/wt-drums/audio/drums",
-                    help="directory holding 00-solo-N-XX.wav")
+                    help="directory holding 00-solo-NN-SOUND.wav")
     ap.add_argument("--out", default="docs/img/drum-verification")
     ap.add_argument("--json", default=None, help="also dump raw metrics here")
     ap.add_argument("--no-plots", action="store_true")
+    ap.add_argument("--voices", default=",".join(SOUNDS),
+                    help="which of the sixteen to compare (default all)")
     a = ap.parse_args()
+    a.voices = [v.strip().upper() for v in a.voices.split(",") if v.strip()]
+    unknown = [v for v in a.voices if v not in REF_MAIN]
+    if unknown:
+        print(f"!! no reference recording mapped for {unknown}", file=sys.stderr)
+        a.voices = [v for v in a.voices if v in REF_MAIN]
 
     os.makedirs(a.out, exist_ok=True)
     results, refs_wav, ours_wav = {}, {}, {}
 
-    for i, v in enumerate(STOPS):
+    for i, v in enumerate(a.voices):
         rel, knobs = REF_MAIN[v]
         rp = os.path.join(a.refs, rel)
-        op = os.path.join(a.ours, f"00-solo-{i}-{v}.wav")
+        op = os.path.join(a.ours, f"00-solo-{SOUNDS.index(v):02d}-{v}.wav")
         if not os.path.exists(rp):
             print(f"!! missing reference {rp}", file=sys.stderr)
             continue
@@ -601,7 +687,7 @@ def main() -> int:
            f"{'tau ms':>8s} {'R^2':>6s} {'span dB':>8s} {'t-20dB ms':>10s}")
     print(hdr)
     print("-" * len(hdr))
-    for v in STOPS:
+    for v in a.voices:
         if v not in results:
             continue
         r = results[v]
@@ -621,7 +707,7 @@ def main() -> int:
 
     print("energy split (power), and the power centroid the magnitude centroid hides:")
     print(f"{'voice':5s} {'src':5s} {'split at':>9s} {'body %':>8s} {'air %':>8s} {'pow cent':>9s}")
-    for v in STOPS:
+    for v in a.voices:
         if v not in results:
             continue
         for src, m in (("real", results[v]["ref"]), ("ours", results[v]["ours"][0])):
@@ -631,7 +717,7 @@ def main() -> int:
                   f"{m['air_pct']:8.2f} {m['power_centroid_hz']:9.0f}")
     print()
 
-    for v in STOPS:
+    for v in a.voices:
         if v not in results or v not in LINE_BAND:
             continue
         for src, m in (("real", results[v]["ref"]), ("ours", results[v]["ours"][0])):
@@ -644,7 +730,7 @@ def main() -> int:
 
     plots = []
     if not a.no_plots:
-        for v in STOPS:
+        for v in a.voices:
             if v in refs_wav:
                 rel, knobs = REF_MAIN[v]
                 plots.append(make_plots(v, refs_wav[v], ours_wav[v], a.out,

@@ -935,3 +935,91 @@ def test_rms_of_nothing_is_zero_not_a_crash():
 def test_peak_is_the_largest_magnitude_either_sign():
     assert am.peak(np.array([0.1, -0.9, 0.5])) == pytest.approx(0.9)
     assert am.peak(np.array([-0.1, 0.9, -0.5])) == pytest.approx(0.9)
+
+
+# ---------------------------------------------------------------------------
+# Schroeder T20 and the band split -- the two estimators the sixteen-sound kit
+# added, each against a signal whose answer is known in closed form.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("tau", [0.005, 0.030, 0.100, 0.400])
+def test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid(tau):
+    """The identity the estimator rests on: for x = exp(-t/tau) sin(wt) the
+    backward-integrated energy falls exactly 20 dB in ln(10)*tau seconds, so
+    `schroeder_t20` and `t20_from_tau` must agree with no fit error."""
+    n = int(12 * tau * SR)
+    t = np.arange(n) / SR
+    x = np.exp(-t / tau) * np.sin(2 * np.pi * 440.0 * t)
+    e = am.schroeder_t20(x, SR)
+    assert e.ok, e.reason
+    assert abs(e.value / am.t20_from_tau(tau) - 1) < 0.01, \
+        f"tau {tau}: T20 {e.value*1e3:.2f} ms, closed form {am.t20_from_tau(tau)*1e3:.2f} ms"
+
+
+def test_schroeder_t20_refuses_a_recording_that_was_cut_before_it_decayed():
+    """The failure that matters: a sample editor-trimmed while the voice is
+    still sounding. The integral runs to the end of the array, so a truncated
+    decay reads SHORT -- and short by an amount that depends on where the cut
+    is, which is indistinguishable from a real short decay. Three of the
+    reference TR-808 one-shots this project measures against (RS, CL, MA) are
+    trimmed at 20-40 ms, so this is the estimator refusing real data, not a
+    hypothetical."""
+    tau = 0.200
+    t = np.arange(int(0.030 * SR)) / SR          # 30 ms of a 200 ms decay
+    x = np.exp(-t / tau) * np.sin(2 * np.pi * 8000.0 * t)
+    e = am.schroeder_t20(x, SR)
+    assert not e.ok, f"accepted a cut decay and returned {e.value*1e3:.1f} ms"
+    assert "ends before" in e.reason
+
+
+def test_schroeder_t20_reads_a_two_exponential_decay_between_its_parts():
+    """What it is FOR: an envelope that is not one exponential. A loud fast
+    part over a quiet slow one has no single tau -- `decay_tau` refuses it --
+    but it does have a time to -20 dB, and it must lie between the two parts'
+    own."""
+    fast, slow = 0.010, 0.300
+    t = np.arange(int(3.0 * SR)) / SR
+    x = (np.exp(-t / fast) + 0.05 * np.exp(-t / slow)) * np.sin(2 * np.pi * 3000.0 * t)
+    assert not am.decay_tau(x, SR).ok, "decay_tau should refuse two exponentials"
+    e = am.schroeder_t20(x, SR)
+    assert e.ok, e.reason
+    assert am.t20_from_tau(fast) < e.value < am.t20_from_tau(slow), \
+        f"T20 {e.value*1e3:.1f} ms outside [{am.t20_from_tau(fast)*1e3:.1f}, {am.t20_from_tau(slow)*1e3:.1f}]"
+
+
+def test_band_energy_splits_a_two_tone_signal():
+    """30 % of the power at 3 kHz and 70 % at 7 kHz, by construction."""
+    t = np.arange(SR) / SR
+    x = np.sqrt(2 * 0.30) * np.sin(2 * np.pi * 3000 * t) + np.sqrt(2 * 0.70) * np.sin(2 * np.pi * 7000 * t)
+    got = am.band_energy(x, ((200, 5000), (5000, 9000)), SR)
+    assert abs(got[0] - 0.30) < 0.01 and abs(got[1] - 0.70) < 0.01, got
+
+
+def test_band_energy_disagrees_with_a_windowed_fft_on_a_decaying_signal():
+    """The reason `band_energy` exists rather than a sum of FFT bins. Two
+    tones, the high one decaying fast and the low one slowly: the ENERGY is
+    mostly in the high tone, but a Hann window over the whole file sees mostly
+    the low one's tail. Both estimators are right about what they measure; only
+    one of them answers "where is the energy"."""
+    t = np.arange(int(2.0 * SR)) / SR
+    x = 4.0 * np.exp(-t / 0.010) * np.sin(2 * np.pi * 7000 * t) \
+        + 0.30 * np.exp(-t / 0.600) * np.sin(2 * np.pi * 3000 * t)
+    lo_e, hi_e = am.band_energy(x, ((200, 5000), (5000, 9000)), SR)
+    f, S = am.spectrum(x, SR)
+    P = S ** 2
+    lo_f = P[(f >= 200) & (f < 5000)].sum() / P.sum()
+    assert hi_e > 0.6, f"the energy really is in the high tone ({hi_e:.2f})"
+    assert lo_f > 0.6, f"the windowed FFT really does see the low one ({lo_f:.2f})"
+
+
+def test_poles_to_freq_tau_inverts_the_pole_placement():
+    """`coef_freq_tau` in the acceptance suite reads a mode's coefficients back
+    into (f0, tau); this is that conversion against the placement that made
+    them, over the whole range the TR-808 kit uses."""
+    import modal_fixed
+    for f0, q in ((49.4, 84.0), (173.0, 16.3), (455.0, 6.7), (2500.0, 200.0), (10600.0, 2.3)):
+        a1, a2 = modal_fixed.pole_regs(f0, q, 24, SR)
+        ef, et = am.poles_to_freq_tau(a1 / (1 << 24), a2 / (1 << 24), SR)
+        got_f, got_tau = ef.require("f0"), et.require("tau")
+        assert abs(got_f / f0 - 1) < 0.001, f"{f0} Hz Q {q}: read back {got_f:.3f} Hz"
+        assert abs(got_tau / (q / (math.pi * f0)) - 1) < 0.01, \
+            f"{f0} Hz Q {q}: read back tau {got_tau*1e3:.3f} ms"

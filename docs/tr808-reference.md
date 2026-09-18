@@ -1036,7 +1036,34 @@ envelopes.
 - **Which serial numbers have the changed snare capacitors** — the note gives
   values only.
 - **CY high-pass #2/#3 exact corners** — Werner gives the topology and a
-  ≈10.5 kHz resonance; I did not solve the 3rd-order network.
+  ≈10.5 kHz resonance; I did not solve the 3rd-order network. **Partly closed
+  by measurement, and not in this section's favour.** A real machine's cymbal
+  (Fischer s/n 103852, `cy8/CY5025.WAV`, TONE and DECAY at 5.0) puts
+  1.1 / 10.3 / 53.2 / 23.3 / 6.0 % of its energy in <2k / 2–5k / 5–9k / 9–13k /
+  >13k, with its strongest line at **3153 Hz**. Three things in §10 do not
+  survive that: the long tail is the **low** band, not a high one (2–5 kHz
+  measures T20 1244 ms against 745 ms at 5–9 kHz); every band lengthens with
+  the DECAY knob, not only the middle one; and the ≈10.5 kHz stage behaves like
+  a **band-pass**, since the machine has a 9–13 kHz shoulder with only 6 % above
+  13 kHz and a high-pass at that corner cannot make that shape.
+  `docs/drum-verification.md` §10 has the derivation.
+
+- **LC / MC / HC decay — closed, and §4's Q column is amended.** §4's three
+  TOM rows land on a real machine within 3 % (LT 88.4 computed against 87.6
+  measured, MT 56.6 against 57.7, HT 43.0 against 41.7). Its three CONGA rows
+  are long by 12–30 % (LC 94.6 against 76.9, MC 43.2 against 38.7, HC 44.6
+  against 34.3). The congas' Q is therefore taken from the machine — 44.7 /
+  34.0 / 43.1 at the chart's f0 — which §1.7's ±50 % on any high-Q figure
+  already allows for. Measured off `lc8/LC50.WAV`, `mc8/MC50.WAV`,
+  `hc8/HC50.WAV` at R² 0.999.
+
+- **MA envelope — closed, and §8 is missing half of it.** `ma8/MA.WAV` shows
+  an **18.2 ms rise** and then a fall of τ 2.65 ms, t(−20 dB) 9.0 ms: about a
+  28 ms event, which is what Roland's chart's 25–35 ms is measuring. §8 gives
+  the decay (R341/C134, ≈15 ms) and mentions the attack network (C135 0.1 µF,
+  R344 220 kΩ, R345 150 kΩ) only as "shape the attack" — it is 18 ms and it is
+  most of the sound's character. A voice generator with no attack ramp cannot
+  reproduce it; ours makes the same 28 ms event with the shape reversed.
 - The hats' and maracas' Sallen-Key Q ≈ 2.5 rests on reading R147/R153/R339 as
   the feedback resistor (the drawing convention Werner's Hh1 coefficients
   confirm for the cymbal's Q25 stage) — if a scope shows a flat rather than

@@ -11,8 +11,20 @@ writer of the audition (dsp.to_wav16) is deliberately not used here -- it is
 what hid the four clipping patches of DR 0005.
 
 Renders (48 kHz, 16-bit mono):
-    00-solo-<stop>.wav       one hit of each stop at accent 1.0, then 1.4, then 0.6
-    01-all-eight-at-once.wav every stop in one frame at accent 1.4: the loudest intended hit
+    00-solo-<nn>-<SOUND>.wav ONE HIT OF EACH OF THE SIXTEEN at accent 1.0, then 1.4,
+                             then 0.6 -- the pair sounds (LC, MC, HC, RS, MA) render with
+                             their circuit switched to that position, which is what the
+                             panel switch does and what `kit_with_sounds` writes
+    01-all-eleven-at-once.wav every CIRCUIT in one frame at accent 1.4: the loudest hit
+    10-roll-call.wav         the sixteen in order, named in the order of SOUND_NAMES
+    11-groove-full-808.wav   a groove that uses the three new circuits: congas, claves,
+                             cymbal, over the kick/snare/hats
+    12-groove-rimshot-maracas.wav the OTHER half of three pairs -- rimshot, maracas and
+                             the mid tom -- so every one of the sixteen has been heard
+                             in a musical context across the two
+    13-before-after-808.wav  11-groove-full-808 as revision 8 could play it (no mid
+                             circuit, no claves, no cymbal, congas back to toms), a bar
+                             of silence, then the same bars complete. Nothing else moves
     02-groove-808.wav        a two-bar 808 pattern with accents, closed/open hats and the choke
     03-groove-toms.wav       toms and congas-style fills against the kick
     04-groove-claps.wav      clap, cowbell and hats
@@ -61,34 +73,62 @@ def drums_only(hits, seconds: float, kit=None, dvol=DVOL, bvol=BVOL, extra_write
 
 
 def balance():
-    """Each voice alone at accent 1.0: its peak on each bus and the factor
-    its amps (or, for the mix-bus voices, its envelope peaks) need to land on
-    the target -- Roland's chart's proportions (reference 1.6) with the
-    loudest at 0.5 x full scale on the bus."""
-    target = dict(BD=0.5, SD=0.43, LT=0.5, HT=0.5, CH=0.43, OH=0.5, CP=0.5, CB=0.5)
-    d = dx.DrumsFx()
-    n = int(0.4 * SR)
-    print("voice   dmix peak (FS)   body peak (FS)   state peak (FS)   amp/peak scale to target")
-    for s, name in enumerate(dx.STOP_NAMES):
-        d.reset()
-        dm, bd = d.play(dx.hit_writes([(10, s, 1.0)], dx.kit_808()), n)
+    """Each of the SIXTEEN alone at accent 1.0: its peak on each bus and the
+    factor its amps (or, for the mix-bus sounds, its envelope peaks) need to
+    land on the target -- Roland's chart's proportions (reference 1.6, the
+    "normal Vpp" column) with the loudest at 0.5 x full scale on the bus."""
+    n = int(1.0 * SR)
+    print("sound   dmix peak (FS)   body peak (FS)   state peak (FS)   target   scale to it")
+    for name in dx.SOUND_NAMES:
+        d = dx.DrumsFx()
+        dm, bd = d.play(dx.hit_writes([(10, dx.SOUND_STOP[name], 1.0)], dx.kit_with_sounds(name)), n)
         pk_m, pk_b = np.abs(dm).max() / 32768, np.abs(bd).max() / 32768
         st = max(abs(v) for v in d.bank.y1) / 32768
-        pk = pk_m if name == "CP" else pk_b
-        print(f"  {name:4s}  {pk_m:12.3f}    {pk_b:12.3f}    {st:12.1f}         x {target[name] / max(pk, 1e-9):.4f}")
+        pk = max(pk_m, pk_b)
+        t = dx.BUS_TARGET[name]
+        print(f"  {name:4s}  {pk_m:12.3f}    {pk_b:12.3f}    {st:12.1f}   {t:7.4f}   x {t / max(pk, 1e-9):.4f}")
 
 
 def solo_renders():
-    for s, name in enumerate(dx.STOP_NAMES):
-        hits = [(int(0.05 * SR), s, 1.0), (int(0.75 * SR), s, 1.4), (int(1.45 * SR), s, 0.6)]
-        out, _ = drums_only(hits, 2.2)
-        write_wav(f"00-solo-{s}-{name}.wav", out)
+    """All sixteen, each with its circuit switched to that sound. The three
+    hit times are the ones `model/drum_verify.py` segments on, so these files
+    drop straight into the comparison against the real machine."""
+    for i, name in enumerate(dx.SOUND_NAMES):
+        s = dx.SOUND_STOP[name]
+        long = name in ("CY", "OH")
+        span = 3.6 if long else 2.2
+        step = 1.2 if long else 0.7
+        hits = [(int((0.05 + k * step) * SR), s, a) for k, a in enumerate((1.0, 1.4, 0.6))]
+        out, _ = drums_only(hits, span, kit=dx.kit_with_sounds(name))
+        write_wav(f"00-solo-{i:02d}-{name}.wav", out)
+
+
+def roll_call():
+    """The sixteen in order, one hit each, with the circuit switched between
+    them. One file to hear the whole machine in fifteen seconds."""
+    outs = []
+    for name in dx.SOUND_NAMES:
+        span = 2.4 if name in ("CY", "OH") else 0.9
+        o, _ = drums_only([(int(0.02 * SR), dx.SOUND_STOP[name], 1.2)], span,
+                          kit=dx.kit_with_sounds(name))
+        outs.append(o)
+    write_wav("10-roll-call.wav", np.concatenate(outs))
 
 
 def all_at_once():
-    hits = [(int(0.05 * SR), s, 1.4) for s in range(8)] + [(int(1.0 * SR), s, 1.0) for s in range(8)]
-    out, d = drums_only(hits, 2.0)
-    write_wav("01-all-eight-at-once.wav", out)
+    """Every circuit in one frame -- the loudest hit the register map allows.
+    At the reference 0.45 drum gains this RAILS a few dozen samples, because
+    eleven bodies landing together put the body bus at ~3 x full scale before
+    its gain; that is the gain choice, not the block (nothing inside it
+    saturates -- `test_the_whole_kit_still_fits_its_buses` checks both buses at
+    accent 2.0). The 0.30 version is the same hit without the rail, for
+    listening."""
+    n = dx.N_STOPS
+    hits = [(int(0.05 * SR), s, 1.4) for s in range(n)] + [(int(1.4 * SR), s, 1.0) for s in range(n)]
+    out, d = drums_only(hits, 3.2)
+    write_wav("01-all-eleven-at-once.wav", out)
+    out30, _ = drums_only(hits, 3.2, dvol=0.30, bvol=0.30)
+    write_wav("01-all-eleven-at-once-drums-at-0.30.wav", out30)
     bd = d.trace["body"]
     print(f"    body bus peak {np.abs(bd).max() / 32768:.3f} x FS (word is +-8.0); "
           f"mix bus peak {np.abs(d.trace['dmix']).max() / 32768:.3f} x FS")
@@ -99,6 +139,81 @@ PATTERN_TOMS = {"BD": "X.......X.......", "LT": "....x.x.....xx..", "HT": "..x..
                 "CH": "x.x.x.x.x.x.x.x.", "SD": "....X.......X..o"}
 PATTERN_CLAP = {"CP": "....X.......X...", "CB": "x..x..x...x..x..", "CH": "x.xxx.xxx.xxx.xx",
                 "OH": "...x......x.....", "BD": "x...x...x...x..."}
+
+
+# ---- the grooves that use the three new circuits ------------------------------
+# A pattern names SOUNDS, and two sounds of a pair cannot appear in the same
+# pattern because they are one circuit: that constraint is the machine's, and
+# `groove` enforces it rather than silently letting one overwrite the other.
+#
+# GROOVE_FULL is a 124 BPM shuffle over sixteen steps -- kick and snare hold the
+# floor, the closed hat runs eighths with the open hat answering off the beat,
+# and the three NEW circuits carry the music: the mid conga plays the melody
+# against the high conga, the claves mark the 3-2 clave, and the cymbal opens
+# each bar and rings across it. Nothing in it could be played before revision 9.
+GROOVE_FULL = {
+    "BD": "X.......X...x...",
+    "SD": "....X.......X...",
+    "CH": "x.x.x.x.x.x.x.x.",
+    "OH": "......x.......x.",
+    "CB": "............x...",
+    "CY": "X...............",
+    "CL": "..x..x..x...x..x",      # 3-2 clave; the RS/CL circuit
+    "MC": "...x....x.x....x",      # the MT/MC circuit, in its conga position
+    "HC": "x...x......x....",      # the HT/HC circuit, likewise
+}
+# The other half of three pairs, so all sixteen have been heard in a groove:
+# the rimshot instead of the claves, the maracas instead of the clap, and the
+# mid TOM instead of the mid conga, over a slower half-time feel.
+GROOVE_RS = {
+    "BD": "X..x....X.......",
+    "SD": "........X.......",
+    "RS": "..x...x...x...x.",
+    "MA": "x.xxx.xxx.xxx.xx",
+    "CH": "..x...x...x...x.",
+    "OH": "..............x.",
+    "MT": "............x.x.",
+    "LT": ".............x..",
+}
+
+
+def groove(pattern, bpm, bars=2, swing=0.0, start_s=0.05, tail_s=1.4, kit_extra=()):
+    """Render a pattern of SOUND names. The kit is switched to every sound the
+    pattern uses first, which is where the exclusivity is enforced: two sounds
+    of one circuit in one pattern is a caller error, not a last-write-wins."""
+    by_stop = {}
+    for name in pattern:
+        by_stop.setdefault(dx.SOUND_STOP[name], []).append(name)
+    clash = {s: v for s, v in by_stop.items() if len(v) > 1}
+    if clash:
+        raise ValueError("these sounds share one circuit and cannot play together: "
+                         + "; ".join("/".join(v) for v in clash.values()))
+    kit = dx.kit_with_sounds(*pattern, *kit_extra)
+    hits = dx.pattern_hits(pattern, bpm=bpm, bars=bars, swing=swing, start_s=start_s)
+    secs = start_s + 60.0 / bpm * 4 * bars + tail_s
+    return drums_only(hits, secs, kit=kit)[0], hits, kit, secs
+
+
+def new_grooves():
+    out, _, _, _ = groove(GROOVE_FULL, 124.0, bars=2, swing=0.10)
+    write_wav("11-groove-full-808.wav", out)
+    out, _, _, _ = groove(GROOVE_RS, 92.0, bars=2, swing=0.0)
+    write_wav("12-groove-rimshot-maracas.wav", out)
+
+
+def before_after():
+    """The same two bars, twice: what revision 8 could play, then the whole
+    machine. BEFORE drops every hit on a circuit revision 8 did not have (the
+    mid circuit, the RS/CL circuit, the cymbal) and switches the high conga
+    back to the high TOM, because the conga position is also new. Kick, snare,
+    hats, cowbell, the accents and the swing are bit-identical between the
+    halves, so everything audible is the three circuits."""
+    before = {k: v for k, v in GROOVE_FULL.items() if k not in ("CY", "CL", "MC", "HC")}
+    before["HT"] = GROOVE_FULL["HC"]
+    a, _, _, _ = groove(before, 124.0, bars=2, swing=0.10)
+    b, _, _, _ = groove(GROOVE_FULL, 124.0, bars=2, swing=0.10)
+    gap = np.zeros(int(0.7 * SR), dtype=a.dtype)
+    write_wav("13-before-after-808.wav", np.concatenate([a, gap, b]))
 
 
 def grooves():
@@ -221,9 +336,9 @@ def combined(dgain: float = DVOL, suffix: str = ""):
     # drums: two bars of the 808 groove, then every stop soloed with the bass ringing, then all eight
     hits = dx.pattern_hits(PATTERN_808, bpm=bpm, bars=2, start_s=0.05)
     t = 0.05 + 32 * step + 0.5
-    for s in range(8):
+    for s in range(dx.N_STOPS):
         hits.append((int(t * SR), s, 1.0)); t += 0.45
-    hits += [(int(t * SR), s, 1.4) for s in range(8)]
+    hits += [(int(t * SR), s, 1.4) for s in range(dx.N_STOPS)]
     t += 1.0
     hits += dx.pattern_hits(PATTERN_808, bpm=bpm, bars=1, start_s=t)
     hits = [h for h in hits if h[0] < n - 2]
@@ -245,12 +360,14 @@ def combined_030():
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--balance", action="store_true")
-    ap.add_argument("--only", default=None, help="solo|all|grooves|bd|combined")
+    ap.add_argument("--only", default=None,
+                    help="solo|all|grooves|rollcall|newgrooves|beforeafter|bd|bdattack|sdab|sdgroove|combined|combined030")
     a = ap.parse_args(argv)
     if a.balance:
         balance(); return 0
     jobs = dict(solo=solo_renders, all=all_at_once, grooves=grooves, bd=bd_decays, bdattack=bd_attack_shift,
                 sdab=sd_before_after, sdgroove=sd_groove_before_after,
+                rollcall=roll_call, newgrooves=new_grooves, beforeafter=before_after,
                 combined=combined, combined030=combined_030)
     for k, fn in jobs.items():
         if a.only is None or a.only == k:

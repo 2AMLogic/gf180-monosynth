@@ -33,10 +33,11 @@
 `default_nettype none
 module synth_top #(
     parameter GO_CYCLE = 8,
-    parameter ENVS  = 12,
-    parameter PATHS = 16,
-    parameter MODES = 12,
-    parameter NUMS  = 6
+    parameter ENVS  = 18,
+    parameter PATHS = 23,
+    parameter MODES = 16,
+    parameter NUMS  = 11,
+    parameter STOPS = 11
 )(
     input  wire clk,          // 12.288 MHz
     input  wire rst_n_pad,    // active-low reset from the MCU
@@ -91,28 +92,29 @@ module synth_top #(
 
     // ---- the drum section: its control image and the engine (DR 0008) ----------------
     wire                  d_soft_rst;
-    wire        [7:0]     d_stops;
-    wire [8*16-1:0]       d_accent;
+    wire [STOPS-1:0]      d_stops;
+    wire [STOPS*16-1:0]   d_accent;
     wire [6*24-1:0]       d_osc;
     wire [ENVS*27-1:0]    d_ectl;
     wire [ENVS*24-1:0]    d_peak;
     wire [ENVS*16-1:0]    d_rate;
-    wire [PATHS*22-1:0]   d_path;
+    wire [PATHS*25-1:0]   d_path;
     wire [MODES*26-1:0]   d_a1, d_a2;
     wire [MODES*16-1:0]   d_amp;
     wire [MODES*2-1:0]    d_num;
     wire rst_n_drum = rst_n & ~d_soft_rst;
-    drum_regs #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES)) u_dregs (
+    drum_regs #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .STOPS(STOPS)) u_dregs (
         .clk(clk), .rst_n(rst_n_drum), .wr_valid(wr_drum), .wr_addr(wr_addr), .wr_data(wr_data),
         .soft_rst(d_soft_rst),
         .stops(d_stops), .accent_bus(d_accent), .osc_inc_bus(d_osc),
         .env_ctl_bus(d_ectl), .env_peak_bus(d_peak), .env_rate_bus(d_rate), .path_bus(d_path),
         .a1_bus(d_a1), .a2_bus(d_a2), .amp_bus(d_amp), .num_bus(d_num));
 
-    wire signed [20:0] dmix;                 // the mix bus (15.5), 21 bits, exact
+    wire signed [21:0] dmix;                 // the mix bus (15.5), 22 bits, exact:
+                                             // 23 paths x 17 bits needs 22 (revision 9)
     wire signed [18:0] body;                 // the body bus (15.6), 19 bits Q4.15
     wire               mix_valid, body_valid;
-    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS)) u_drums (
+    drum_kit #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .NUMS(NUMS), .STOPS(STOPS)) u_drums (
         .clk(clk), .rst_n(rst_n_drum), .frame_tick(go),
         .stops(d_stops), .accent_bus(d_accent), .osc_inc_bus(d_osc),
         .env_ctl_bus(d_ectl), .env_peak_bus(d_peak), .env_rate_bus(d_rate), .path_bus(d_path),

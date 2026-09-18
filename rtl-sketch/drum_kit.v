@@ -9,10 +9,11 @@
 // The bank's y_valid follows bank_start by 3*MODES + 2 clocks.
 `default_nettype none
 module drum_kit #(
-    parameter ENVS  = 12,
-    parameter PATHS = 16,
-    parameter MODES = 12,
-    parameter NUMS  = 6,
+    parameter ENVS  = 18,
+    parameter PATHS = 23,
+    parameter MODES = 16,
+    parameter NUMS  = 11,
+    parameter STOPS = 11,
     parameter SB    = 28,
     parameter CF    = 24,
     parameter EW    = 21,
@@ -24,18 +25,18 @@ module drum_kit #(
     input  wire                    clk,
     input  wire                    rst_n,
     input  wire                    frame_tick,
-    input  wire [7:0]              stops,
-    input  wire [8*16-1:0]         accent_bus,
+    input  wire [STOPS-1:0]        stops,
+    input  wire [STOPS*16-1:0]     accent_bus,
     input  wire [6*24-1:0]         osc_inc_bus,
     input  wire [ENVS*27-1:0]      env_ctl_bus,
     input  wire [ENVS*24-1:0]      env_peak_bus,
     input  wire [ENVS*16-1:0]      env_rate_bus,
-    input  wire [PATHS*22-1:0]     path_bus,
+    input  wire [PATHS*25-1:0]     path_bus,
     input  wire [MODES*(CF+2)-1:0] a1_bus,
     input  wire [MODES*(CF+2)-1:0] a2_bus,
     input  wire [MODES*16-1:0]     amp_bus,
     input  wire [MODES*2-1:0]      num_bus,
-    output wire signed [20:0]      mix_out,
+    output wire signed [21:0]      mix_out,
     output wire                    mix_valid,
     output wire signed [OW-1:0]    body_out,
     output wire                    body_valid
@@ -46,7 +47,7 @@ module drum_kit #(
     wire [MW-1:0]        exc_mode;
     wire signed [EW-1:0] exc_val;
 
-    drum_dp #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .SB(SB), .EW(EW), .MW(MW), .ROM_FILE(ROM_FILE)) src (
+    drum_dp #(.ENVS(ENVS), .PATHS(PATHS), .MODES(MODES), .STOPS(STOPS), .SB(SB), .EW(EW), .MW(MW), .ROM_FILE(ROM_FILE)) src (
         .clk(clk), .rst_n(rst_n), .frame_tick(frame_tick), .stops(stops), .accent_bus(accent_bus),
         .osc_inc_bus(osc_inc_bus), .env_ctl_bus(env_ctl_bus), .env_peak_bus(env_peak_bus),
         .env_rate_bus(env_rate_bus), .path_bus(path_bus), .tap_sel(tap_sel), .tap_y1(tap_y1),

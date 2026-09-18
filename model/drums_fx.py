@@ -62,7 +62,7 @@ import modal_fixed
 from modal_fixed import ModalFx, RAW, BP, HP, pole_regs
 
 # ---- sizes (contract 15.1) ----------------------------------------------------
-N_STOPS, N_ENV, N_PATH, N_MODES, N_NUMS, N_OSC = 8, 12, 16, 12, 6, 6
+N_STOPS, N_ENV, N_PATH, N_MODES, N_NUMS, N_OSC = 11, 18, 23, 16, 11, 6
 ENV_BITS, RATE_Q, ACCENT_BITS = 24, 16, 16
 HOLD_BITS, BURST_BITS, PERIOD_BITS, T_BITS = 8, 2, 9, 11
 T_MAX = (1 << T_BITS) - 1
@@ -76,16 +76,27 @@ SQPAIR = (4, 5)                  # the 808's trimmed oscillators 5 and 6 (800 an
 TAP_SHIFT = 3                    # TAP m = sat16(y1[m] >> 3): the state / 8, rails at +-8.0 (15.5)
 SRC_OFF, SRC_NOISE, SRC_SQSUM, SRC_PULSE, SRC_SQPAIR, SRC_SQ, SRC_TAP = 0, 1, 2, 3, 4, 5, 16
 NL_LIN, NL_SWING, NL_TANH = 0, 1, 2
-DEST_MIX, ENV_FULL = 15, 15
-MIX_BITS = 21                    # 16 paths x 17-bit values, exact
+# Revision 9 widens the path word's envelope and destination fields to 5 bits
+# each (22 -> 25 bits). At revision 8 both were 4 bits, which put a hard
+# ceiling of 12 addressable envelopes and 15 addressable modes on the block --
+# DEST_MIX was 15 and so was the last mode, and the two collided the moment
+# MODES reached 16. The sentinels move with the fields: an envelope index of
+# ENV_FULL reads full scale, any other index at or above N_ENV reads zero, and
+# a destination of DEST_MIX is the mix bus.
+ENV_NONE = 30                    # any index >= N_ENV that is not ENV_FULL
+DEST_MIX, ENV_FULL = 31, 31
+MIX_BITS = 22                    # 23 paths x 17-bit values, exact
 BODY_HR, BODY_BITS = 0, modal_fixed.OUT_BITS
 FULL24 = (1 << ENV_BITS) - 1
 
 # ---- the register map (contract 15.1): 8-bit address, 32-bit value ----------
-A_STOPS, A_ACCENT, A_OSC, A_ENV, A_PATH, A_MODE, A_RESET = 0x00, 0x10, 0x20, 0x40, 0x80, 0xC0, 0xFF
+# ENV grew to 18 entries (0x40..0x87) and MODE to 16 (64 bytes), so PATH moved
+# from 0x80 to 0x90 and MODE from 0xC0 to 0xB0: at 0xC0 the last mode's `num`
+# register would have been 0xFF, which is RESET.
+A_STOPS, A_ACCENT, A_OSC, A_ENV, A_PATH, A_MODE, A_RESET = 0x00, 0x10, 0x20, 0x40, 0x90, 0xB0, 0xFF
 ENV_STRIDE, MODE_STRIDE = 4, 4   # ENV: +0 ctl, +1 peak, +2 rate; MODE: +0 a1, +1 a2, +2 amp, +3 num
 REG_BITS = dict(stops=N_STOPS, accent=ACCENT_BITS, osc_inc=PHASE_BITS, env_ctl=27, peak=ENV_BITS,
-                rate=RATE_Q, path=22, a1=26, a2=26, amp=16, num=2)
+                rate=RATE_Q, path=25, a1=26, a2=26, amp=16, num=2)
 
 
 def env_ctl(stop: int, choke: int = 15, hold: int = 0, bursts: int = 0, period: int = 0) -> int:
@@ -95,11 +106,14 @@ def env_ctl(stop: int, choke: int = 15, hold: int = 0, bursts: int = 0, period: 
             | (usat(bursts, BURST_BITS) << 16) | (usat(period, PERIOD_BITS) << 18))
 
 
-def path_word(src: int, e1: int, e2: int = 14, nl: int = NL_LIN, att: int = 0, dest: int = DEST_MIX) -> int:
-    """PATH word: [4:0] src, [8:5] e1, [12:9] e2, [14:13] nl, [17:15] att, [21:18] dest.
-    e = 15 reads as full scale, 12..14 as zero (so e2 = 14 is 'no second envelope')."""
-    return (usat(src, 5) | (usat(e1, 4) << 5) | (usat(e2, 4) << 9) | (usat(nl, 2) << 13)
-            | (usat(att, 3) << 15) | (usat(dest, 4) << 18))
+def path_word(src: int, e1: int, e2: int = ENV_NONE, nl: int = NL_LIN, att: int = 0,
+              dest: int = DEST_MIX) -> int:
+    """PATH word (25 bits, revision 9): [4:0] src, [9:5] e1, [14:10] e2,
+    [16:15] nl, [19:17] att, [24:20] dest. An envelope index of ENV_FULL (31)
+    reads as full scale and any other index >= N_ENV as zero, so e2 = ENV_NONE
+    is 'no second envelope'; dest = DEST_MIX (31) is the mix bus."""
+    return (usat(src, 5) | (usat(e1, 5) << 5) | (usat(e2, 5) << 10) | (usat(nl, 2) << 15)
+            | (usat(att, 3) << 17) | (usat(dest, 5) << 20))
 
 
 def s26(v: int) -> int:
@@ -267,7 +281,7 @@ class DrumsFx:
         if addr == A_RESET:
             self.reset()
         elif addr == A_STOPS:
-            self.stops = value & 0xFF
+            self.stops = value & ((1 << N_STOPS) - 1)
         elif A_ACCENT <= addr < A_ACCENT + N_STOPS:
             self.accent[addr - A_ACCENT] = value & 0xFFFF
         elif A_OSC <= addr < A_OSC + N_OSC:
@@ -281,7 +295,7 @@ class DrumsFx:
             elif f == 2:
                 self.envs[e].rate = value & 0xFFFF
         elif A_PATH <= addr < A_PATH + self.P:
-            self.paths[addr - A_PATH] = value & ((1 << 22) - 1)
+            self.paths[addr - A_PATH] = value & ((1 << 25) - 1)
         elif A_MODE <= addr < A_MODE + self.M * MODE_STRIDE:
             m, f = divmod(addr - A_MODE, MODE_STRIDE)
             if f == 0:
@@ -312,7 +326,7 @@ class DrumsFx:
         return self.tanh.tanh_fx(sat(x << 5, 24))
 
     def frame(self):
-        fire = self.stops & ~self.stops_prev & 0xFF
+        fire = self.stops & ~self.stops_prev & ((1 << N_STOPS) - 1)
         self.stops_prev = self.stops
         for env in self.envs:                                   # 15.3, before the paths
             env.frame(fire, self.accent)
@@ -328,8 +342,8 @@ class DrumsFx:
         exc = [0] * self.M
         vals = []
         for w in self.paths:                                    # 15.5, in order
-            src, e1, e2 = w & 31, (w >> 5) & 15, (w >> 9) & 15
-            nl, att, dest = (w >> 13) & 3, (w >> 15) & 7, (w >> 18) & 15
+            src, e1, e2 = w & 31, (w >> 5) & 31, (w >> 10) & 31
+            nl, att, dest = (w >> 15) & 3, (w >> 17) & 7, (w >> 20) & 31
             if src == SRC_NOISE:
                 s = noise
             elif src == SRC_SQSUM:
@@ -456,14 +470,65 @@ def env_writes(e: int, stop: int, tau_s: float, peak: float, *, choke: int = 15,
 
 # ---- the reference kit (contract Appendix G, informative) -----------------------------
 # Stops, in the order the host sees them.
-BD, SD, LT, HT, CH, OH, CP, CB = range(8)
-STOP_NAMES = ("BD", "SD", "LT", "HT", "CH", "OH", "CP", "CB")
-# Modes 0..5 have numerators (the filters), 6..11 are the bridged-T bodies.
-M_HATBP, M_OHHP, M_CHHP, M_SDN, M_CPBP, M_CBBP, M_BD, M_SDLO, M_SDHI, M_LT, M_HT, M_SPARE = range(12)
+# ---- the eleven circuits and the sixteen sounds -------------------------------
+# The TR-808's sixteen named sounds are ELEVEN sound-generator circuits: five of
+# them carry two sounds each, selected by a panel switch, and the two cannot
+# sound together (reference 4 SW8, 5 SW11, 7/8 SW12). So a STOP here is a
+# circuit, not a sound, and the second sound of a pair is a set of coefficient
+# and envelope writes into the circuit it shares -- `preset_writes`.
+# The first eight are unchanged from revision 8, so every register image and
+# every test written against them still means the same thing; MT, CL and CY are
+# appended.
+BD, SD, LT, HT, CH, OH, CP, CB, MT, CL, CY = range(11)
+STOP_NAMES = ("BD", "SD", "LT", "HT", "CH", "OH", "CP", "CB", "MT", "CL", "CY")
+# The sixteen sounds, and the circuit each one plays on. Where two sounds share
+# a circuit the first listed is the one `kit_808()` loads.
+SOUND_STOP = dict(BD=BD, SD=SD, LT=LT, LC=LT, MT=MT, MC=MT, HT=HT, HC=HT,
+                  RS=CL, CL=CL, CP=CP, MA=CP, CB=CB, CY=CY, OH=OH, CH=CH)
+SOUND_NAMES = ("BD", "SD", "LT", "LC", "MT", "MC", "HT", "HC",
+               "RS", "CL", "CP", "MA", "CB", "CY", "OH", "CH")
+PAIRS = (("LT", "LC"), ("MT", "MC"), ("HT", "HC"), ("RS", "CL"), ("CP", "MA"))
+# Modes 0..7 are the filters (a numerator selected), 8..15 the bridged-T bodies.
+# The bank is instantiated with NUMS = 11, so modes 8, 9 and 10 COULD carry a
+# numerator and do not: `num` reads 0 (RAW) for them and the excitation history
+# they keep is never read. That is three spare filters, not three wasted modes.
+M_HATBP, M_OHHP, M_CHHP, M_SDN, M_CPBP, M_CBBP, M_CYBP, M_CYHI, \
+    M_BD, M_SDLO, M_SDHI, M_LT, M_MT, M_HT, M_RS1, M_RS2 = range(16)
 # Envelopes.
-E_BDX, E_BDCLICK, E_SDX, E_SDN, E_LTX, E_HTX, E_CH, E_OH, E_CPBURST, E_CPTAIL, E_CBA, E_CBB = range(12)
+E_BDX, E_BDCLICK, E_SDX, E_SDN, E_LTX, E_HTX, E_CH, E_OH, E_CPBURST, E_CPTAIL, \
+    E_CBA, E_CBB, E_MTX, E_RSX, E_RSG, E_CYS, E_CYD, E_CYL = range(18)
 OSC_HZ = (205.3, 369.6, 304.4, 522.7, 800.0, 540.0)   # the HD14584 bank, reference 1.5
 FRAME = 1.0 / SR
+
+# ---- kit levels (chosen, not the circuit's) ----------------------------------
+# `model/drums_fx_render.py --balance` sets these so each sound alone peaks on
+# its bus in the proportions of Roland's chart (reference 1.6, "normal Vpp"),
+# the loudest at 0.5 x full scale. They are the kit's, not the block's.
+CHART_VPP = dict(BD=3.5, SD=3.0, LT=3.5, LC=3.5, MT=3.0, MC=3.0, HT=3.5, HC=3.5,
+                 RS=3.0, CL=2.5, CP=6.0, MA=3.0, CB=3.5, CY=3.5, OH=3.5, CH=3.0)
+BUS_TARGET = {n: round(0.5 * min(v, 3.5) / 3.5, 4) for n, v in CHART_VPP.items()}
+AMP_TOM = {"LT": 0.0078319, "MT": 0.0101087, "HT": 0.0162904,
+           "LC": 0.0160655, "MC": 0.0214200, "HC": 0.0368928}
+AMP_CY_HI = 1.0
+PEAK_RSG, PEAK_CLG, PEAK_MA = 0.343, 0.5, 0.5395
+# The RS/CL exciter, by position. The RIMSHOT's is low on purpose: both taps
+# go through the swing VCA, and a tap that drives the tanh into its rail comes
+# out as a flat-topped burst whose decay is the GATE's 22 ms rather than the
+# resonators' 4.7 and 2.4 ms. HARDWARE-MEASURED [rs8/RS.WAV, `decay_fit`]: the
+# machine is tau 3.2 ms, t(-20 dB) 9.0 ms. At the exciter's usual 0.25 ours
+# measured 5.55 / 13.85 -- 50 % long; at 0.06 it is 4.30 / 9.60. The gate peak
+# is raised to hold the level, so the sound is the same loudness and a shorter
+# shape. The distortion is still there: `test_rimshot_is_distorted_and_that_is
+# _the_sound` measures it against the same voice with the VCA set to LIN.
+PEAK_RSX, PEAK_CLX = 0.06, 0.5545
+PEAK_CYS, PEAK_CYD, PEAK_CYL = 0.324, 0.432, 0.0864
+CL_ATT, MA_ATT = 0, 0
+RS_ATT, CY_ATT = 0, 0
+# Path slots, in the order kit_808() writes them. Named so `preset_writes` can
+# reach into the image and switch a shared circuit's position.
+(P_BDX, P_BDCLICK, P_SDLO, P_SDHI, P_SDN, P_LTX, P_MTX, P_HTX, P_SQBP, P_CH,
+ P_OH, P_CPN, P_CPOUT, P_CBA, P_CBB, P_RS1X, P_RS2X, P_RS1OUT, P_RS2OUT,
+ P_CYBP, P_CYS, P_CYD, P_CYL) = range(23)
 
 # ---- the bass drum, entirely from docs/tr808-reference.md section 2 -----------
 # VERIFIED IN A SOURCE [W14a section 5; computed with section 1.2 from R161,
@@ -496,6 +561,120 @@ BD_ATTACK_HZ, BD_ATTACK_Q, BD_ATTACK_MS = 130.0, 6.0, 4.0
 # ring decays -- "amplitude-dependent and gradual, not a stepped envelope", and
 # "accent changes the pitch envelope". This is the toms' "doom" sweep.
 TOM_DROP_RATIO, TOM_DROP_MS, TOM_DROP_STEPS = 1.7, 60.0, 6
+
+# ---- the toms and congas, reference section 4's component-value table ---------
+# VERIFIED IN A SOURCE [SN p.6 "Voices are switched by SW8"]: the tom and the
+# conga of each pair are ONE resonator with a capacitor switched in or out, so
+# they are one circuit and cannot sound together. INFERRED [reference 4]: the
+# (f0, Q) of each position, from R1/R2/C1/C2 with the germanium diodes open.
+# The table is self-consistent under tau = Q / (pi f0) to better than 5 % at
+# every one of the six positions, which is why reference 4's Q column is used
+# here in preference to section 14's (its MC row says Q 32 where the same
+# row's tau 44 ms implies 38).
+#   name: (f0 Hz, Q, Roland chart decay s)
+TOM_PRESET = {"LT": (90.0, 25.0, 0.200), "LC": (185.0, 44.7, 0.180),
+              "MT": (135.0, 24.0, 0.130), "MC": (280.0, 34.0, 0.100),
+              "HT": (185.0, 25.0, 0.100), "HC": (400.0, 43.1, 0.080)}
+# HARDWARE-MEASURED [Fischer s/n 103852, LC50/MC50/HC50.WAV, `drum_verify.decay_fit`
+# over -3..-30 dB, R^2 0.999 on all three]: tau 76.9 / 38.7 / 34.3 ms. The THREE
+# TOM rows of reference 4's table land on the machine (LT 88.4 computed vs 87.6
+# measured, MT 56.6 vs 57.7, HT 43.0 vs 41.7 -- all inside 3 %); its three CONGA
+# rows do not, and they are long by 12-30 % (LC 94.6 vs 76.9, MC 43.2 vs 38.7,
+# HC 44.6 vs 34.3). So the conga Q above is the machine's, Q = pi f0 tau at the
+# CHART's f0, and reference 4's inferred Q column is amended -- reference 1.7
+# already says every high-Q figure is a +-50 % nominal, which is exactly the
+# quantity that moved. f0 is left at the chart's (the machine reads 200 / 282 /
+# 413 Hz, i.e. +8 / +1 / +3 %, inside reference 1.7's +-10 %).
+TOM_HW_TAU = {"LT": 0.0876, "LC": 0.0769, "MT": 0.0577, "MC": 0.0387,
+              "HT": 0.0417, "HC": 0.0343}
+# ---- rimshot and claves, reference section 5 ---------------------------------
+# VERIFIED IN A SOURCE [SN p.6 "RS/CL", SW11]: one circuit, two bridged-T
+# networks, switch-selected; the chart gives RS "H" 1667 / "L" 455 Hz and
+# CL 2500 Hz. INFERRED [reference 5, from R315/R316/C115/C116 and the switch
+# wiring on p.9]: RS low 455 Hz Q 6.7, RS high 1786 Hz Q 13.5, CL 2500 Hz with
+# the feedback wired for high Q. The schematic's 1786 is preferred to the
+# chart's 1667 (7 % apart, inside reference 1.7's +-10 %) on DR 0009's rule.
+RS_LO_HZ, RS_LO_Q = 455.0, 6.7
+RS_HI_HZ, RS_HI_Q = 1786.0, 13.5
+CL_HZ, CL_Q = 2500.0, 200.0
+# VERIFIED IN A SOURCE [SN "this switching is provided to eliminate noise
+# leaking from IC20"]: both voices are gated by JFET Q74 through C112 0.022 uF
+# / R305 1 MOhm, a ~22 ms window. It is what stops the claves, whose resonator
+# alone would ring for 25 ms at Q 200.
+RS_GATE_TAU = 22e-3
+# ---- maracas, reference section 8 -------------------------------------------
+# INFERRED [reference 8, Sallen-Key on Q68 with C132 = C133 = 0.001 uF,
+# R339 3.3 k, R340 68 k]: a 2-pole high-pass at 10.6 kHz, Q 2.3. The envelope
+# is R341 470 k / C134 0.033 uF, ~15 ms; the chart's decay is 25-35 ms, so
+# tau 12 ms (T20 28 ms) is the value that satisfies both.
+MA_HP_HZ, MA_HP_Q, MA_TAU = 10600.0, 2.3, 12e-3
+# ---- cymbal, reference section 10 -------------------------------------------
+# VERIFIED IN A SOURCE [W14b section 4, "around 3440 Hz" and "around 7100 Hz";
+# SN p.13 values R56/R57/C13/C14 and R58/R59/C15/C16]: the six-square sum is
+# band-passed by TWO filters, and the 7.1 kHz one is the hats' band as well.
+# The Q of both is INFERRED at 6 [reference 10].
+CY_LO_HZ, CY_Q = 3453.0, 6.0
+# The two post-filters the cymbal's high band gets. Reference 10 names three
+# (Hh1 2.5 kHz Q 0.97 on the low band, Hh2 unspecified resonant, Hh3 resonant
+# ~10.5 kHz) and the bank has room for two, so which two is an evidence
+# question and was settled by measurement -- see CY_FIT below.
+CY_HI_HZ, CY_HI_Q = 10500.0, 2.5
+# The three VCA envelopes. The short one is VERIFIED only as "its decay time is
+# short" [SN] -- 20 ms is INFERRED. The low band's ~100 ms is reference 10's
+# own "what to implement". The middle band is the DECAY knob: VR2 2 MOhm || R93
+# 470 k into C41 1 uF reaches ~0.38 s at the top [W14b section 7], and Roland's
+# chart's 350 / 800 / 1200 ms decays are T20-like, so the chart's mid 800 ms is
+# tau 347 ms -- which the RC at the knob's midpoint (1 M || 470 k = 320 k, i.e.
+# 320 ms) corroborates to 8 %.
+# HARDWARE-MEASURED [Fischer s/n 103852, cy8/CY5025.WAV -- TONE 5.0, DECAY 5.0,
+# i.e. Roland's own chart condition]. Schroeder T20 (validated to 0.01 % against
+# a closed-form damped sinusoid in test_audio_measure) and the band-energy split
+# from a zero-phase 8th-order Butterworth bank, both estimators checked against
+# a two-tone signal of known split before anything here was quoted:
+#
+#   real CY5025:  T20 798 ms,  energy  1.1 % <2k / 10.3 % 2-5k / 53.2 % 5-9k
+#                              / 23.3 % 9-13k / 6.0 % >13k;  FFT peak 3153 Hz
+#
+# THREE THINGS IN REFERENCE 10 DO NOT SURVIVE THAT MEASUREMENT.
+#  1. The cymbal's long tail is the LOW band, not a high one. The 2-5 kHz band
+#     measures T20 1244 ms against 745 ms at 5-9 kHz on the same file, and the
+#     voice's FFT peak sits at 3153 Hz -- the 3.45 kHz band-pass ringing on.
+#     Reference 10 says "DECAY changes only the middle band's RC" and calls the
+#     low band "fixed, medium"; every band lengthens with the knob (see
+#     CY_DECAY_TAU) and the low one lengthens most.
+#  2. The 9-13 kHz shoulder (23 % of the machine's energy) cannot be made with
+#     an 11.7 kHz two-pole HIGH-pass: the (1 - z^-1)^2 numerator keeps rising to
+#     Nyquist, so that filter puts 42 % of its output above 13 kHz where the
+#     machine has 6. A BAND-pass at 10.5 kHz does have the machine's shape, and
+#     10.5 kHz is reference 10's own figure for Hh3.
+#  3. Hh1 (2.5 kHz on the low band) is worth less than Hh3. With sixteen modes
+#     the bank can host either but not both; keeping Hh3 fits the machine's
+#     band split roughly twice as well (cost 0.56 against 1.48 on the fit
+#     below), at the price of 2.1 % of the energy below 2 kHz where the machine
+#     has 1.1 %. Hh1 is the documented omission.
+# FITTED to the recording, not derived: the three envelopes and their levels
+# were searched against FOUR measurements of the same file at once -- the
+# log-envelope tau over -3..-30 dB, t(-20 dB), the Schroeder T20 and the
+# five-band energy split -- because fitting any one of them alone moves the
+# others the wrong way. Matching the Schroeder T20 to 3 % on its own left the
+# voice's audible decay 46 % long (tau 374 ms against 256); the values below
+# give tau 243 / t-20 318 / T20 903 against the machine's 256 / 308 / 798.
+CY_TAU_SHORT, CY_TAU_DECAY, CY_TAU_LOW = 12e-3, 140e-3, 500e-3
+# The DECAY knob, from the same five files (CY50dd, dd = 00/10/25/50/75):
+# T20 435 / --- / 798 / 1281 / 1674 ms at knob 0 / 2.5 / 5 / 7.5 / 10. The knob
+# scales E_CYD and E_CYL together, which is what the per-band measurement shows
+# and not what reference 10 says. (The knob-2.5 file measures 1888 ms, out of
+# order with its neighbours on both sides; it is the one file of the five whose
+# length is shorter than its own decay, so it is excluded rather than modelled.)
+CY_DECAY_T20 = {0.0: 0.435, 5.0: 0.798, 7.5: 1.281, 10.0: 1.674}
+# What the fit above achieved, recorded so a regression can see it move:
+#   ours: T20 824 ms, energy 1.7 / 6.5 / 57.4 / 15.6 / 6.4 %
+# What the fit achieved, on a render the same length as the reference file
+# (2.00 s), recorded so a regression can see it move:
+CY_FIT = dict(tau_s=0.243, t20_s=0.318, schroeder_t20_s=0.903,
+              shares=(0.013, 0.063, 0.584, 0.153, 0.067),
+              real_tau_s=0.2564, real_t20_s=0.3077, real_schroeder_t20_s=0.798,
+              real_shares=(0.011, 0.103, 0.532, 0.233, 0.060))
 
 
 def bd_decay_q(knob: float) -> float:
@@ -587,8 +766,18 @@ def kit_808() -> list:
                                                              # snare's front end missing. The pair is
                                                              # then scaled together to the kit's own
                                                              # peak, which is unchanged at 0.46 FS.
-    w += mode_writes(M_LT, 90.0, 25.0, 0.0078319, RAW)          # LT, reference 4
-    w += mode_writes(M_HT, 185.0, 25.0, 0.0162904, RAW)         # HT, reference 4
+    w += mode_writes(M_LT, *TOM_PRESET["LT"][:2], AMP_TOM["LT"], RAW)   # LT, reference 4
+    w += mode_writes(M_MT, *TOM_PRESET["MT"][:2], AMP_TOM["MT"], RAW)   # MT, reference 4
+    w += mode_writes(M_HT, *TOM_PRESET["HT"][:2], AMP_TOM["HT"], RAW)   # HT, reference 4
+    # RS / CL: two bridged-T networks on one circuit (reference 5). Both are
+    # TAPPED, not mixed -- their sum goes through the swing VCA, so amp is 0.
+    w += mode_writes(M_RS1, RS_LO_HZ, RS_LO_Q, 0.0, RAW)
+    w += mode_writes(M_RS2, RS_HI_HZ, RS_HI_Q, 0.0, RAW)
+    # CY: the low band-pass (the high one is M_HATBP, shared with the hats) and
+    # the low band's post high-pass, which is the only cymbal filter that
+    # reaches the body bus on its own amp.
+    w += mode_writes(M_CYBP, CY_LO_HZ, CY_Q, 0.0, BP)          # tapped only
+    w += mode_writes(M_CYHI, CY_HI_HZ, CY_HI_Q, AMP_CY_HI, BP)
     # envelopes: the pulse-shaper's kick is a 0.1 ms exponential (reference 2, "what to implement");
     # the bodies' exciters are 0.25 so that an accent of 2.0 keeps the BD's state (the bank's
     # loudest ring, ~720 x the kick) under a quarter of the 28-bit rail
@@ -603,6 +792,7 @@ def kit_808() -> list:
                                                              # holds the noise share at the machine's
                                                              # 27.7 % with the new rate.
     w += env_writes(E_LTX, LT, 0.1e-3, 0.25)
+    w += env_writes(E_MTX, MT, 0.1e-3, 0.25)
     w += env_writes(E_HTX, HT, 0.1e-3, 0.25)
     w += env_writes(E_CH, CH, 20e-3, 1.0)                    # reference 11
     w += env_writes(E_OH, OH, 150e-3, 1.0, choke=CH)         # DECAY knob mid; CH chokes it, reference 11
@@ -610,6 +800,11 @@ def kit_808() -> list:
     w += env_writes(E_CPTAIL, CP, 47e-3, 0.22)               # the tail at -10 dB, reference 7 (chosen ratio)
     w += env_writes(E_CBA, CB, 5e-3, 0.5)                    # two-slope envelope, reference 9
     w += env_writes(E_CBB, CB, 100e-3, 0.5)                  # MEASURED: the reference tail is tau 98 ms
+    w += env_writes(E_RSX, CL, 0.1e-3, PEAK_RSX)             # the RS/CL exciter pulse
+    w += env_writes(E_RSG, CL, RS_GATE_TAU, PEAK_RSG)        # Q74's ~22 ms gate, reference 5
+    w += env_writes(E_CYS, CY, CY_TAU_SHORT, PEAK_CYS)       # CY high band, short fixed
+    w += env_writes(E_CYD, CY, CY_TAU_DECAY, PEAK_CYD)       # CY high band, the DECAY knob
+    w += env_writes(E_CYL, CY, CY_TAU_LOW, PEAK_CYL)         # CY low band; the knob moves it too
     # paths
     paths = [
         path_word(SRC_PULSE, E_BDX, dest=M_BD),
@@ -618,6 +813,7 @@ def kit_808() -> list:
         path_word(SRC_PULSE, E_SDX, dest=M_SDHI),              # both from the pulse (reference 3: cascade is subtle)
         path_word(SRC_NOISE, E_SDN, dest=M_SDN),
         path_word(SRC_PULSE, E_LTX, dest=M_LT),
+        path_word(SRC_PULSE, E_MTX, dest=M_MT),
         path_word(SRC_PULSE, E_HTX, dest=M_HT),
         path_word(SRC_SQSUM, ENV_FULL, dest=M_HATBP),          # the six squares, always on, into the band-pass
         path_word(SRC_TAP + M_HATBP, E_CH, nl=NL_SWING, dest=M_CHHP),
@@ -629,10 +825,114 @@ def kit_808() -> list:
         # the 260 Hz difference tone the machine has not got (15.5)
         path_word(SRC_SQ + SQPAIR[0], E_CBA, E_CBB, nl=NL_SWING, dest=M_CBBP),
         path_word(SRC_SQ + SQPAIR[1], E_CBA, E_CBB, nl=NL_SWING, dest=M_CBBP),
+        # RS / CL. Both resonators are excited by the same pulse and both taps
+        # are summed on the MIX bus through the swing VCA, which is reference
+        # 5's Q62 -- "the distortion is the sound; do not skip it". The two
+        # taps are distorted SEPARATELY where the circuit distorts their sum;
+        # the cost of that is measured in test_808_acceptance.
+        path_word(SRC_PULSE, E_RSX, dest=M_RS1),
+        path_word(SRC_PULSE, E_RSX, dest=M_RS2),
+        path_word(SRC_TAP + M_RS1, E_RSG, nl=NL_SWING, att=RS_ATT, dest=DEST_MIX),
+        path_word(SRC_TAP + M_RS2, E_RSG, nl=NL_SWING, att=RS_ATT, dest=DEST_MIX),
+        # CY. The six squares into the low band-pass (the high band is already
+        # on M_HATBP for the hats); then the three swing VCAs of reference 10.
+        # The two HIGH-band VCAs are one path: they share a destination, and
+        # v = nl(s) * (ENV(a) + ENV(b)) is exactly the sum of the two paths
+        # they would otherwise be.
+        path_word(SRC_SQSUM, ENV_FULL, dest=M_CYBP),
+        path_word(SRC_TAP + M_HATBP, E_CYS, nl=NL_SWING, att=CY_ATT, dest=M_CHHP),
+        path_word(SRC_TAP + M_HATBP, E_CYD, nl=NL_SWING, att=CY_ATT, dest=M_CYHI),
+        path_word(SRC_TAP + M_CYBP, E_CYL, nl=NL_SWING, att=CY_ATT, dest=DEST_MIX),
     ]
+    assert len(paths) == N_PATH, (len(paths), N_PATH)
     for p, word in enumerate(paths):
         w.append((A_PATH + p, word))
     return w
+
+
+def poles_from_regs(a1_reg: int, a2_reg: int, fs: int = SR) -> tuple[float, float]:
+    """The inverse of `pole_regs`: (f0, Q) of the resonator a coefficient pair
+    actually encodes. Float; host side only. Used to read a circuit's CURRENT
+    tuning out of a register image rather than assuming the kit's."""
+    a1, a2 = s26(a1_reg) / (1 << 24), s26(a2_reg) / (1 << 24)
+    r = math.sqrt(max(-a2, 1e-12))
+    w = math.acos(max(-1.0, min(1.0, a1 / (2.0 * r))))
+    f0 = w * fs / (2.0 * math.pi)
+    tau = -1.0 / (fs * math.log(min(r, 1.0 - 1e-15)))
+    return f0, math.pi * f0 * tau
+
+
+# ---- the second sound of each shared circuit (the panel switch) --------------
+# Five circuits carry two sounds (reference 4 SW8, 5 SW11, 7/8 SW12). Switching
+# one is a set of register writes, not hardware: `preset_writes(name)` returns
+# the image that puts that sound's circuit into that sound's position. It is
+# idempotent and complete for all sixteen -- calling it for the sound the kit
+# already loads rewrites the same values -- so a caller never has to know which
+# of a pair is the default.
+def preset_writes(sound: str) -> list:
+    """The (addr, value) writes that select `sound` on its circuit."""
+    n = sound.upper()
+    if n in TOM_PRESET:
+        mode = {"LT": M_LT, "LC": M_LT, "MT": M_MT, "MC": M_MT, "HT": M_HT, "HC": M_HT}[n]
+        f0, q, _ = TOM_PRESET[n]
+        return mode_writes(mode, f0, q, AMP_TOM[n], RAW)
+    if n == "RS":
+        return (mode_writes(M_RS1, RS_LO_HZ, RS_LO_Q, 0.0, RAW)
+                + mode_writes(M_RS2, RS_HI_HZ, RS_HI_Q, 0.0, RAW)
+                + [(A_PATH + P_RS1X, path_word(SRC_PULSE, E_RSX, dest=M_RS1)),
+                   (A_PATH + P_RS2X, path_word(SRC_PULSE, E_RSX, dest=M_RS2)),
+                   (A_PATH + P_RS1OUT, path_word(SRC_TAP + M_RS1, E_RSG, nl=NL_SWING,
+                                                 att=RS_ATT, dest=DEST_MIX)),
+                   (A_PATH + P_RS2OUT, path_word(SRC_TAP + M_RS2, E_RSG, nl=NL_SWING,
+                                                 att=RS_ATT, dest=DEST_MIX))]
+                + env_writes(E_RSX, CL, 0.1e-3, PEAK_RSX)
+                + env_writes(E_RSG, CL, RS_GATE_TAU, PEAK_RSG))
+    if n == "CL":
+        # The claves position disconnects the 455 Hz network ("routed via R320
+        # can be ignored because of its minimized level") and wires IC20b's
+        # feedback for high Q. It does NOT go through the swing VCA -- that is
+        # the rimshot's Q62 -- so the output path is linear.
+        return (mode_writes(M_RS1, RS_LO_HZ, RS_LO_Q, 0.0, RAW)
+                + mode_writes(M_RS2, CL_HZ, CL_Q, 0.0, RAW)
+                + [(A_PATH + P_RS1X, path_word(SRC_OFF, ENV_NONE, dest=DEST_MIX)),
+                   (A_PATH + P_RS2X, path_word(SRC_PULSE, E_RSX, dest=M_RS2)),
+                   (A_PATH + P_RS1OUT, path_word(SRC_OFF, ENV_NONE, dest=DEST_MIX)),
+                   (A_PATH + P_RS2OUT, path_word(SRC_TAP + M_RS2, E_RSG, nl=NL_LIN,
+                                                 att=CL_ATT, dest=DEST_MIX))]
+                + env_writes(E_RSX, CL, 0.1e-3, PEAK_CLX)
+                + env_writes(E_RSG, CL, RS_GATE_TAU, PEAK_CLG))
+    if n == "CP":
+        return (mode_writes(M_CPBP, 1071.0, 1.6, 0.0, BP)
+                + [(A_PATH + P_CPN, path_word(SRC_NOISE, ENV_FULL, dest=M_CPBP)),
+                   (A_PATH + P_CPOUT, path_word(SRC_TAP + M_CPBP, E_CPBURST, E_CPTAIL,
+                                                nl=NL_TANH, dest=DEST_MIX))]
+                + env_writes(E_CPBURST, CP, 4e-3, 0.69, bursts=2, period=480)
+                + env_writes(E_CPTAIL, CP, 47e-3, 0.22))
+    if n == "MA":
+        # Same noise source, same buffer (IC19), SW12 selects: the band-pass
+        # becomes Q68's Sallen-Key HIGH-pass and the three-burst envelope
+        # becomes one ~12 ms decay. The gate is a transistor, so the swing
+        # nonlinearity stands in for reference 8's "a little asymmetric
+        # clipping is authentic but not essential".
+        return (mode_writes(M_CPBP, MA_HP_HZ, MA_HP_Q, 0.0, HP)
+                + [(A_PATH + P_CPN, path_word(SRC_NOISE, ENV_FULL, dest=M_CPBP)),
+                   (A_PATH + P_CPOUT, path_word(SRC_TAP + M_CPBP, E_CPBURST,
+                                                nl=NL_SWING, att=MA_ATT, dest=DEST_MIX))]
+                + env_writes(E_CPBURST, CP, MA_TAU, PEAK_MA)
+                + env_writes(E_CPTAIL, CP, 1e-3, 0.0))
+    if n in ("BD", "SD", "CB", "CY", "OH", "CH"):
+        return []                       # not a shared circuit: the kit is the sound
+    raise KeyError(f"{sound}: not one of the sixteen ({', '.join(SOUND_NAMES)})")
+
+
+def kit_with_sounds(*sounds: str, kit: list = None) -> list:
+    """kit_808() with each named sound selected on its circuit. Later writes to
+    the same address win, so the result is a flat register image."""
+    img = dict(kit if kit is not None else kit_808())
+    for name in sounds:
+        for a, v in preset_writes(name):
+            img[a] = v
+    return sorted(img.items())
 
 
 # ---- the reference host (informative): hits and patterns to writes ------------------
@@ -677,13 +977,24 @@ def hit_writes(hits, kit: list = None, start_frame: int = 0, coef_seq: bool = Tr
     for f, s, a in hits:
         by_frame.setdefault(int(f), []).append((int(s), float(a)))
     if coef_seq:
+        tom_mode = {LT: M_LT, MT: M_MT, HT: M_HT}
         for f, s_, a_ in hits:
             if s_ == BD:
                 w += bd_attack_writes(int(f), _kit_poles(kit, M_BD))
-            elif s_ == LT:
-                w += tom_pitch_drop_writes(int(f), M_LT, 90.0, 25.0, _kit_amp(kit, M_LT), a_)
-            elif s_ == HT:
-                w += tom_pitch_drop_writes(int(f), M_HT, 185.0, 25.0, _kit_amp(kit, M_HT), a_)
+            elif s_ in tom_mode:
+                # Read the tuning OUT of the image rather than assuming the
+                # kit's: the congas are the same circuit at a different f0 and
+                # Q (reference 4 SW8), and they share the diode mechanism, so
+                # a sequence that hard-coded 90 Hz would sweep a conga from the
+                # wrong place -- and would silently overwrite a host that had
+                # retuned a tom, which is the fault `bd_attack_writes` already
+                # had to be fixed for.
+                m = tom_mode[s_]
+                poles = _kit_poles(kit, m)
+                if poles is None:
+                    continue
+                f0, q = poles_from_regs(poles[0], poles[1])
+                w += tom_pitch_drop_writes(int(f), m, f0, q, _kit_amp(kit, m), a_)
     mask = 0
     events = {}
     for f in sorted(by_frame):
@@ -715,7 +1026,7 @@ def pattern_hits(pattern: dict, bpm: float = 118.0, bars: int = 2, swing: float 
     hits = []
     for rep in range(bars):
         for name, row in pattern.items():
-            s = STOP_NAMES.index(name)
+            s = SOUND_STOP[name] if name in SOUND_STOP else STOP_NAMES.index(name)
             for i, c in enumerate(row):
                 if c == ".":
                     continue

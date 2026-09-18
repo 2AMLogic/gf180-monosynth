@@ -1062,3 +1062,90 @@ def event_slices(gate) -> list:
         return []
     d = np.diff(np.concatenate([[0], g, [0]]))
     return list(zip(np.nonzero(d == 1)[0].tolist(), np.nonzero(d == -1)[0].tolist()))
+
+
+# ---------------------------------------------------------------------------
+# Schroeder T20 and the band-energy split
+#
+# `decay_tau` fits ONE exponential and refuses anything else, which is right
+# for a bridged-T ring and useless for a voice whose envelope is genuinely two
+# or three exponentials -- the cymbal (three VCA envelopes), the rimshot (two
+# resonators plus a gate), the clap (bursts plus a tail). For those the
+# question is not "what is tau" but "how long does it take to fall 20 dB",
+# which is the quantity Roland's own chart column is comparable to and the one
+# a listener hears.
+#
+# The backward-integrated energy curve (Schroeder 1965) answers exactly that
+# and is defined whatever the envelope's shape: E(t) = integral from t to
+# infinity of x^2, read in dB. For a single damped sinusoid of amplitude time
+# constant tau, E(t) = (A^2 tau / 2) exp(-2t/tau), whose dB slope is
+# -20/(ln 10) per tau, so the time to fall 20 dB is exactly ln(10)*tau --
+# the SAME number `t20_from_tau` returns, with no fit and no shape assumption.
+# That identity is the ground truth
+# (`test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid`).
+#
+# The catch it cannot escape: the integral runs to the END OF THE ARRAY, so a
+# decay that is still running there is measured short. `schroeder_t20` refuses
+# when the curve has not reached -25 dB, and reports `tail_db` -- how far down
+# the last sample is -- so a caller can see it. This is not hypothetical: three
+# of the reference recordings this project measures against are editor-trimmed
+# at 20-40 ms and their own decay cannot be read off them at all.
+def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
+                  hi_db: float = -25.0, margin_db: float = 10.0) -> Estimate:
+    """Time to fall 20 dB, from the backward-integrated energy curve.
+
+    Fitted between `lo_db` and `hi_db` on that curve and scaled to 20 dB, the
+    standard construction. `detail` carries `tail_db` (the curve's last value,
+    i.e. how much of the decay the array actually contains), `slope_db_s` and
+    `residual_db`."""
+    x = _as_float(x)
+    if is_silent(x):
+        return _fail("silent", peak=peak(x))
+    e = np.cumsum((x ** 2)[::-1])[::-1]
+    if e[0] <= 0:
+        return _fail("no energy")
+    L = 10.0 * np.log10(np.maximum(e / e[0], 1e-30))
+    tail_db = float(L[-1])
+    if tail_db > hi_db - margin_db:
+        # The standard margin rule: the curve must run at least `margin_db`
+        # BELOW the evaluation range. A decay cut while it is still sounding
+        # does reach -25 dB -- the cut itself takes it there -- so checking
+        # that it reaches the range is not enough; what a truncated file cannot
+        # do is keep going afterwards.
+        return _fail("the array ends before the decay does -- its own decay cannot be read off it",
+                     tail_db=tail_db, needed_db=hi_db - margin_db)
+    i_lo = int(np.argmax(L <= lo_db))
+    i_hi = int(np.argmax(L <= hi_db))
+    if i_hi <= i_lo + 8:
+        return _fail("too few samples between the two levels", i_lo=i_lo, i_hi=i_hi, tail_db=tail_db)
+    t = np.arange(i_lo, i_hi) / sr
+    slope, icept = np.polyfit(t, L[i_lo:i_hi], 1)
+    if slope >= 0:
+        return _fail("the energy curve does not fall", slope_db_s=float(slope))
+    resid = L[i_lo:i_hi] - (slope * t + icept)
+    return Estimate(-20.0 / float(slope), True, "",
+                    dict(tail_db=tail_db, slope_db_s=float(slope),
+                         residual_db=float(np.abs(resid).max()), n=int(i_hi - i_lo)))
+
+
+def band_energy(x, edges, sr: int = SR_DEFAULT, *, order: int = 4) -> np.ndarray:
+    """Fraction of TOTAL energy in each (lo, hi) band, by zero-phase filtering.
+
+    Not by summing FFT bins: `spectrum` applies a Hann window, so on a decaying
+    voice it weights the middle of the file and reports the TAIL's spectrum
+    rather than the whole event's energy. On a real TR-808 cymbal the two
+    disagree by a factor of four in the 5-9 kHz band, and the windowed answer
+    is the one that misleads. Both agree exactly on a stationary two-tone
+    signal, which is the ground truth for each
+    (`test_band_energy_splits_a_two_tone_signal`)."""
+    from scipy.signal import butter, sosfiltfilt
+    x = _as_float(x)
+    total = float((x ** 2).sum())
+    if total <= 0:
+        return np.zeros(len(edges))
+    out = []
+    for lo, hi in edges:
+        sos = butter(order, [lo / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
+                     btype="band", output="sos")
+        out.append(float((sosfiltfilt(sos, x) ** 2).sum()) / total)
+    return np.array(out)

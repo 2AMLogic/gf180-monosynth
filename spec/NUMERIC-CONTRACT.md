@@ -112,12 +112,12 @@ envelope.
 | Volume | `vol`, unsigned Q0.15, 16 bits; the reference host writes 14746 = 0.45 (`VOL_REF`) — DR 0005 |
 | Tuning | A4 (MIDI note 69) = 440 Hz |
 | Glide | `glide`, unsigned Q0.24, 24 bits, the ratio per frame minus 1; increment accumulator Q24.8 (`GLIDE_BITS`, `INC_FRAC`); the reference host writes 2692 = 90 ms per octave (`GLIDE_REF_S`) — DR 0004 |
-| Drum stops / accents | 8 stops, edge-triggered; accent Q0.15, 16 bits per stop (15.2) — DR 0008 |
-| Drum envelopes | 12; level 24-bit unsigned Q0.24, rate Q0.16, hold 8 bits, bursts 2, period 9, frame counter 11 (15.3) |
-| Drum paths | 16; source 5 bits, two envelope indices, nonlinearity 2 bits, attenuation 3, destination 4 (15.5) |
+| Drum stops / accents | 11 stops, edge-triggered; accent Q0.15, 16 bits per stop (15.2) — DR 0008 |
+| Drum envelopes | 18; level 24-bit unsigned Q0.24, rate Q0.16, hold 8 bits, bursts 2, period 9, frame counter 11 (15.3) |
+| Drum paths | 23; source 5 bits, two envelope indices of 5 bits, nonlinearity 2 bits, attenuation 3, destination 5 (15.5) |
 | Drum sources | a 31-bit LFSR (16 bits per frame), six 24-bit square-wave phase accumulators, a pulse (15.4) |
 | Modal bank | 12 modes, the first 6 with a selectable numerator; coefficients Q2.24 signed (26 bits); amp Q0.16; state 28 bits, 15 fraction; excitation 21 bits; output Q4.15, 19 bits (15.6) |
-| Drum buses / gains | `dmix` 21 bits, `body` 19 bits; `dvol`, `bvol` unsigned Q0.15, 16 bits (12) |
+| Drum buses / gains | `dmix` 22 bits (23 paths × 17 bits; 21 at revision 8's 16 paths), `body` 19 bits; `dvol`, `bvol` unsigned Q0.15, 16 bits (12) |
 
 ---
 
@@ -1044,7 +1044,7 @@ Step 8 of 4.2, after the VCA of section 9 (`drums_fx.output_fx`):
 ```
 sample = sat16( (v · vol + dmix · dvol + body · bvol) >> 15 )
              v     the VCA's output (9), 20 bits signed;  vol   the voice's Q0.15 register
-             dmix  the drum section's mix bus (15.5), 21 bits signed;  dvol  its Q0.15 register
+             dmix  the drum section's mix bus (15.5), 22 bits signed;  dvol  its Q0.15 register
              body  the modal bank's word (15.6), 19 bits signed;      bvol  its Q0.15 register
              exact sum of three products (under 2^38), one arithmetic shift, ONE clamp
 ```
@@ -1195,11 +1195,11 @@ table on one multiplier — in front of the bank, and a kit is a table of
 register values (15.7, Appendix G), not a circuit.
 
 ```
-   stops[8], accent[8] ─► 12 envelopes ──┐            ┌──────────── modal bank, 12 modes ────────────┐
+   stops[11], accent[11] ─► 18 envelopes ─┐           ┌──────────── modal bank, 16 modes ────────────┐
    LFSR ─► NOISE ─┐                      │            │ exc[m] ─► num (RAW | 1−z⁻² | (1−z⁻¹)²) ─► y[m] │
-   6 squares ─► SQSUM, SQPAIR ─┼─► 16 paths: v = nl(src) · (ENV(e1)+ENV(e2)) >> (15+att) ─┼─► mix ─► body (Q4.15)
+   6 squares ─► SQSUM, SQPAIR ─┼─► 23 paths: v = nl(src) · (ENV(e1)+ENV(e2)) >> (15+att) ─┼─► mix ─► body (Q4.15)
    PULSE ─────────┘  TAP m ◄───┼──────────────────────┴── y1[m] >> 3 ────────────────────┘
-                               └─► dmix (the paths routed to MIX, 21 bits)
+                               └─► dmix (the paths routed to MIX, 22 bits)
                                                  dmix, body ─► output stage (12), with the voice
 ```
 
@@ -1208,8 +1208,9 @@ register values (15.7, Appendix G), not a circuit.
 The drum section's control image, host-written like the voice's (5.1);
 addresses are 8 bits, values up to 32 (`drums_fx.write`). On the wire this
 page is reached with `SEC` = 1 in the 48-bit control frame (5.4, DR 0007
-revision 2); `rtl-sketch/drum_regs.v` holds the image (2 276 flops, DR 0007
-section 9) and drives the engine's buses. Every register the engine reads is
+revision 2); `rtl-sketch/drum_regs.v` holds the image (**3 232 flops** at
+revision 9's sizes, 2 276 at revision 8's — DR 0007 section 9) and drives the
+engine's buses. Every register the engine reads is
 stable from the frame's `go` to `body_valid`, because the write drain runs at
 cycles 2..5 and `go` is at cycle 8. Every value is
 legal; nothing is rejected for range. Writes apply at frame boundaries by
@@ -1217,25 +1218,41 @@ legal; nothing is rejected for range. Writes apply at frame boundaries by
 
 | Address | Register | Width | Meaning |
 |---|---|---:|---|
-| `0x00` | `STOPS` | 8 | the stop mask; bit s is stop s (15.2) |
+| `0x00` | `STOPS` | 11 | the stop mask; bit s is stop s (15.2) |
 | `0x10 + s` | `ACCENT[s]` | 16 u | Q0.15 strike level of stop s; 32768 = 1.0, 65535 = 2.0 (15.3) |
 | `0x20 + i` | `OSC_INC[i]` | 24 u | phase increment of square oscillator i = 0..5 (15.4) |
-| `0x40 + 4e` | `ENV_CTL[e]` | 27 | `[3:0] stop`, `[7:4] choke`, `[15:8] hold`, `[17:16] bursts`, `[26:18] period` (15.3); a stop or choke index ≥ 8 means never |
+| `0x40 + 4e` | `ENV_CTL[e]` | 27 | `[3:0] stop`, `[7:4] choke`, `[15:8] hold`, `[17:16] bursts`, `[26:18] period` (15.3); a stop or choke index ≥ `N_STOPS` means never |
 | `0x41 + 4e` | `ENV_PEAK[e]` | 24 u | Q0.24 level at a strike, before the accent |
 | `0x42 + 4e` | `ENV_RATE[e]` | 16 u | Q0.16 decay rate, the voice's `rate` (8.3) |
-| `0x80 + p` | `PATH[p]` | 22 | `[4:0] src`, `[8:5] e1`, `[12:9] e2`, `[14:13] nl`, `[17:15] att`, `[21:18] dest` (15.5) |
-| `0xC0 + 4m` | `MODE_A1[m]` | 26 s | Q2.24 coefficient a1 = 2r·cos ω |
-| `0xC1 + 4m` | `MODE_A2[m]` | 26 s | Q2.24 coefficient a2 = −r² |
-| `0xC2 + 4m` | `MODE_AMP[m]` | 16 u | Q0.16 level of mode m in the body bus |
-| `0xC3 + 4m` | `MODE_NUM[m]` | 2 | numerator: 0 RAW, 1 BP, 2 HP, 3 reads as RAW; effective on modes 0..5 only (15.6) |
+| `0x90 + p` | `PATH[p]` | 25 | `[4:0] src`, `[9:5] e1`, `[14:10] e2`, `[16:15] nl`, `[19:17] att`, `[24:20] dest` (15.5) |
+| `0xB0 + 4m` | `MODE_A1[m]` | 26 s | Q2.24 coefficient a1 = 2r·cos ω |
+| `0xB1 + 4m` | `MODE_A2[m]` | 26 s | Q2.24 coefficient a2 = −r² |
+| `0xB2 + 4m` | `MODE_AMP[m]` | 16 u | Q0.16 level of mode m in the body bus |
+| `0xB3 + 4m` | `MODE_NUM[m]` | 2 | numerator: 0 RAW, 1 BP, 2 HP, 3 reads as RAW; effective on modes 0..`N_NUMS`−1 only (15.6) |
 | `0xFF` | `RESET` | — | every register and state of this section to 15.8 |
 
-e = 0..11, p = 0..15, m = 0..11. Sizes (`drums_fx.N_*`): 8 stops, 12
-envelopes, 16 paths, 12 modes of which the first 6 (`N_NUMS`) carry a
-numerator, 6 oscillators. State registers, not host-writable except by
-RESET: `stops_prev` (8), per envelope `level` (24), `strike` (24), `t`
+e = 0..17, p = 0..22, m = 0..15. Sizes (`drums_fx.N_*`): **11 stops, 18
+envelopes, 23 paths, 16 modes of which the first 11 (`N_NUMS`) carry a
+numerator**, 6 oscillators.
+
+**Revision 9 moved `PATH` and `MODE` and widened `PATH`, and neither was
+cosmetic.** Eighteen envelopes span `0x40..0x87` and collide with `PATH` at
+`0x80`; sixteen modes based at `0xC0` span `0xC0..0xFF`, so `MODE_NUM[15]`
+would be `0xFF` — which is `RESET`. `drum_regs.v` decodes `RESET` as a
+continuous assign outside the write decoder, so that is not a
+decode-priority question and cannot be fixed by ordering: the address means
+both things at once. The `PATH` word's envelope and destination fields went
+from 4 bits to 5 for the same class of reason — at 4 bits only twelve
+envelopes were addressable and `DEST_MIX` was 15, which at `MODES = 16` is
+also mode 15, so the last mode could never be a path's destination. The
+sentinels moved with the fields: **`ENV_FULL` = 31** reads full scale, any
+other envelope index ≥ `N_ENV` reads zero, and **`DEST_MIX` = 31** is the mix
+bus.
+
+State registers, not host-writable except by
+RESET: `stops_prev` (11), per envelope `level` (24), `strike` (24), `t`
 (11), the six phases (24 each), the LFSR (31), and the bank's `y1[m]`,
-`y2[m]`, `exc[m]` (21), `h1[m]`, `h2[m]` (21, modes 0..5). The gains
+`y2[m]`, `exc[m]` (21), `h1[m]`, `h2[m]` (21, modes 0..`N_NUMS`−1). The gains
 `dvol`, `bvol` of the output stage (12) are the instrument's, 16 bits
 unsigned each.
 
@@ -1258,7 +1275,7 @@ After step 1 of 4.2 (control applied), in this order (`DrumsFx.frame`):
    previous frame's step 5 left it.
 5. **The bank** (15.6): one step on `exc[0..11]`, producing `body`; every
    `exc[m]` is consumed and cleared.
-6. `dmix` (21 bits) and `body` (19 bits) are this frame's buses for step 8
+6. `dmix` (22 bits) and `body` (19 bits) are this frame's buses for step 8
    of 4.2.
 
 An implementation may schedule this across the frame however it likes,
@@ -1512,11 +1529,36 @@ output stage's `dvol` and `bvol` reset to 0 with the voice's `vol` (14).
 
 ### 15.9 Cycles and area (informative)
 
-Measured (`tb_drums.v`, `rtl-sketch/area/synth_area.py`, gf180mcu 7t
-`tt_025C_5v00`, cell area): the drum datapath takes 48 clocks per frame
-(1 + 12 envelopes + 1 + 2 × 16 paths + 2) and the bank 39 (3 × 12 + 3),
-85 from tick to `body_valid` with one overlapped; with the ladder's 24
-that is 109 of the 256, before the voice's own front end. `drum_dp` is
+Measured at **revision 9's** sizes (`tb_drums.v`): the drum datapath takes 68
+clocks per frame (1 + 18 envelopes + 1 + 2 × 23 paths + 2) and the bank 50
+(3 × 16 + 2), **117 from tick to `body_valid`** with one overlapped — `tb_drums`
+reports mean 117 and worst 117 over 191 560 frames. With the ladder's 24 that is
+141 of the 256, before the voice's own front end, and `synth_top`'s `overrun`
+flag stays clear.
+
+AREA AT REVISION 9 IS NOT IN gf180 UNITS. The PDK was not installed on the
+machine revision 9 was built on, so the figures below are **yosys generic
+`synth`, no liberty**, revision-8 RTL and revision-9 RTL in the same flow, and
+a cell count is not an area (rule 3):
+
+| | cells | flip-flops |
+|---|---:|---:|
+| `drum_kit` rev 8 | 24 484 | 3 017 |
+| `drum_kit` rev-9 RTL at rev-8 sizes | 24 885 | 3 023 |
+| + `MODES` 12→16, `NUMS` 6→11 | 26 433 | 3 233 |
+| + `ENVS` 18, `PATHS` 23, `STOPS` 11 | 31 972 | 4 186 |
+| `drum_regs` rev 8 → rev 9 | 2 598 → 3 754 | 2 276 → 3 232 |
+| whole drum section | 27 082 → 35 726 (+32 %) | 5 293 → 7 418 (+40 %) |
+
+`modal_dp` alone is **1 656 flops at 12 modes / 6 nums and 1 866 at 16 / 11** —
+the state arrays pad to a power of two, so `MODES` 9…16 cost the same and the
+210 extra flops are `h1`/`h2` for the five modes that gained a numerator. It is
+`NUMS`, not `MODES`, that moves the bank's state. `drum_regs`'s 3 232 agrees
+with the register declarations of 15.1 to the bit.
+
+THE FIGURES BELOW ARE REVISION 8's, in gf180mcu 7t `tt_025C_5v00` cell area
+(`rtl-sketch/area/synth_area.py`), kept because nothing has re-measured them:
+`drum_dp` is
 0.278 mm² (10 716 cells, 1 355 flops), the 12-mode bank 0.367 mm² (13 845
 cells, 2 076 flops; 0.370 with numerators on all twelve; 0.251 at 8 modes
 with 4; 0.188 for rev 3's four with two), `drum_kit` 0.646 mm² (0.605 with
@@ -1646,18 +1688,23 @@ record that extends this document; none may be resolved by picking a reading.
     0.968 × the cutoff at 30 Hz and 1.072 × at 10 kHz. A retuned g ROM would
     move the zero-resonance corner by the same amount (Huovilainen's
     two-dimensional caveat); whether to, and how, is a separate decision.
-13. **The drum section's size** (15.9): 12 modes / 12 envelopes / 16 paths
-    is 0.646 mm² of cells, four times the ladder; the same RTL at 8 modes /
-    8 envelopes / 12 paths is 0.461 mm² and loses three bodies. Which the
-    product takes, and whether the ladder and the bank share a multiplier
-    (docs/area-budget.md 3.2), is a budget decision.
-14. **What the reference kit does not model** (15.7): the BD's 4 ms attack
-    at ≈130 Hz and its slow pitch sigh, the toms' diode pitch fall, the
-    toms' pink-noise rumble, the BD tone low-pass, the cymbal, rimshot,
-    claves, maracas and congas. Each is a coefficient sequence or a
-    preset the block can already carry (a host may retune any mode on any
-    frame; the render `06-bd-decay-short-mid-long.wav` does); none is
-    specified.
+13. **The drum section's size** (15.9): **closed in rev 9** at 16 modes /
+    11 with numerators / 18 envelopes / 23 paths / 11 stops, which is the
+    complete TR-808 — all sixteen named sounds on eleven circuits. Rev 8 asked
+    which size the product takes; rev 9 answers "the one that plays the whole
+    machine", at +32 % cells and +40 % flip-flops on the drum section (15.9).
+    Whether the ladder and the bank share a multiplier
+    (docs/area-budget.md 3.2) is still a budget decision, and the gf180 area
+    of the revision-9 configuration has not been measured.
+14. **What the reference kit does not model** (15.7) — **mostly closed in
+    rev 9**: the cymbal, rimshot, claves, maracas, the mid tom and the three
+    congas are all in `kit_808()` and `preset_writes()` now, and the BD attack
+    and both tom pitch drops have been coefficient sequences since rev 6.
+    What is still not modelled: the **toms' pink-noise rumble** (no measured
+    level exists for it), the **BD tone low-pass**, the cymbal's third
+    high-pass (reference 10's Hh1) and its +6 dB/oct output tilt, and the
+    maracas' 18 ms attack ramp — the envelope generator has no rising segment
+    and its `hold` tops out at 5.3 ms.
 15. **The snare's cascade** (15.7): the 808 drives the high resonator from
     the low one's output ×1/38; the kit drives both from the pulse.
 16. **The cowbell's band-pass centre** (15.7) — **closed in rev 6 by
@@ -1792,6 +1839,33 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 9 (2026-09-18)** — **the complete TR-808: all sixteen named sounds on
+  eleven circuits.** No width, clamp or formula of the VOICE changes; what
+  changes is the drum section's sizes, the PATH word, the drum page's address
+  map and the mix bus's width. Appendix G's kit moves, so its hash moves.
+  - **Sizes** (15.1, 15.9): 8 → **11 stops**, 12 → **18 envelopes**, 16 → **23
+    paths**, 12 → **16 modes**, `N_NUMS` 6 → **11**. The first eight stops keep
+    their indices, so every revision-8 register image still means the same
+    thing. `modal_dp` gives a numerator only *below* `NUMS`, so `NUMS` is the
+    register that decides how many filters the bank can hold — and it, not
+    `MODES`, is what moves the bank's state (1 656 flops at 12/6, 1 866 at
+    16/11).
+  - **The PATH word is 25 bits** (15.5), envelope and destination fields 5 bits
+    each. At 4 bits only twelve envelopes were addressable and `DEST_MIX` was
+    15 — which at `MODES = 16` is also mode 15, so the last mode could never be
+    a destination. `ENV_FULL` and `DEST_MIX` are both 31 now.
+  - **`PATH` moved 0x80 → 0x90 and `MODE` 0xC0 → 0xB0** (15.1). Eighteen
+    envelopes run to 0x87 and collide with PATH at 0x80; sixteen modes based at
+    0xC0 put `MODE_NUM[15]` on **0xFF, which is RESET**, and `drum_regs.v`
+    decodes RESET outside the write decoder so the address would have meant
+    both things at once. `INJECT_BUG_DRUM_RESET_ALIAS` is that defect kept as a
+    negative control.
+  - **`dmix` is 22 bits** (12, 15.5): 23 paths × 17 bits no longer fits 21.
+    `voice_dp`'s port widens with it; nothing else in the voice moves.
+  - Bit-exact against `model/drums_fx.py` over 191 560 frames, 117 clocks per
+    frame of the 256; `verify_ctl` and `verify_synth_top` re-run green, the
+    latter also at its pins with the new image.
+
 - **Rev 8 (2026-09-18)** — **the control frame, because it could not carry
   the register image this contract specifies.** No pinned table moves, no
   width, bus, clamp or formula of the audio path changes, and every rev-7
@@ -2080,57 +2154,81 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 
 | addr | value | register | | addr | value | register |
 |---:|---:|---|---|---:|---:|---|
-| 0x20 | 0x1184E | OSC_INC[0] | | 0x40 | 0xF0 | ENV_CTL[0] |
-| 0x21 | 0x1F8A1 | OSC_INC[1] | | 0x41 | 0x400000 | ENV_PEAK[0] |
-| 0x22 | 0x19F9C | OSC_INC[2] | | 0x42 | 0x3025 | ENV_RATE[0] |
-| 0x23 | 0x2C9A9 | OSC_INC[3] | | 0x44 | 0x30F0 | ENV_CTL[1] |
-| 0x24 | 0x44444 | OSC_INC[4] | | 0x45 | 0xF5C29 | ENV_PEAK[1] |
-| 0x25 | 0x2E148 | OSC_INC[5] | | 0x46 | 0xFFFF | ENV_RATE[1] |
-| 0xC0 | 0x11A9D23 | MODE_A1[0] | | 0x48 | 0xF1 | ENV_CTL[2] |
-| 0xC1 | 0x324D110 | MODE_A2[0] | | 0x49 | 0x400000 | ENV_PEAK[2] |
-| 0xC2 | 0x0 | MODE_AMP[0] | | 0x4A | 0x3025 | ENV_RATE[2] |
-| 0xC3 | 0x1 | MODE_NUM[0] | | 0x4C | 0xF1 | ENV_CTL[3] |
-| 0xC4 | 0xDA1B85 | MODE_A1[1] | | 0x4D | 0x4DFA44 | ENV_PEAK[3] |
-| 0xC5 | 0x355D5AE | MODE_A2[1] | | 0x4E | 0x2D | ENV_RATE[3] |
-| 0xC6 | 0x7333 | MODE_AMP[1] | | 0x50 | 0xF2 | ENV_CTL[4] |
-| 0xC7 | 0x2 | MODE_NUM[1] | | 0x51 | 0x400000 | ENV_PEAK[4] |
-| 0xC8 | 0xECC30 | MODE_A1[2] | | 0x52 | 0x3025 | ENV_RATE[4] |
-| 0xC9 | 0x37543CC | MODE_A2[2] | | 0x54 | 0xF3 | ENV_CTL[5] |
-| 0xCA | 0xB0A4 | MODE_AMP[2] | | 0x55 | 0x400000 | ENV_PEAK[5] |
-| 0xCB | 0x2 | MODE_NUM[2] | | 0x56 | 0x3025 | ENV_RATE[5] |
-| 0xCC | 0x1728A19 | MODE_A1[3] | | 0x58 | 0xF4 | ENV_CTL[6] |
-| 0xCD | 0x366ECC6 | MODE_A2[3] | | 0x59 | 0xFFFFFF | ENV_PEAK[6] |
-| 0xCE | 0x34B6 | MODE_AMP[3] | | 0x5A | 0x44 | ENV_RATE[6] |
-| 0xCF | 0x1 | MODE_NUM[3] | | 0x5C | 0x45 | ENV_CTL[7] |
-| 0xD0 | 0x1E53ED0 | MODE_A1[4] | | 0x5D | 0xFFFFFF | ENV_PEAK[7] |
-| 0xD1 | 0x31579F2 | MODE_A2[4] | | 0x5E | 0x9 | ENV_RATE[7] |
-| 0xD2 | 0x0 | MODE_AMP[4] | | 0x60 | 0x78200F6 | ENV_CTL[8] |
-| 0xD3 | 0x1 | MODE_NUM[4] | | 0x61 | 0xB0A3D6 | ENV_PEAK[8] |
-| 0xD4 | 0x1EDD6CC | MODE_A1[5] | | 0x62 | 0x154 | ENV_RATE[8] |
-| 0xD5 | 0x30CD4FE | MODE_A2[5] | | 0x64 | 0xF6 | ENV_CTL[9] |
-| 0xD6 | 0x592 | MODE_AMP[5] | | 0x65 | 0x3851EB | ENV_PEAK[9] |
-| 0xD7 | 0x1 | MODE_NUM[5] | | 0x66 | 0x1D | ENV_RATE[9] |
-| 0xD8 | 0x1FFEA42 | MODE_A1[6] | | 0x68 | 0xF7 | ENV_CTL[10] |
-| 0xD9 | 0x3001300 | MODE_A2[6] | | 0x69 | 0x800000 | ENV_PEAK[10] |
-| 0xDA | 0xD9 | MODE_AMP[6] | | 0x6A | 0x110 | ENV_RATE[10] |
-| 0xDB | 0x0 | MODE_NUM[6] | | 0x6C | 0xF7 | ENV_CTL[11] |
-| 0xDC | 0x1FF8366 | MODE_A1[7] | | 0x6D | 0x800000 | ENV_PEAK[11] |
-| 0xDD | 0x3005AFC | MODE_A2[7] | | 0x6E | 0xE | ENV_RATE[11] |
-| 0xDE | 0xAF | MODE_AMP[7] | | 0x80 | 0x181C03 | PATH[0] |
-| 0xDF | 0x0 | MODE_NUM[7] | | 0x81 | 0x3C1C23 | PATH[1] |
-| 0xE0 | 0x1FE5EB2 | MODE_A1[8] | | 0x82 | 0x1C1C43 | PATH[2] |
-| 0xE1 | 0x3012282 | MODE_A2[8] | | 0x83 | 0x201C43 | PATH[3] |
-| 0xE2 | 0x245 | MODE_AMP[8] | | 0x84 | 0xC1C61 | PATH[4] |
-| 0xE3 | 0x0 | MODE_NUM[8] | | 0x85 | 0x241C83 | PATH[5] |
-| 0xE4 | 0x1FFD807 | MODE_A1[9] | | 0x86 | 0x281CA3 | PATH[6] |
-| 0xE5 | 0x3001EE0 | MODE_A2[9] | | 0x87 | 0x1DE2 | PATH[7] |
-| 0xE6 | 0x201 | MODE_AMP[9] | | 0x88 | 0x83CD0 | PATH[8] |
-| 0xE7 | 0x0 | MODE_NUM[9] | | 0x89 | 0x43CF0 | PATH[9] |
-| 0xE8 | 0x1FF9A1F | MODE_A1[10] | | 0x8A | 0x101DE1 | PATH[10] |
-| 0xE9 | 0x3003F74 | MODE_A2[10] | | 0x8B | 0x3C5314 | PATH[11] |
-| 0xEA | 0x42C | MODE_AMP[10] | | 0x8C | 0x143749 | PATH[12] |
-| 0xEB | 0x0 | MODE_NUM[10] | | 0x8D | 0x14374A | PATH[13] |
+| 0x20 | 0x1184E | OSC_INC[0] | | 0x45 | 0xF5C29 | ENV_PEAK[1] |
+| 0x21 | 0x1F8A1 | OSC_INC[1] | | 0x46 | 0xFFFF | ENV_RATE[1] |
+| 0x22 | 0x19F9C | OSC_INC[2] | | 0x48 | 0xF1 | ENV_CTL[2] |
+| 0x23 | 0x2C9A9 | OSC_INC[3] | | 0x49 | 0x400000 | ENV_PEAK[2] |
+| 0x24 | 0x44444 | OSC_INC[4] | | 0x4A | 0x3025 | ENV_RATE[2] |
+| 0x25 | 0x2E148 | OSC_INC[5] | | 0x4C | 0xF1 | ENV_CTL[3] |
+| 0xB0 | 0x11A9D23 | MODE_A1[0] | | 0x4D | 0x4DFA44 | ENV_PEAK[3] |
+| 0xB1 | 0x324D110 | MODE_A2[0] | | 0x4E | 0x2D | ENV_RATE[3] |
+| 0xB2 | 0x0 | MODE_AMP[0] | | 0x50 | 0xF2 | ENV_CTL[4] |
+| 0xB3 | 0x1 | MODE_NUM[0] | | 0x51 | 0x400000 | ENV_PEAK[4] |
+| 0xB4 | 0xDA1B85 | MODE_A1[1] | | 0x52 | 0x3025 | ENV_RATE[4] |
+| 0xB5 | 0x355D5AE | MODE_A2[1] | | 0x70 | 0xF8 | ? |
+| 0xB6 | 0x7333 | MODE_AMP[1] | | 0x71 | 0x400000 | ? |
+| 0xB7 | 0x2 | MODE_NUM[1] | | 0x72 | 0x3025 | ? |
+| 0xB8 | 0xECC30 | MODE_A1[2] | | 0x54 | 0xF3 | ENV_CTL[5] |
+| 0xB9 | 0x37543CC | MODE_A2[2] | | 0x55 | 0x400000 | ENV_PEAK[5] |
+| 0xBA | 0xB0A4 | MODE_AMP[2] | | 0x56 | 0x3025 | ENV_RATE[5] |
+| 0xBB | 0x2 | MODE_NUM[2] | | 0x58 | 0xF4 | ENV_CTL[6] |
+| 0xBC | 0x1728A19 | MODE_A1[3] | | 0x59 | 0xFFFFFF | ENV_PEAK[6] |
+| 0xBD | 0x366ECC6 | MODE_A2[3] | | 0x5A | 0x44 | ENV_RATE[6] |
+| 0xBE | 0x34B6 | MODE_AMP[3] | | 0x5C | 0x45 | ENV_CTL[7] |
+| 0xBF | 0x1 | MODE_NUM[3] | | 0x5D | 0xFFFFFF | ENV_PEAK[7] |
+| 0xC0 | 0x1E53ED0 | MODE_A1[4] | | 0x5E | 0x9 | ENV_RATE[7] |
+| 0xC1 | 0x31579F2 | MODE_A2[4] | | 0x60 | 0x78200F6 | ENV_CTL[8] |
+| 0xC2 | 0x0 | MODE_AMP[4] | | 0x61 | 0xB0A3D6 | ENV_PEAK[8] |
+| 0xC3 | 0x1 | MODE_NUM[4] | | 0x62 | 0x154 | ENV_RATE[8] |
+| 0xC4 | 0x1EDD6CC | MODE_A1[5] | | 0x64 | 0xF6 | ENV_CTL[9] |
+| 0xC5 | 0x30CD4FE | MODE_A2[5] | | 0x65 | 0x3851EB | ENV_PEAK[9] |
+| 0xC6 | 0x592 | MODE_AMP[5] | | 0x66 | 0x1D | ENV_RATE[9] |
+| 0xC7 | 0x1 | MODE_NUM[5] | | 0x68 | 0xF7 | ENV_CTL[10] |
+| 0xD0 | 0x1FFEA42 | MODE_A1[8] | | 0x69 | 0x800000 | ENV_PEAK[10] |
+| 0xD1 | 0x3001300 | MODE_A2[8] | | 0x6A | 0x110 | ENV_RATE[10] |
+| 0xD2 | 0xD9 | MODE_AMP[8] | | 0x6C | 0xF7 | ENV_CTL[11] |
+| 0xD3 | 0x0 | MODE_NUM[8] | | 0x6D | 0x800000 | ENV_PEAK[11] |
+| 0xD4 | 0x1FF8366 | MODE_A1[9] | | 0x6E | 0xE | ENV_RATE[11] |
+| 0xD5 | 0x3005AFC | MODE_A2[9] | | 0x74 | 0xF9 | ? |
+| 0xD6 | 0xAF | MODE_AMP[9] | | 0x75 | 0xF5C29 | ? |
+| 0xD7 | 0x0 | MODE_NUM[9] | | 0x76 | 0x3025 | ? |
+| 0xD8 | 0x1FE5EB2 | MODE_A1[10] | | 0x78 | 0xF9 | ? |
+| 0xD9 | 0x3012282 | MODE_A2[10] | | 0x79 | 0x57CED9 | ? |
+| 0xDA | 0x245 | MODE_AMP[10] | | 0x7A | 0x3E | ? |
+| 0xDB | 0x0 | MODE_NUM[10] | | 0x7C | 0xFA | ? |
+| 0xDC | 0x1FFD807 | MODE_A1[11] | | 0x7D | 0x52F1AA | ? |
+| 0xDD | 0x3001EE0 | MODE_A2[11] | | 0x7E | 0x72 | ? |
+| 0xDE | 0x201 | MODE_AMP[11] | | 0x80 | 0xFA | ? |
+| 0xDF | 0x0 | MODE_NUM[11] | | 0x81 | 0x6E978D | ? |
+| 0xE0 | 0x1FFBB4C | ? | | 0x82 | 0xA | ? |
+| 0xE1 | 0x300303D | ? | | 0x84 | 0xFA | ? |
+| 0xE2 | 0x296 | ? | | 0x85 | 0x161E4F | ? |
+| 0xE3 | 0x0 | ? | | 0x86 | 0x3 | ? |
+| 0xE4 | 0x1FF9A1F | ? | | 0x90 | 0x807803 | PATH[0] |
+| 0xE5 | 0x3003F74 | ? | | 0x91 | 0x1F07823 | PATH[1] |
+| 0xE6 | 0x42C | ? | | 0x92 | 0x907843 | PATH[2] |
+| 0xE7 | 0x0 | ? | | 0x93 | 0xA07843 | PATH[3] |
+| 0xE8 | 0x1FCD356 | ? | | 0x94 | 0x307861 | PATH[4] |
+| 0xE9 | 0x30243FF | ? | | 0x95 | 0xB07883 | PATH[5] |
+| 0xEA | 0x0 | ? | | 0x96 | 0xC07983 | PATH[6] |
+| 0xEB | 0x0 | ? | | 0x97 | 0xD078A3 | PATH[7] |
+| 0xEC | 0x1EDC70C | ? | | 0x98 | 0x7BE2 | PATH[8] |
+| 0xED | 0x3046527 | ? | | 0x99 | 0x20F8D0 | PATH[9] |
+| 0xEE | 0x0 | ? | | 0x9A | 0x10F8F0 | PATH[10] |
+| 0xEF | 0x0 | ? | | 0x9B | 0x407BE1 | PATH[11] |
+| 0xC8 | 0x1BB8EB8 | MODE_A1[6] | | 0x9C | 0x1F12514 | PATH[12] |
+| 0xC9 | 0x31293A2 | MODE_A2[6] | | 0x9D | 0x50AD49 | PATH[13] |
+| 0xCA | 0x0 | MODE_AMP[6] | | 0x9E | 0x50AD4A | PATH[14] |
+| 0xCB | 0x1 | MODE_NUM[6] | | 0x9F | 0xE079A3 | PATH[15] |
+| 0xCC | 0x4BE113 | MODE_A1[7] | | 0xA0 | 0xF079A3 | ? |
+| 0xCD | 0x36C44A6 | MODE_A2[7] | | 0xA1 | 0x1F0F9DE | ? |
+| 0xCE | 0xFFFF | MODE_AMP[7] | | 0xA2 | 0x1F0F9DF | ? |
+| 0xCF | 0x1 | MODE_NUM[7] | | 0xA3 | 0x607BE2 | ? |
+| 0x40 | 0xF0 | ENV_CTL[0] | | 0xA4 | 0x20F9F0 | ? |
+| 0x41 | 0x400000 | ENV_PEAK[0] | | 0xA5 | 0x70FA10 | ? |
+| 0x42 | 0x3025 | ENV_RATE[0] | | 0xA6 | 0x1F0FA36 | ? |
+| 0x44 | 0x30F0 | ENV_CTL[1] | | | | |
 
-SHA-256 of the 100 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `7ea9a2e3ae152f3aa7e65ad33b43b154aa8c513105ccde0f2bc6605ee6ae6ec4`
+SHA-256 of the 147 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `feb8c6fdeab4c89e506bbfebf6114c82d698d09064933e1a7292998905ba0671`
 
 <!-- END GENERATED APPENDICES -->
