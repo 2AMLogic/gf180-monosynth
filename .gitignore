@@ -12,3 +12,6 @@ fpga/build/
 pnr/orfs/collect.out
 pnr/orfs/collect.sh
 pnr/orfs/joined.sh
+
+# top-level verifier output directories (make controls writes build/<variant>/)
+/build/

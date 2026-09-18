@@ -47,6 +47,22 @@ verify-full:
 ## Every injected control that must turn something red, together.
 ## A run where these do not fire is a broken run, not a quiet one.
 ##
+## TWO CONTROLS ARE DELIBERATELY NOT HERE, and both were MEASURED, not assumed:
+##
+##   I2S_SWAP -- no longer discriminates at the whole-chip level. i2s_tx re-reads
+##   `held` for the right slot at cycle 127; the core used to strobe its sample by
+##   cycle 124 and now, with revision 10's drum section, strobes as late as 156, so
+##   `held` still holds the LEFT word and the swapped stream is bit-identical to
+##   the correct one. Measured both ways with verify_synth_top.py --rtl against
+##   the pre-integration drum section: 124 of 256 before, 156 of 256 after, no
+##   overrun either way. verify_synth_top.py prints a NOTE whenever the strobe is
+##   past 128. The control still fires against i2s_tx on its own bench.
+##
+##   VOICE_MIX_SAT -- the voice's pre-ladder mixer never reaches its rail on this
+##   patch, so the control is silent here. It is verify_voice.py's (BUGS) and
+##   test_rtl.py's, and it fires there. An unsatisfiable gate is worse than no
+##   gate, so it is not listed as one.
+##
 ## NOTE the per-variant --outdir. These are several VARIANTS OF THE SAME
 ## verifier running concurrently, and the verifiers here write fixed filenames
 ## under their output directory -- so without this they would overwrite each
@@ -55,11 +71,28 @@ verify-full:
 ## verifier need the same treatment.
 controls:
 	@$(RUN) \
+	  "$(PY) rtl-sketch/verify_ctl.py --link dr7rev1 --expect-fail --outdir build/ctl-rev1" \
 	  "$(PY) rtl-sketch/verify_ctl.py --inject SPI_ADDR7 --expect-fail --outdir build/ctl-addr7" \
 	  "$(PY) rtl-sketch/verify_ctl.py --inject SPI_DATA24 --expect-fail --outdir build/ctl-data24" \
+	  "$(PY) rtl-sketch/verify_ctl.py --inject SPI_NOSEC --expect-fail --outdir build/ctl-nosec" \
+	  "$(PY) rtl-sketch/verify_ctl.py --inject SPI_ANYLEN --expect-fail --outdir build/ctl-anylen" \
+	  "$(PY) rtl-sketch/verify_ctl.py --inject SPI_DRAIN_LATE --expect-fail --outdir build/ctl-drainlate" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject VOICE_MASTER_PRESHIFT --expect-fail --outdir build/top-preshift" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject VOICE_DRUM_CLAMP16 --expect-fail --outdir build/top-dclamp16" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject VOICE_OUT_SAT --expect-fail --outdir build/top-outsat" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject I2S_SHIFT --expect-fail --outdir build/top-i2sshift" \
-	  "$(PY) rtl-sketch/verify_synth_top.py --inject I2S_SWAP --expect-fail --outdir build/top-i2sswap"
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject I2S_DELAY --expect-fail --outdir build/top-i2sdelay" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject SPI_ADDR7 --expect-fail --outdir build/top-addr7" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject SPI_DATA24 --expect-fail --outdir build/top-data24" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject SPI_NOSEC --expect-fail --outdir build/top-nosec" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject SPI_DRAIN_LATE --expect-fail --outdir build/top-drainlate" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject MODAL_NUM_HOLD --expect-fail --outdir build/top-numhold" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_ENV_FLOOR --expect-fail --outdir build/top-envfloor" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_LFSR_TAP --expect-fail --outdir build/top-lfsrtap" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_RESET_ALIAS --expect-fail --outdir build/top-resetalias" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_STOPS8 --expect-fail --outdir build/top-stops8" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_BUS_STALE --expect-fail --outdir build/top-busstale" \
+	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_DONE_NOWAIT --expect-fail --outdir build/top-nowait"
 
 test:
 	@$(PY) -m pytest model/ spec/ -q
