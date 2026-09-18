@@ -7,7 +7,7 @@ about area.
 from __future__ import annotations
 import numpy as np
 import dsp
-from dsp import SR, note_hz, phase_inc, ramp, osc, ad_env, adsr, ladder, lfsr_noise, onepole_hp
+from dsp import SR, note_hz, phase_inc, ramp, osc, osc_bl, ad_env, adsr, ladder, lfsr_noise, onepole_hp
 
 
 # ============================================================ A. MONOSYNTH ===
@@ -15,7 +15,7 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
               detune=(0.0, 0.07, -12.0), mix=(1.0, 0.8, 0.5),
               cutoff=(400, 4000), q=0.62, drive=1.6,
               amp=(0.005, 0.25, 0.75, 0.12), fenv=(0.004, 0.30, 0.25, 0.10),
-              track=0.35, glide_from=None, _tanh="lut10"):
+              track=0.35, glide_from=None, _tanh="lut10", blep=False):
     """Minimoog-shaped voice: up to 3 detuned oscillators -> mixer (which can
     overdrive) -> nonlinear 4-pole ladder -> VCA, with a second envelope on
     cutoff and keyboard tracking.
@@ -24,6 +24,11 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
     element, 2 envelope generators, one multiplier per stage. The filter is the
     expensive and the interesting part; it is also the part that must be
     oversampled, which is a clock cost, not an area cost.
+
+    `blep=True` uses the PolyBLEP oscillators (dsp.osc_bl). Off by default so
+    the audition renders that chose this architecture do not change; the
+    integer voice in model/voice_fx.py always band-limits, and is compared
+    against this model with blep=True.
     """
     n = int(dur * SR)
     gate = dur * 0.8 if gate is None else gate
@@ -39,8 +44,9 @@ def mono_note(note, dur, *, gate=None, waves=("saw", "saw", "square"),
             inc[gl:] = phase_inc(f)
             ph = np.cumsum(inc) & dsp.PHASE_MASK
         else:
-            ph = ramp(n, phase_inc(f))
-        sig += mx * osc(w, ph)
+            inc = phase_inc(f)
+            ph = ramp(n, inc)
+        sig += mx * (osc_bl(w, ph, inc) if blep else osc(w, ph))
     sig /= sum(mix)
 
     ae = adsr(n, *amp, gate)
