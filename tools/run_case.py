@@ -250,7 +250,7 @@ def band_pair_db(x, sr: int, band_a, band_b, *, floor_db: float = -80.0) -> am.E
 
 
 def pitch_drop_hz(x, sr: int, band, *, early=(0.004, 0.018), late=(0.060, 0.150),
-                  smooth_ms: float = 3.0) -> am.Estimate:
+                  smooth_ms: float = 3.0, origin: int = 0) -> am.Estimate:
     """How far the voice's pitch falls between an early and a late window, in
     Hz, from the analytic phase derivative (`audio_measure.instantaneous_
     frequency`, ground-truthed against a known glide) of the band-limited body.
@@ -276,13 +276,17 @@ def pitch_drop_hz(x, sr: int, band, *, early=(0.004, 0.018), late=(0.060, 0.150)
     from scipy.signal import butter as _butter, sosfiltfilt as _sos
     sos = _butter(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
                   btype="band", output="sos")
+    # The whole record, lead included: this is the one estimator here that
+    # filters everything it is given, so the segment it hands `sosfiltfilt`
+    # already begins in `prepare()`'s guaranteed silence. `origin` is where
+    # t = 0 sits in it, so `early` and `late` mean what they meant before.
     y = _sos(sos, x)
     env = am.analytic_envelope(y)
     fi = am.instantaneous_frequency(y, sr, smooth_ms=smooth_ms)
     pk = float(env.max())
     out = []
     for name, (t0, t1) in (("early", early), ("late", late)):
-        a, b = int(t0 * sr), min(len(fi), int(t1 * sr))
+        a, b = origin + int(t0 * sr), min(len(fi), origin + int(t1 * sr))
         if b - a < 16:
             return am.Estimate(None, False, f"{name} window too short", dict(n=b - a))
         if float(env[a:b].max()) < pk * 10 ** (-30.0 / 20.0):
@@ -388,21 +392,110 @@ def worst_event_offset_ms(x, sr: int, scheduled_s, *, group_s: float = 0.020) ->
 # 3. Signal preparation, identical on both sides. Nothing is resampled: the
 #    references are 44.1 kHz and our renders 48 kHz, and every metric here is
 #    rate-independent.
+#
+#    THE PRE-ONSET LEAD (#101, #103, docs/analysis-conventions.md sections 0-2)
+#    --------------------------------------------------------------------------
+#    `scipy.signal.sosfiltfilt` defaults to `padtype='odd'` and pads by
+#    `3*(2*len(sos)+1 - ...)` samples, extended ODDLY through the first sample.
+#    Hand it a segment that begins at full amplitude and it manufactures an
+#    edge; hand it one that begins in silence and the extension is exactly
+#    zero. So the lead a segment carries before the strike is not cosmetic --
+#    it decides whether a band split is the sound or the filter.
+#
+#    `prepare()` used to trim to `max(0, onset - 1 ms)`, and **the `max(0, ...)`
+#    was the whole bug**: every one of the sixteen Fischer references crosses
+#    2 % of peak within 5-52 samples, so the clamp fired on all sixteen and the
+#    reference side got 0.11-1.18 ms of lead while our renders -- which begin
+#    with 10 ms of digital silence -- got exactly 1.00 ms. Two sides of every
+#    comparison, filtered under different boundary conditions, and nothing in
+#    the record said so. #101 measured 6.07 dB of it against a 3.0 dB
+#    tolerance on the congas.
+#
+#    Both numbers are inside or barely outside the pad, which is why neither is
+#    enough. The pad is COMPUTED here rather than quoted, because both issues
+#    quoted 12-15 samples: that is the figure for a 4th-order LOW-pass. The
+#    band-pass this code builds is 8th order overall -- 4 sections, 27 samples,
+#    0.562 ms at 48 kHz and 0.612 ms at 44.1 kHz.
 # ===========================================================================
-def prepare(x, sr: int) -> np.ndarray:
-    """DC out from the PRE-ONSET region, trimmed to 1 ms before the onset,
+def _sosfiltfilt_padlen(sos) -> int:
+    """`scipy.signal.sosfiltfilt`'s own default pad length, from its own
+    formula. Computed and not quoted: see above."""
+    sos = np.asarray(sos)
+    return int(3 * (2 * len(sos) + 1
+                    - min((sos[:, 2] == 0).sum(), (sos[:, 5] == 0).sum())))
+
+
+def _bandpass_sos(sr: int, lo: float, hi: float, order: int = 4):
+    return butter(order, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
+                  btype="band", output="sos")
+
+
+#: 27 samples, for every 4th-order band-pass in this file and in
+#: `audio_measure.band_energy`. Independent of the rate and of the band edges:
+#: it is a function of the section count alone.
+BANDPASS_PADLEN = _sosfiltfilt_padlen(_bandpass_sos(48000, 20.0, 400.0))
+
+#: The lead every analysed segment gets before the strike, on BOTH sides.
+#: `docs/analysis-conventions.md` section 1: at least 10 ms, or 20x the
+#: filter's `padlen`, whichever is larger. 20 x 27 = 540 samples wins at both
+#: our rates -- 11.25 ms at 48 kHz, 12.24 ms at 44.1 kHz. Measured there: the
+#: band split is settled to 0.12 dB by 2 ms of lead and to 0.001 dB by 10 ms.
+LEAD_MS = 10.0
+LEAD_PADLENS = 20
+
+#: Where t = 0 sits for every window in section 6: 1 ms before the onset, which
+#: is where it has always sat. The lead is added BEFORE it rather than shifting
+#: it, so that this change moves numbers for one reason and not two.
+TRIM_MS = 1.0
+
+#: The crossing that marks the onset, and the level below which a record counts
+#: as not yet sounding.
+ONSET_FRAC = 0.02
+
+
+def required_lead_samples(sr: int) -> int:
+    """True silence before t = 0, in samples. Stated in SAMPLES because
+    `padlen` is a sample count: the same millisecond figure is a different
+    number of pads at 44.1 and 48 kHz."""
+    return max(int(round(LEAD_MS * 1e-3 * sr)), LEAD_PADLENS * BANDPASS_PADLEN)
+
+
+def _onset_index(x, pk: float | None = None) -> int:
+    x = np.asarray(x)
+    pk = float(np.abs(x).max()) if pk is None else pk
+    return int(np.argmax(np.abs(x) > ONSET_FRAC * pk))
+
+
+def prepare(x, sr: int, *, side: str = "the recording") -> np.ndarray:
+    """DC out from the PRE-ONSET region, trimmed so that exactly
+    `required_lead_samples(sr) + 1 ms` of TRUE silence precedes the strike,
     peak-normalised.
+
+    **The lead is guaranteed, not attempted.** When the record cannot supply
+    it, the missing part is made of digital silence -- an operation that cannot
+    change what the machine did, and the one `test_prepare_is_unchanged_by_
+    prepended_silence` asserts is free. When the record cannot support even
+    that, because it begins at or above the onset threshold and so was cut
+    INTO the strike, this REFUSES. A clamp was what produced #101: it turned a
+    missing precondition into a number.
 
     **Not by subtracting the mean of the whole buffer, and that is not a style
     choice.** These are single strikes in a buffer seconds long, so the mean of
     the whole thing is a constant offset left across every silent sample after
-    the voice has gone. A
-    constant has constant energy density and never decays, so it dominates a
-    backward-integrated energy curve: it put 0.19 % of the rimshot's energy in
-    a floor that never ended and `schroeder_t20` duly reported a **4.5-second**
-    T20 for a 15 ms sound. The raw render has no energy at all in its last
-    second; the preparation put it there. A 20 Hz zero-phase high-pass removes
-    the references' converter DC without adding anything.
+    the voice has gone. A constant has constant energy density and never
+    decays, so it dominates a backward-integrated energy curve: it put 0.19 %
+    of the rimshot's energy in a floor that never ended and `schroeder_t20`
+    duly reported a **4.5-second** T20 for a 15 ms sound. A 20 Hz zero-phase
+    high-pass removes the references' converter DC without adding anything.
+
+    The DC estimate needs a pre-onset region to estimate FROM, so it is only
+    taken when the record itself supplies 5 ms of one. **None of the sixteen
+    Fischer references does** -- they carry 5 to 52 pre-onset samples and a
+    converter offset of 0.1-0.4 % of peak, which is therefore left in place,
+    exactly as it was before this change. `lead_report()` records that per
+    side so it is visible rather than assumed. It is not corrected here
+    because it is a separate defect from the one this function is fixing, and
+    fixing two things at once makes neither attributable.
 
     The level-matched copy is what every metric below is taken on, and that is
     not a convenience: the Fischer set states that LEVEL was pinned at maximum
@@ -414,26 +507,89 @@ def prepare(x, sr: int) -> np.ndarray:
     if am.is_silent(x):
         return x
     pk = float(np.abs(x).max())
-    i = int(np.argmax(np.abs(x) > 0.02 * pk))
-    lead = max(0, i - int(1e-3 * sr))
-    # DC from the PRE-ONSET region, where there is no voice to bias it. Our
-    # renders lead with exact digital silence, so this subtracts nothing from
-    # them; the references lead with a 1994 converter's offset, so it subtracts
-    # that. A zero-phase high-pass would do the job too and was tried, but
-    # filtfilt is not causal: a 20 Hz first-order high-pass puts a precursor
-    # tens of ms AHEAD of a sharp strike, which moved the trim point back and
-    # read the rimshot's 2 ms attack as 11 ms.
-    if lead >= int(5e-3 * sr):
-        x = x - float(x[:lead].mean())
-    y = x[lead:]
+    i = _onset_index(x, pk)
+    need = required_lead_samples(sr) + int(round(TRIM_MS * 1e-3 * sr))
+    # DC from the PRE-ONSET region, where there is no voice to bias it, and
+    # only when the record supplies enough of one to estimate from. A
+    # zero-phase high-pass would do the job too and was tried, but filtfilt is
+    # not causal: a 20 Hz first-order high-pass puts a precursor tens of ms
+    # AHEAD of a sharp strike, which moved the trim point back and read the
+    # rimshot's 2 ms attack as 11 ms.
+    dc = float(x[:i].mean()) if i >= int(5e-3 * sr) else 0.0
+    if i >= need:
+        y = x[i - need:] - dc
+    else:
+        if i == 0:
+            raise Refused(
+                f"{side} begins at or above {ONSET_FRAC*100:.0f} % of its own peak: it was "
+                f"cut into the strike, so there is no pre-onset region and prepending "
+                f"silence would manufacture the very edge the lead exists to avoid. "
+                f"{required_lead_samples(sr)} samples of true lead are required and 0 "
+                f"are available")
+        y = np.concatenate([np.zeros(need - i, dtype=np.float64), x - dc])
     p = float(np.abs(y).max())
     return y / p if p > 0 else y
 
 
+def lead_report(x, sr: int) -> dict:
+    """What `prepare()` did to one side, for the result record.
+
+    Section 8 row 12 and #103: nothing in a result used to state the windowing
+    convention, and a number that cannot be re-derived can only be re-trusted.
+    `dc_removed` is here because the answer for every Fischer reference is
+    `false` and that should be readable rather than inferred from the code."""
+    x = np.asarray(x, dtype=np.float64)
+    if am.is_silent(x):
+        return {"silent": True}
+    pk = float(np.abs(x).max())
+    i = _onset_index(x, pk)
+    lead = required_lead_samples(sr)
+    need = lead + int(round(TRIM_MS * 1e-3 * sr))
+    from_record = min(i, need)
+    return {
+        "onset_index": i,
+        "onset_ms_into_the_record": round(i / sr * 1e3, 4),
+        "lead_samples": lead,
+        "lead_ms": round(lead / sr * 1e3, 4),
+        "trim_ms": TRIM_MS,
+        "lead_from_the_record_samples": int(from_record),
+        "lead_manufactured_samples": int(max(0, need - i)),
+        "junction_level_frac_of_peak": round(float(abs(x[0])) / pk, 6),
+        "dc_removed": bool(i >= int(5e-3 * sr)),
+        "dc_frac_of_peak": round(float(x[:max(i, 1)].mean()) / pk, 8),
+        "padtype": "odd (scipy default)",
+        "bandpass_padlen_samples": BANDPASS_PADLEN,
+        "lead_in_padlens": round(lead / BANDPASS_PADLEN, 2),
+        "convention": ("both sides are trimmed so that exactly lead_samples + trim_ms "
+                       "of TRUE silence precede the strike; t = 0 for every window is "
+                       "trim_ms before the onset, and the lead sits before it"),
+    }
+
+
 def window(y, sr: int, t0: float, t1: float | None) -> np.ndarray:
-    a = int(t0 * sr)
-    b = len(y) if t1 is None else min(len(y), int(t1 * sr))
+    """The analysis window [t0, t1), measured from `TRIM_MS` before the onset.
+
+    `prepare()` puts `required_lead_samples(sr)` samples of silence in front of
+    that origin, so the indices here are offset by it. The times in section 6's
+    plans therefore mean exactly what they meant before this change."""
+    o = required_lead_samples(sr)
+    a = o + int(t0 * sr)
+    b = len(y) if t1 is None else min(len(y), o + int(t1 * sr))
     return y[a:b]
+
+
+def window_with_lead(y, sr: int, t0: float, t1: float | None) -> tuple:
+    """The same window, but starting at the front of `prepare()`'s guaranteed
+    lead instead of at `t0`, and how many samples of it precede `t0`.
+
+    **Everything that zero-phase filters goes through this**, so the filter
+    always meets the segment's edge in silence rather than mid-strike. The
+    caller either drops the returned prefix afterwards (`_bandpass`) or is
+    summing energy, which leading silence cannot change (`band_energy`)."""
+    o = required_lead_samples(sr)
+    a = o + int(t0 * sr)
+    b = len(y) if t1 is None else min(len(y), o + int(t1 * sr))
+    return y[:b], min(a, b)
 
 
 def highpass(y, sr: int, hz: float, order: int = 4) -> np.ndarray:
@@ -658,11 +814,36 @@ def _t20_ms(t0: float = 0.0, t1: float | None = None, band=None):
 
 
 def _bandpass(y, sr, band, t0, t1):
-    from scipy.signal import butter as _b, sosfiltfilt as _s
+    """The band-limited analysis window -- FILTERED from the front of the
+    guaranteed lead and sliced afterwards, never filtered from `t0`.
+
+    The difference is the whole of #101. `sosfiltfilt` extends oddly through
+    the first sample of whatever it is given: from `t0` that first sample is
+    mid-strike and the extension manufactures an edge; from the lead it is
+    silence and the extension is exactly zero. The samples between the two
+    points are dropped after filtering, so the window analysed is the same one
+    as before -- the filter simply saw how the sound started."""
     lo, hi = band
-    sos = _b(4, [max(lo, 5.0) / (sr / 2.0), min(hi, sr / 2.0 - 1.0) / (sr / 2.0)],
-             btype="band", output="sos")
-    return _s(sos, window(y, sr, t0, t1))
+    seg, drop = window_with_lead(y, sr, t0, t1)
+    return sosfiltfilt(_bandpass_sos(sr, lo, hi), seg)[drop:]
+
+
+def _energy_window(y, sr, t0, t1):
+    """The window a BAND-ENERGY metric is taken over, extended back through the
+    guaranteed lead so that `band_energy`'s own `sosfiltfilt` meets silence at
+    the edge. Leading silence adds no energy, so a fraction-of-total cannot
+    move -- `test_split_db_is_unchanged_by_prepended_silence` asserts exactly
+    that -- which is why this one does not have to be sliced off again.
+
+    Only legal for a window that opens at or before the onset. Extending one
+    that opens mid-strike would sum sound from outside the window, so that
+    REFUSES rather than quietly reporting a different quantity."""
+    seg, drop = window_with_lead(y, sr, t0, t1)
+    if drop != required_lead_samples(sr):
+        raise Refused(
+            f"a band-energy window that opens {t0*1e3:.1f} ms after t = 0 cannot be "
+            f"extended back through the lead without summing sound from outside it")
+    return seg
 
 
 def _f0(sound: str, t0: float, t1: float):
@@ -677,7 +858,7 @@ def _pitch_drop(sound: str):
     band = (BAND[sound][0], SPLIT_HZ[sound])
 
     def f(y, sr):
-        return pitch_drop_hz(y, sr, band)
+        return pitch_drop_hz(y, sr, band, origin=required_lead_samples(sr))
     return f
 
 
@@ -687,7 +868,7 @@ def _split_db(sound: str, t0: float, t1: float | None, lo: float | None = None,
     split = SPLIT_HZ[sound]
 
     def f(y, sr):
-        return band_ratio_db(window(y, sr, t0, t1), sr, split,
+        return band_ratio_db(_energy_window(y, sr, t0, t1), sr, split,
                              b_lo if lo is None else lo, b_hi if hi is None else hi)
     return f
 
@@ -741,7 +922,7 @@ def _line_ratio(hz_num: float, hz_den: float, t1: float = 0.100):
 
 def _band_pair(band_a, band_b, t1: float | None = None):
     def f(y, sr):
-        return band_pair_db(window(y, sr, 0.0, t1), sr, band_a, band_b)
+        return band_pair_db(_energy_window(y, sr, 0.0, t1), sr, band_a, band_b)
     return f
 
 
@@ -1368,7 +1549,26 @@ def base_check(allow_stale: bool = False) -> dict:
     `--allow-stale`, and an ignored gate is worse than no gate. So: any of
     `DEPENDENCIES` differing from `origin/main`, or a drum circuit count that
     differs, refuses. Being behind on anything else is recorded and warned
-    about, because it is still worth knowing when reading the record."""
+    about, because it is still worth knowing when reading the record.
+
+    **AHEAD IS NOT BEHIND.** A content difference against `origin/main` was
+    enough to refuse, and that made the gate unsatisfiable on exactly the
+    branches that have most reason to run it: a branch whose whole subject is
+    repairing `model/audio_measure.py` differs from `origin/main` BECAUSE of
+    the repair, and the only way to measure the repair was `--allow-stale`,
+    which then stamped every record with a staleness warning that was false.
+    An ignored gate and a lying record are both worse than no gate.
+
+    So the refusal now needs BOTH a differing dependency and `HEAD` actually
+    being behind `origin/main`. When `behind_commits` is 0, `origin/main` is an
+    ancestor of `HEAD`: every difference is this branch's own work, the tree
+    cannot be missing anything `origin/main` has, and the failure this guard
+    was written for -- a worktree two commits behind, reporting a landed kit as
+    a capability gap -- cannot occur. A branch that is ahead AND behind is
+    still refused, because then it IS missing something. The differing files
+    are recorded either way, under `stale_dependencies` when behind and
+    `ahead_dependencies` when not, so the record never loses the fact that
+    these inputs are not `origin/main`'s."""
     ref = "origin/main"
     have = _git("rev-parse", "--verify", f"{ref}^{{commit}}").strip()
     if not have:
@@ -1398,15 +1598,25 @@ def base_check(allow_stale: bool = False) -> dict:
                 theirs_stops = None
             break
 
+    ahead = int(_git("rev-list", "--count", f"{ref}..HEAD").strip() or 0)
+    is_ahead_only = behind == 0
     state = {"checked": True, "origin_main": have[:12], "behind_commits": behind,
+             "ahead_commits": ahead,
              "n_stops_here": dx.N_STOPS, "n_stops_origin_main": theirs_stops,
-             "stale_dependencies": stale_deps, "allow_stale": allow_stale}
+             "stale_dependencies": {} if is_ahead_only else stale_deps,
+             "ahead_dependencies": stale_deps if is_ahead_only else {},
+             "allow_stale": allow_stale}
     problems = []
-    if stale_deps:
+    if stale_deps and not is_ahead_only:
         problems.append("these inputs differ from origin/main: " + ", ".join(sorted(stale_deps)))
-    if theirs_stops is not None and theirs_stops != dx.N_STOPS:
+    if theirs_stops is not None and theirs_stops != dx.N_STOPS and not is_ahead_only:
         problems.append(f"the kit here has {dx.N_STOPS} drum circuits, {ref} has {theirs_stops}")
     state["problems"] = problems
+    if is_ahead_only and stale_deps:
+        state["ahead_note"] = (
+            f"{ahead} commit(s) ahead of {ref} and 0 behind, so these inputs differ "
+            f"because this branch changed them: {', '.join(sorted(stale_deps))}. That is "
+            f"not a stale premise -- the tree contains everything {ref} has.")
     if problems and not allow_stale:
         raise StaleBase("; ".join(problems) +
                         f" -- rebase onto {ref} and re-run. Refusing the whole batch: "
@@ -1533,8 +1743,14 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
     ref_x, ref_sr, rel, setting = load_reference(voice, refdir, inject)
     ours_x, ours_sr = render_drum_solo(voice)
 
-    ref_y, ours_y = prepare(ref_x, ref_sr), prepare(ours_x, ours_sr)
+    # Each side names itself, so a refused lead says WHICH recording could not
+    # supply one. A reference that was cut into the strike and a render that
+    # was need opposite responses.
+    ref_y = prepare(ref_x, ref_sr, side=f"the reference recording {rel}")
+    ours_y = prepare(ours_x, ours_sr, side=f"our {voice} render")
     ref, ours = (ref_y, ref_sr), (ours_y, ours_sr)
+    windowing = {"ours": lead_report(ours_x, ours_sr),
+                 "reference": lead_report(ref_x, ref_sr)}
 
     ctx = {}
     f0 = _f0(voice, 0.010, 0.200)(*ref)
@@ -1571,6 +1787,11 @@ def run_drum_case(case: dict, refdir: pathlib.Path, inject: str, keep_audio: boo
                        f"{dx.SR} Hz, circuit {dx.SOUND_STOP[voice]} of {dx.N_STOPS}"),
         "audio": audio,
         "tolerance_policy": TOLERANCE_POLICY,
+        # #103 and section 8 row 12: a number that cannot be re-derived can
+        # only be re-trusted. This is the convention both sides were windowed
+        # under, per side, so a reader can check the thing #101 turned out to
+        # be rather than assume it.
+        "windowing": windowing,
         "metrics": metrics,
         "diagnostics": {
             "ours_peak_fs": round(float(np.abs(ours_x).max()), 6),
