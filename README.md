@@ -1,10 +1,12 @@
 # gf180-monosynth
 
-A Minimoog-shaped monophonic synthesizer voice — three detuned oscillators into
-a nonlinear four-pole ladder filter — with a small drum section, targeting
-GlobalFoundries **gf180mcu**. A 2AM Logic canary block.
+A Minimoog-shaped paraphonic synthesizer voice — three detuned oscillators from
+the held keys into a nonlinear four-pole ladder filter — with a drum section
+whose tuned bodies are a modal resonator bank, targeting GlobalFoundries
+**gf180mcu**: a Minimoog and a TR-808 in one chip, driven over SPI by a
+USB-MIDI microcontroller. A 2AM Logic canary block.
 
-## Status: a model and an area sketch. No chip, no RTL, no PDK.
+## Status: a chip-level RTL, bit-exact against its models, synthesised to gf180mcu. No layout, no hardware.
 
 Being precise about this, because "synth" covers five different things:
 
@@ -12,15 +14,15 @@ Being precise about this, because "synth" covers five different things:
 |---|---|---|
 | 1 | Float model, playable in real time | **done** — `audition/` |
 | 2 | Fixed-point model of the whole voice | **done** — `model/`. Every per-sample operation is integer; one continuous voice with retrigger, glide, a VCA after the filter and a resonance-compensation ROM (DR 0003–0006, proposed). Float remains only where the host computes register values and ROM contents from physical units (Hz → increment, seconds → rate) |
-| 3 | RTL, bit-exact against (2) | **ladder and modal: done, in simulation** — each is identical to its model over 28,800 / 48,000 samples, and each bench is shown to fail on injected defects. `touch_dp.v`: unverified |
-| 4 | FPGA bitstream on real hardware | not started |
-| 5 | gf180mcu ASIC | not started |
+| 3 | RTL, bit-exact against (2) | **done, in simulation** — the ladder (both filter contexts), the modal bank and the whole voice (`rtl-sketch/voice_dp.v`, 43,200 frames of three scenarios) are each identical to their model with no tolerance, and the ladder and modal benches are shown to fail on injected defects |
+| 4 | The chip: `rtl-sketch/synth_top.v` — SPI link (DR 0007), voice, drum section, I2S | **elaborates, synthesises, runs through its pins** ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); the drum *sources* are a labelled placeholder for the `drums` branch |
+| 5 | FPGA bitstream on real hardware | not started |
+| 6 | gf180mcu ASIC | synthesised to `gf180mcu_fd_sc_mcu7t5v0`: **0.663 mm² of cells, 0.603 with Booth** ([docs/area-budget.md](docs/area-budget.md), ARCHITECTURE.md section 10); not placed, not routed, no timing, no power |
 
-Nothing here has been synthesized to a PDK, so there is **no area in mm², no
-timing and no power number**. The cell counts below are PDK-neutral yosys
-output. The ladder's and the modal bank's are from RTL that is bit-exact
-against their models; the touch sketch's is from a datapath that has never
-been simulated for correctness.
+The cell counts in the sections below are PDK-neutral yosys output from the
+block benches; the mm² figures are gf180mcu cell area at tt/5 V with `*_1`
+cells allowed, and **cell area is not die area** — see ARCHITECTURE.md
+section 10 for where the chip sits against the wafer.space quarter slot.
 
 ## Why this block exists
 
@@ -136,6 +138,9 @@ export OSS_CAD_SUITE=/path/to/oss-cad-suite      # or put iverilog/vvp on PATH
 .venv/bin/python rtl-sketch/verify_ladder.py --tanh-n 256
 .venv/bin/python rtl-sketch/verify_ladder.py --inject FB --expect-fail   # negative control
 .venv/bin/python rtl-sketch/verify_modal.py                      # the modal bank, same contract
+.venv/bin/python rtl-sketch/verify_ladder.py --nch 2             # two filter contexts on one datapath
+.venv/bin/python rtl-sketch/verify_voice.py                      # the whole voice, 43,200 frames (--short: 17,280)
+.venv/bin/python rtl-sketch/verify_top.py                        # the chip through its SPI and I2S pins
 .venv/bin/python -m pytest model/ rtl-sketch/ -q                 # all of the above
 rtl-sketch/synth_count.sh                                        # the cell counts
 ```
@@ -302,9 +307,10 @@ locks it.
 |---|---|
 | `audition/` | Float models of three candidate architectures, and `play.py`, a real-time playable instrument. This is how the architecture was chosen — by ear, before any RTL |
 | `model/` | The fixed-point voice (`voice_fx.py`) and filter (`fixed.py`), their sizing sweeps, renderers, and regression tests |
-| `rtl-sketch/` | A time-shared ladder datapath, **for area estimation only** — never simulated, never verified, not a design |
-| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 3, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
-| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006) — all proposed |
+| `rtl-sketch/` | The chip's RTL: `synth_top.v` (the top and the drum placeholder), `spi_ctl.v` (the link), `voice_dp.v` + `recip_div.v` (the voice), `ladder_dp.v` / `ladder_dp_n.v` (the ladder, one or N contexts), `modal_dp_rom.v` (the bank), `i2s_tx.v`; their benches and the `verify_*.py` drivers; `area/` (the gf180mcu synthesis flow) |
+| `docs/ARCHITECTURE.md` | The chip: block diagram, signal path, the 256-cycle schedule, multipliers, clock and reset, pins, register map, measured area, what is verified |
+| `spec/NUMERIC-CONTRACT.md` | The voice as a numeric contract, revision 4, **proposed, not ratified**: every per-sample operation, the five tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
+| `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006), the control interface (0007) — all proposed |
 
 ## Playing it
 
