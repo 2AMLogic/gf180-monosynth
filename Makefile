@@ -48,6 +48,13 @@ verify-full:
 ## Every injected control that must turn something red, together.
 ## A run where these do not fire is a broken run, not a quiet one.
 ##
+## THE THREE FILTER CONTROLS need the frozen reference cache, which most hosts
+## do not have -- and on those they REFUSE rather than fail, which `--expect`
+## reads as a control that did not fire. That is the correct reading: a control
+## that cannot run has not passed. Render the profile first
+## (`tools/refprofile.py --render`, which needs Surge XT and dawdreamer) or
+## accept that these three are not covered on this host and say so.
+##
 ## TWO CONTROLS ARE DELIBERATELY NOT HERE, and both were MEASURED, not assumed:
 ##
 ##   I2S_SWAP -- no longer discriminates at the whole-chip level. i2s_tx re-reads
@@ -95,7 +102,10 @@ controls:
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_BUS_STALE --expect-fail --outdir build/top-busstale" \
 	  "$(PY) rtl-sketch/verify_synth_top.py --inject DRUM_DONE_NOWAIT --expect-fail --outdir build/top-nowait" \
 	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D01A --results build/case-detune --expect fail" \
-	  "$(PY) tools/run_case.py --inject REF_MISSING D01A --results build/case-noref --expect 'no verdict'"
+	  "$(PY) tools/run_case.py --inject REF_MISSING D01A --results build/case-noref --expect 'no verdict'" \
+	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect fail" \
+	  "$(PY) tools/run_case.py --inject REF_PROFILE_MISSING F1A --results build/case-noclip --expect 'no verdict'" \
+	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A --results build/case-badhash --expect 'no verdict'"
 
 test:
 	@$(PY) -m pytest model/ spec/ tools/ -q

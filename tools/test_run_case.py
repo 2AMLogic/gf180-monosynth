@@ -576,3 +576,194 @@ def test_written_results_are_the_shape_the_board_reads(tmp_path):
     assert back["engine"] in sb.ENGINES
     assert sb.evaluate(row, back)["state"] == before
     assert before in (sb.PASS, sb.FAIL, sb.NO_VERDICT)
+
+
+# ===========================================================================
+# Ground truth for the three FILTER estimators, on closed-form curves.
+#
+# An ideal analogue 4-pole low-pass has |H| = 1/(1+(f/fp)^2)^2, so its response
+# in dB is -40*log10(1+(f/fp)^2) and its -3 dB corner is at exactly
+# fp*sqrt(10^(3/40) - 1) = 0.4342*fp. Every answer below is that closed form.
+# None of these touches the frozen cache, so they run on a host that has never
+# seen a plugin.
+# ===========================================================================
+IDEAL_FP = 250.0
+IDEAL_CORNER = IDEAL_FP * math.sqrt(10 ** (3.0 / 40.0) - 1.0)
+
+
+def ideal_4pole_db(freqs, fp=IDEAL_FP):
+    f = np.asarray(freqs, dtype=np.float64)
+    return -40.0 * np.log10(1.0 + (f / fp) ** 2)
+
+
+def probe_freqs():
+    """The profile's own grid, so these tests exercise the same sampling the
+    measurement does rather than a denser one that hides a sampling error."""
+    import reference_compare as rcmp
+    return np.asarray(rcmp.FREQS, dtype=np.float64)
+
+
+def test_filt_corner_is_plateau_relative_and_grid_interpolated():
+    """The absolute number this estimator reports is NOT the textbook -3 dB
+    corner, and pretending otherwise is how a biased number reaches a board.
+
+    It is -3 dB below the curve's own passband plateau, interpolated on a log
+    grid whose points are 20.2 % apart. On an ideal 4-pole with a 250 Hz pole,
+    whose closed-form corner is 108.54 Hz, it reads about 125 Hz -- 15 % high.
+    This test exists to pin that bias where someone reading the board can find
+    it, not to wish it away."""
+    f = probe_freqs()
+    e = rc.filt_corner(IDEAL_FP)(f, ideal_4pole_db(f))
+    assert e.ok, e.reason
+    assert e.value == pytest.approx(124.96, rel=0.005)
+    assert e.value > IDEAL_CORNER * 1.10, "the bias is high, not low"
+
+
+def test_filt_corner_recovers_a_known_ratio_between_two_corners():
+    """The property F1A actually rests on: the bias above is COMMON MODE, so a
+    RATIO of two corners measured the same way is right even though neither
+    absolute value is the textbook one. Two ideal 4-poles an exact 25 % apart
+    must read 25 % apart."""
+    f = probe_freqs()
+    a = rc.filt_corner(IDEAL_FP)(f, ideal_4pole_db(f, IDEAL_FP))
+    b = rc.filt_corner(IDEAL_FP)(f, ideal_4pole_db(f, IDEAL_FP * 1.25))
+    assert a.ok and b.ok
+    assert b.value / a.value == pytest.approx(1.25, rel=0.05)
+
+
+def test_filt_corner_refuses_a_curve_with_no_corner_in_it():
+    """A flat response has no -3 dB point. An estimator that returned its last
+    frequency instead would put 12 kHz on the board as a cutoff."""
+    f = probe_freqs()
+    e = rc.filt_corner(IDEAL_FP)(f, np.zeros(len(f)))
+    assert not e.ok
+
+
+def test_filt_rolloff_of_an_ideal_4pole():
+    """An ideal 4-pole fitted between 2.2 and 7 times its measured corner is
+    not at its asymptotic -24 dB/oct; it is at about -18.7, and that is the
+    number a real 4-pole has to be read against."""
+    f = probe_freqs()
+    e = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f))
+    assert e.ok, e.reason
+    assert e.value == pytest.approx(-18.68, abs=0.15)
+    assert e.detail["fit_residual_db"] < 1.5
+
+
+def test_filt_rolloff_is_nearly_scale_invariant():
+    """The band is 2.2-7 times each device's OWN corner, so two filters of the
+    same shape should read the same slope wherever their corners sit. They do
+    not quite, because the corner is interpolated on a 20.2 %-spaced grid, and
+    this pins how much: over a 2:1 range of corners the slope must not move by
+    more than 1.5 dB/oct, the tolerance itself. Measured today it moves 1.2."""
+    f = probe_freqs()
+    vals = []
+    for fp in (250.0, 312.5, 500.0):
+        e = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f, fp))
+        assert e.ok, (fp, e.reason)
+        vals.append(e.value)
+    spread = max(vals) - min(vals)
+    assert spread < 1.5, vals
+    # And the part that matters for a comparison of two nearby corners: 25 %
+    # apart must cost less than a fifth of the tolerance.
+    a = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f, 250.0))
+    b = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f, 312.5))
+    assert abs(a.value - b.value) < 0.35, (a.value, b.value)
+
+
+def test_filt_rolloff_sees_a_pole_that_is_not_there():
+    """The sign the metric has power: a THREE-pole low-pass with the same
+    corner must read several dB/oct shallower. A dropped pole is the injected
+    defect `reference_compare` already carries for our own ladder, and it must
+    not come out looking like a 4-pole."""
+    f = probe_freqs()
+    fp3 = IDEAL_FP * 1.246          # about the same -3 dB corner with three poles
+    g3 = -30.0 * np.log10(1.0 + (f / fp3) ** 2)
+    four = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f))
+    three = rc.filt_rolloff(IDEAL_FP)(f, g3)
+    assert three.ok, three.reason
+    assert three.value - four.value > 3.5, (three.value, four.value)
+
+
+def test_filt_rolloff_refuses_when_the_band_is_not_a_straight_line():
+    """`slope_db_oct` refuses a fit whose RMS residual exceeds 1.5 dB, and this
+    metric must pass that refusal through rather than quote a slope anyway.
+    That refusal is what found our own ladder's quantisation floor: at -60 dBFS
+    it fired on every resonant row."""
+    f = probe_freqs()
+    g = np.maximum(ideal_4pole_db(f), -30.0)      # a knee mid-band, not a slope
+    e = rc.filt_rolloff(IDEAL_FP)(f, g)
+    assert not e.ok
+    assert "straight line" in e.reason
+
+
+def test_filt_lowband_gain_reads_a_known_offset():
+    """A gain against the SAME instrument wide open. Offset the whole curve by
+    a known -6.0 dB and the metric must read -6.0 and nothing else."""
+    f = probe_freqs()
+    g = ideal_4pole_db(f)
+    e = rc.filt_lowband_gain(IDEAL_FP, 0.0)(f, g - 6.0)
+    assert e.ok, e.reason
+    # The passband band is 40-62.5 Hz, where an ideal 4-pole with a 250 Hz fp
+    # is already a little below 0 dB; that part is the filter, not the offset.
+    assert e.value == pytest.approx(-6.0 + float(np.median(
+        g[(f >= f[0]) & (f <= max(f[0] * 2.5, IDEAL_FP * 0.25))])), abs=1e-6)
+
+
+def test_filt_lowband_gain_cancels_a_level_difference_between_instruments():
+    """The property the whole metric exists for: add 20 dB of make-up gain to
+    BOTH of one instrument's curves and nothing changes. A raw plateau in dBFS
+    would move by 20 dB and be reported as a filter difference."""
+    f = probe_freqs()
+    g = ideal_4pole_db(f)
+    a = rc.filt_lowband_gain(IDEAL_FP, 0.0)(f, g)
+    b = rc.filt_lowband_gain(IDEAL_FP, 20.0)(f, g + 20.0)
+    assert a.ok and b.ok
+    assert a.value == pytest.approx(b.value, abs=1e-9)
+
+
+# ===========================================================================
+# The filter case as the BOARD sees it, with no frozen cache on this host.
+# ===========================================================================
+def test_a_filter_case_without_the_frozen_cache_is_a_stated_no_verdict(tmp_path, monkeypatch):
+    """The normal state of most hosts in this fleet. It must be `no verdict`
+    with the reason on the record and NO `error` key -- not a zero, and not a
+    silent re-render that would quietly redefine what the reference was."""
+    import refprofile as rp
+    monkeypatch.setattr(rp, "PROFILE_JSON", tmp_path / "gone.json")
+    case = next(c for c in rc.load_cases() if c["case_id"] == "F1A")
+    res = rc.run_case(case, pathlib.Path("/nonexistent"), keep_audio=False)
+    state, _worst, _why = rc.verdict_of(case, res)
+    assert state == sb.NO_VERDICT
+    assert "REFUSED" in res["note"]
+    for m in res["metrics"].values():
+        assert m["valid"] is False
+        assert "error" not in m
+
+
+def test_the_filter_plan_never_maps_a_case_to_a_clip_the_profile_lacks():
+    """A plan naming a clip that is not in the committed profile would be a
+    no-verdict on every host forever, which reads like a capability gap."""
+    import refprofile as rp
+    real = ROOT / "refprofile" / "profile.json"
+    if not real.exists():
+        pytest.skip("no committed profile in this tree")
+    prof = json.loads(real.read_text())
+    for cid, spec in rc.FILTER_CASES.items():
+        for key in ("ref_clip", "ref_open_clip"):
+            assert spec[key] in prof["clips"], (cid, key, spec[key])
+
+
+def test_no_case_is_both_planned_and_deliberately_not_run():
+    """`plan_for` checks NOT_RUN first, so an id in both tables would be
+    silently skipped -- the case would read as deliberately not attempted while
+    a working plan for it sat right there."""
+    planned = set(rc.DRUM_CASE_VOICE) | set(rc.ENSEMBLE_CASES) | set(rc.FILTER_CASES)
+    assert not (planned & set(rc.NOT_RUN)), planned & set(rc.NOT_RUN)
+
+
+def test_every_not_run_reason_says_something():
+    """"not run" and "we forgot" must not be the same entry. A reason under a
+    sentence is the second one wearing the first one's label."""
+    for cid, why in rc.NOT_RUN.items():
+        assert len(why) > 80, (cid, why)

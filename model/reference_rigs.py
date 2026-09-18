@@ -494,18 +494,38 @@ class SurgeRig(_Plugin):
         self.set(self.I['f1_res'], res)
         return float(self.text(self.I['f1_cut']).split()[0])
 
-    def tone_gain_db(self, freqs, cut, res, amp):
-        self.set_point(cut, res)
-        x, parts = tone_train(freqs, amp, 0.06, 0.20)
+    # The stepped-tone RENDER and the projection that reads it are split so
+    # that a frozen reference profile can cache the audio itself and re-derive
+    # the curve from it later, rather than freezing a curve nobody can
+    # re-measure. `tone_gain_db` is byte-for-byte the same measurement it was;
+    # `tools/test_refprofile.py::test_tone_gain_db_equals_projection_of_tone_render`
+    # pins the two together on a closed-form signal, with no plugin involved.
+    TONE_SETTLE_S, TONE_WINDOW_S, TONE_PRE_S = 0.06, 0.20, 0.30
+
+    def tone_render(self, freqs, cut, res, amp):
+        """The stepped-tone stimulus through the filter, as audio. Returns
+        (y, parts, commanded_cutoff_readback) with `y` already trimmed of the
+        lead-in, so `parts` indexes straight into it."""
+        read = self.set_point(cut, res)
+        x, parts = tone_train(freqs, amp, self.TONE_SETTLE_S, self.TONE_WINDOW_S)
         total = (len(x) / SR) + 0.35
-        y = self.render(np.concatenate([np.zeros(int(0.30 * SR)), x]), total)
-        off = int(0.30 * SR)
+        pre = int(self.TONE_PRE_S * SR)
+        y = self.render(np.concatenate([np.zeros(pre), x]), total)
+        return y[pre:], parts, read
+
+    @staticmethod
+    def tone_project(y, parts, amp, name="tone"):
+        """dB gain at each stepped tone, by coherent projection. The only step
+        between a cached render and a response curve."""
         out = []
         for i0, nw, f in parts:
-            seg = y[off + i0: off + i0 + nw]
-            a = am.tone_amplitude(seg, f).require(f"{self.name} probe {f:.0f} Hz")
+            a = am.tone_amplitude(y[i0: i0 + nw], f).require(f"{name} probe {f:.0f} Hz")
             out.append(20 * math.log10(max(a, 1e-12) / amp))
         return np.array(out)
+
+    def tone_gain_db(self, freqs, cut, res, amp):
+        y, parts, _ = self.tone_render(freqs, cut, res, amp)
+        return self.tone_project(y, parts, amp, self.name)
 
     def ring(self, cut, res, seconds=1.2, amp=0.25):
         self.set_point(cut, res)

@@ -20,3 +20,6 @@ pnr/orfs/joined.sh
 # which is how a venv symlink got staged by `git add -A` on another branch
 .venv
 build/
+
+# the frozen reference profile: hashes and provenance are committed, audio is not
+refprofile/cache/
