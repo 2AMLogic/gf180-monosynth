@@ -22,6 +22,8 @@ Renders (48 kHz, 16-bit mono):
                              every drum soloed, simultaneous hits, the loudest combination
     06-bd-decay-short-mid-long.wav  the BD at the three DECAY presets of the reference
     07-bd-plain-then-attack-shift.wav  the BD with and without the 4 ms / 130 Hz attack window, as host writes
+    08-sd-rev6-then-rev7.wav  the snare before and after contract revision 7, three accents, A then B
+    09-groove-sd-rev6-then-rev7.wav  the 808 groove twice with only the snare changed
 """
 from __future__ import annotations
 import argparse, os, sys, wave
@@ -143,6 +145,60 @@ def bd_attack_shift():
     write_wav("07-bd-plain-then-attack-shift.wav", out)
 
 
+# The snare's three registers exactly as contract revision 6 shipped them.
+# Literals, so the A/B below keeps rendering THAT snare after the kit moves
+# again -- the same reason `model/test_drum_fit.py` pins them.
+SD_REV6 = {"amp_lo": 0.0036, "amp_hi": 0.00369, "noise_tau": 15e-3, "noise_peak": 0.5}
+
+
+def sd_kit(amp_lo: float, amp_hi: float, noise_tau: float, noise_peak: float):
+    """kit_808() with the snare's three revision-7 registers set by hand."""
+    base = {a: v for a, v in dx.kit_808()}
+    for a, v in dx.mode_writes(dx.M_SDLO, 173.0, 16.3, amp_lo):
+        base[a] = v
+    for a, v in dx.mode_writes(dx.M_SDHI, 336.0, 9.9, amp_hi):
+        base[a] = v
+    for a, v in dx.env_writes(dx.E_SDN, dx.SD, noise_tau, noise_peak):
+        base[a] = v
+    return sorted(base.items())
+
+
+def sd_before_after():
+    """The snare of contract revision 6 against the snare of revision 7, as
+    one clip a listener can A/B without touching a knob: three pairs, each
+    "before" then "after" at the same accent (1.0, 1.4, 0.6).
+
+    What to listen for, in order of size: the upper partial, 11 dB louder and
+    back where the machine puts it (that is the "front end" the T-8 review and
+    the volca workaround are both about), and the snappy burst, which now runs
+    on past the body instead of stopping under it (T20 34 ms -> 72 ms against
+    the machine's 63-78)."""
+    before, after = sd_kit(**SD_REV6), dx.kit_808()
+    step = 0.55
+    outs = []
+    for i, accent in enumerate((1.0, 1.4, 0.6)):
+        for kit in (before, after):
+            o, _ = drums_only([(int(0.02 * SR), dx.SD, accent)], step, kit=kit)
+            outs.append(o)
+    write_wav("08-sd-rev6-then-rev7.wav", np.concatenate(outs))
+
+
+def sd_groove_before_after():
+    """The same two-bar 808 groove twice, the snare the only thing that moves:
+    revision 6's snare, a bar of silence, revision 7's. Everything else --
+    kick, hats, clap, cowbell, toms, the accents, the choke -- is
+    bit-identical between the halves, so anything audible is the snare."""
+    bpm = 118.0
+    bars_s = 60.0 / bpm * 4 * 2
+    hits = dx.pattern_hits(dx.PATTERN_808, bpm=bpm, bars=2, start_s=0.05)
+    outs = []
+    for kit in (sd_kit(**SD_REV6), dx.kit_808()):
+        o, _ = drums_only(hits, bars_s + 0.6, kit=kit)
+        outs.append(o)
+        outs.append(np.zeros(int(0.35 * SR), dtype=o.dtype))
+    write_wav("09-groove-sd-rev6-then-rev7.wav", np.concatenate(outs))
+
+
 def combined(dgain: float = DVOL, suffix: str = ""):
     """The milestone render: bass (growl-bass through the integer voice) and
     drums through the one output stage, unnormalised. `dgain` is the two
@@ -194,6 +250,7 @@ def main(argv=None) -> int:
     if a.balance:
         balance(); return 0
     jobs = dict(solo=solo_renders, all=all_at_once, grooves=grooves, bd=bd_decays, bdattack=bd_attack_shift,
+                sdab=sd_before_after, sdgroove=sd_groove_before_after,
                 combined=combined, combined030=combined_030)
     for k, fn in jobs.items():
         if a.only is None or a.only == k:

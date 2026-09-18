@@ -138,7 +138,7 @@ against a real recording, where one exists.
 | # | circuit | built | a. coef | b. audio | c. hardware | note |
 |---|---|:-:|:-:|:-:|:-:|---|
 | 1 | BD bass drum | ✓ | ✓ | **red** | 3.6 | no attack window; §2 wants ≈130 Hz for 4 ms |
-| 2 | SD snare | ✓ | ✓ | ✓ | **red** 8.8 | 3 % of energy >700 Hz vs a real 51.5 % |
+| 2 | SD snare | ✓ | ✓ | ✓ | **3.4** | was 8.8; see the note under this table |
 | 3 | **LC / LT** low conga *or* low tom | ✓ | ✓ | **red** | 7.1 | have LT; no pitch drop (§4) |
 | 4 | **MC / MT** mid conga *or* mid tom | — | — | — | — | **missing** |
 | 5 | **HC / HT** hi conga *or* hi tom | ✓ | ✓ | **red** | 6.0 | have HT; no pitch drop (§4) |
@@ -196,10 +196,27 @@ every time: the volca beats' is *"not snappy enough for a decent 808
 emulation"* and users layer a clap over it, the T-8's *"loses the front end"*,
 and io-808's author names his cymbal and rimshot.
 
-**That matches our own measurement independently** — SD is our worst voice at
-8.8 knob-equivalents. So the snare leads the queue, ahead of D0. And the six
-square oscillators are not negotiable: Mutable's **Peaks** kept all six phases
-on a 72 MHz part with two voices total rather than fake them.
+**That matched our own measurement independently** — SD was our worst voice at
+8.8 knob-equivalents, so the snare led the queue, ahead of D0. **It has since
+been worked and is now 3.4**, below LT, OH and HT and just above the kick: the survey's own hazard
+(an envelope into a VCA cutting a bridged-T short) was found on the one path
+of that voice that really is one, and fixed, together with 11 dB of missing
+upper partial (`docs/drum-verification.md` §8.6, contract revision 7). What
+remains at 3.4 is not identified, and the classifier still separates the voice
+at 0.938, so the verdict stays *known defect remains* — closer, not
+indistinguishable. And the six square oscillators are not negotiable:
+Mutable's **Peaks** kept all six phases on a 72 MHz part with two voices total
+rather than fake them.
+
+> **Dated 2026-09-18: the hardware column and the three `red` audio cells
+> above are pre-revision-6 except where marked.** Re-running the full
+> discrimination study on the merged kit (same corpus, same split hash, arm
+> `ours`) gives **BD 2.5, SD 3.4, LT 6.7, OH 6.9, HT 7.2**, and the acceptance
+> suite is green on the BD attack window, both tom pitch drops and the
+> cowbell's τ = 98 ms — the three notes this table still carries as red. Only
+> the SD row has been refreshed here, because that is the row this revision
+> measured; the rest need whoever owns them to re-run rather than be edited
+> from the side (`docs/drum-verification.md` §8, §8.6).
 
 The hardware column is **knob-equivalent separation out of 10**: how far the
 real machine's own knob must travel before it looks this different from itself.

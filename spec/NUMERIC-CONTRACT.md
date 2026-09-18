@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 6 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 7 — 2026-09-18 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-monosynth voice: three band-limited oscillators with an on-chip glide, a
@@ -10,7 +10,7 @@ TR-808-shaped set of eight stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 6,
+through the two-key process this fleet uses; until then it is revision 7,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -1709,6 +1709,27 @@ record that extends this document; none may be resolved by picking a reading.
     verifies the two joined. Replacing the placeholder with `drum_kit` and
     the mix with 12's formula, and re-running `rtl-sketch/headroom_check.py`
     and the area flow on the result, is unscheduled work, not a decision.
+24. **The snare's two partials are balanced by MEASUREMENT, not from the
+    schematic** (15.7). Roland states that VR8 TONE sets "the output ratio of
+    the two" bridged-T resonators, and the reference unit at TONE 5.0 puts the
+    336 Hz partial at 1.42× the 173 Hz one — the same figure with the snappy
+    path up (1.43) and down (1.41), which is what says the quantity belongs to
+    the resonators and not to the noise. Rev 7 writes that ratio. What is
+    *not* solved is the divider that produces it: reference 3 reads IC14a's
+    output into IC14b through R191/R192 at ≈1/38 and sums the two through VR8
+    with R200 shorted by the 1983 design change, and nobody has computed the
+    resulting ratio from those values. The number is right because it was
+    measured; the circuit explanation is open.
+25. **The snappy envelope's rate is MEASURED, and disagrees with the
+    reference's RC by 2×** (15.7). Reference 3 gives the snare's noise
+    envelope as C51 0.47 µF charged through R186 33 kΩ, τ ≈ 15.5 ms — and
+    that is the **charge** path. The machine's burst measures T20 63–78 ms
+    over six files (τ ≈ 30 ms), where 15 ms gives 34 ms, so either the
+    discharge path is not R186 or Q48's VCA law stretches the envelope it
+    sees. Rev 7 writes the measured 30 ms. Reference 3's own prose already
+    says the snap is "a 30–40 ms burst", which the measurement agrees with
+    and the RC does not; which of the two mechanisms accounts for it is not
+    settled. `docs/drum-verification.md` §8.6 carries the measurement.
 
 ---
 
@@ -1756,6 +1777,24 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 7 (2026-09-18)** — the snare, from the same recordings rev 6 used
+  and by the same validated separator. **A PINNED TABLE CHANGES AGAIN:
+  Appendix G (KIT808) moves, and only it.** No other hash moves; no width,
+  bus, clamp or formula changes; the write COUNT is unchanged at 100. Three
+  values move inside it:
+  - **The two body modes' amplitude ratio** becomes the machine's measured
+    1.42 (upper over lower, +3.0 dB at TONE 5.0) where rev 6 shipped 0.394
+    (−8.1 dB): 11 dB of the snare's upper partial was missing. The pair is
+    scaled together so the voice's peak is unchanged at 0.46 FS (17.24).
+  - **The snappy envelope's rate** becomes the measured τ = 30 ms where rev 6
+    shipped reference 3's RC of 15 ms; the burst's T20 goes 34 → 72 ms
+    against the machine's 63–78 (17.25).
+  - **The snappy envelope's peak** falls to 0.3046, which holds the noise
+    share at the machine's 27.7 % now that the rate is longer. Rev 6's band
+    and numerator are untouched and still measure right.
+  Rev 6's `06f47f30…b869914a` is kept in `spec/reference/test_tables.py` as
+  the literal it stated, so the second move of this table is as visible as
+  the first. Open items 24–25 added. Not ratified.
 - **Rev 6 (2026-09-18)** — the drum section measured against a real TR-808
   (`docs/drum-verification.md`), and three faults fixed. **A PINNED TABLE
   CHANGES: Appendix G (KIT808) is
@@ -2004,8 +2043,8 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 | 0xC1 | 0x324D110 | MODE_A2[0] | | 0x49 | 0x400000 | ENV_PEAK[2] |
 | 0xC2 | 0x0 | MODE_AMP[0] | | 0x4A | 0x3025 | ENV_RATE[2] |
 | 0xC3 | 0x1 | MODE_NUM[0] | | 0x4C | 0xF1 | ENV_CTL[3] |
-| 0xC4 | 0xDA1B85 | MODE_A1[1] | | 0x4D | 0x800000 | ENV_PEAK[3] |
-| 0xC5 | 0x355D5AE | MODE_A2[1] | | 0x4E | 0x5B | ENV_RATE[3] |
+| 0xC4 | 0xDA1B85 | MODE_A1[1] | | 0x4D | 0x4DFA44 | ENV_PEAK[3] |
+| 0xC5 | 0x355D5AE | MODE_A2[1] | | 0x4E | 0x2D | ENV_RATE[3] |
 | 0xC6 | 0x7333 | MODE_AMP[1] | | 0x50 | 0xF2 | ENV_CTL[4] |
 | 0xC7 | 0x2 | MODE_NUM[1] | | 0x51 | 0x400000 | ENV_PEAK[4] |
 | 0xC8 | 0xECC30 | MODE_A1[2] | | 0x52 | 0x3025 | ENV_RATE[4] |
@@ -2030,11 +2069,11 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 | 0xDB | 0x0 | MODE_NUM[6] | | 0x6C | 0xF7 | ENV_CTL[11] |
 | 0xDC | 0x1FF8366 | MODE_A1[7] | | 0x6D | 0x800000 | ENV_PEAK[11] |
 | 0xDD | 0x3005AFC | MODE_A2[7] | | 0x6E | 0xE | ENV_RATE[11] |
-| 0xDE | 0xEC | MODE_AMP[7] | | 0x80 | 0x181C03 | PATH[0] |
+| 0xDE | 0xAF | MODE_AMP[7] | | 0x80 | 0x181C03 | PATH[0] |
 | 0xDF | 0x0 | MODE_NUM[7] | | 0x81 | 0x3C1C23 | PATH[1] |
 | 0xE0 | 0x1FE5EB2 | MODE_A1[8] | | 0x82 | 0x1C1C43 | PATH[2] |
 | 0xE1 | 0x3012282 | MODE_A2[8] | | 0x83 | 0x201C43 | PATH[3] |
-| 0xE2 | 0xF2 | MODE_AMP[8] | | 0x84 | 0xC1C61 | PATH[4] |
+| 0xE2 | 0x245 | MODE_AMP[8] | | 0x84 | 0xC1C61 | PATH[4] |
 | 0xE3 | 0x0 | MODE_NUM[8] | | 0x85 | 0x241C83 | PATH[5] |
 | 0xE4 | 0x1FFD807 | MODE_A1[9] | | 0x86 | 0x281CA3 | PATH[6] |
 | 0xE5 | 0x3001EE0 | MODE_A2[9] | | 0x87 | 0x1DE2 | PATH[7] |
@@ -2045,6 +2084,6 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 | 0xEA | 0x42C | MODE_AMP[10] | | 0x8C | 0x143749 | PATH[12] |
 | 0xEB | 0x0 | MODE_NUM[10] | | 0x8D | 0x14374A | PATH[13] |
 
-SHA-256 of the 100 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `06f47f307efbd44317e2aa0fcba99cba96f7cf747cdeffdc6c471b94b869914a`
+SHA-256 of the 100 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `7ea9a2e3ae152f3aa7e65ad33b43b154aa8c513105ccde0f2bc6605ee6ae6ec4`
 
 <!-- END GENERATED APPENDICES -->

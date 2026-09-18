@@ -358,7 +358,7 @@ locks it.
 | `spec/NUMERIC-CONTRACT.md` | The voice and the drum section as a numeric contract, revision 6, **proposed, not ratified**: every per-sample operation, the seven tables pinned by SHA-256, and the open items. `spec/reference/gen_tables.py --check` fails if any table or hash stops being the model's |
 | `spec/decision-records/` | Why things are the way they are: the filter model (0001), the product (0002), note-on semantics (0003), glide (0004), gain structure (0005), resonance compensation (0006), the control interface (0007), the drum section on the modal bank (0008), the bass drum's frequency (0009), one gate per oscillator (0010) — all proposed |
 | `docs/tr808-reference.md` | The TR-808's circuits, per voice, with every claim tagged — what the drum section is built from |
-| `docs/drum-verification.md` | The drum section measured against a real TR-808 (serial 103852), and what that comparison changed. **Read section 8 first**: it withdraws one measurement method and the three headline numbers that rested on it |
+| `docs/drum-verification.md` | The drum section measured against a real TR-808 (serial 103852), and what that comparison changed. **Read sections 8 and 9 first**: §8 withdraws one measurement method and the three headline numbers that rested on it, §8.6 fixes the snare's snappy burst and partial balance (contract rev 7, knob-equivalent 7.6 → 5.0), and §9 classifies every acceptance failure PR #14 was reported with — none of them a live defect |
 
 ## Playing it
 

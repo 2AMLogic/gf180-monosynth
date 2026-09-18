@@ -527,6 +527,21 @@ def band_share(x: np.ndarray, sr: int, f1: float, f2: float) -> float:
     return float(X[(f >= f1) & (f < f2)].sum() / tot) if tot > 0 else 0.0
 
 
+def partial_ratio(x: np.ndarray, sr: int, t1: float = 0.060) -> float:
+    """Energy of the snare's upper bridged-T partial over its lower one, over
+    the first `t1` from onset where both are alive.
+
+    This is what VR8 TONE moves. It is a RATIO of two narrow bands of one
+    clip, so the window it is measured through cancels; what does not cancel
+    is measuring it over a span long enough for the fast partial to be gone,
+    which is why t1 is 60 ms and stated.
+    """
+    seg = np.asarray(x, float)[:int(t1 * sr)]
+    X = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
+    f = np.fft.rfftfreq(len(seg), 1.0 / sr)
+    return float(X[(f >= 260) & (f < 430)].sum() / max(X[(f >= 130) & (f < 230)].sum(), 1e-20))
+
+
 def fit_laws(refdir: str) -> dict:
     """Measure the real machine at FIT_KNOBS only and return the laws.
 
@@ -560,15 +575,34 @@ def fit_laws(refdir: str) -> dict:
     laws["_meas.BD.decay_tau"] = taus
     laws["_meas.BD.tone_click"] = clicks
 
-    # --- SD: TONE -> body tau; SNAPPY -> noise share above 700 Hz ---
-    taus, shares = [], []
+    # --- SD: TONE -> the two partials' RATIO; SNAPPY -> noise share ---
+    #
+    # TONE WAS READ WRONG UNTIL 2026-09-18, and the error is the same family as
+    # every other one in this voice's history: a single tau fitted to a sum of
+    # two modes that decay at different rates. `measure_tau` returns 28.5 /
+    # 27.4 / 13.6 ms across TONE, and the earlier law wrote that tau into BOTH
+    # body modes -- which made our upper partial ring three times too long and
+    # left the balance, the thing the knob actually moves, fixed.
+    #
+    # Fitted separately, the machine's two modes are 29-39 ms and 5-11 ms at
+    # every TONE position and their RATIO moves 0.0015 -> 2.205, a span of
+    # 31.7 dB. It is the same ratio with the snappy path up and down, which is
+    # what says it belongs to the resonators. Roland says so too: "The output
+    # ratio of the two can be changed by VR8 (TONE)" (SN p.6).
+    #
+    # `SD.tone_tau` is still measured, and still reported, as the record of
+    # the withdrawn law; nothing writes it into a mode any more.
+    taus, shares, ratios = [], [], []
     for k in FIT_KNOBS:
         x, sr = ref("SD", (k, 0.0))          # SNAPPY 0: the body alone
         taus.append(measure_tau(x, sr))
+        ratios.append(partial_ratio(x, sr))
         x, sr = ref("SD", (5.0, k))
         shares.append(band_share(x, sr, 700.0, 20000.0))
-    laws["SD.tone_tau"] = fit_quad(FIT_KNOBS, taus, "log")
+    laws["SD.tone_ratio"] = fit_quad(FIT_KNOBS, ratios, "log")
+    laws["SD.tone_tau"] = fit_quad(FIT_KNOBS, taus, "log")       # withdrawn; reported only
     laws["SD.snappy_share"] = fit_quad(FIT_KNOBS, shares, "logit")
+    laws["_meas.SD.tone_ratio"] = ratios
     laws["_meas.SD.tone_tau"] = taus
     laws["_meas.SD.snappy_share"] = shares
 
@@ -614,7 +648,10 @@ ARM_VOICES = {
 }
 
 ARM_DOC = {
-    "ours": "kit_808() as it stands on the rendered commit, with the fitted knob law.",
+    "ours": "kit_808() as it stands on the rendered commit, with the fitted knob law: "
+            "SD TONE as the two partials' amplitude ratio (contract rev 7), SD SNAPPY as "
+            "the noise share, BD DECAY as the body tau, BD TONE as the click, tom TUNING "
+            "as f0 and OH DECAY as the envelope tau.",
     "docfix": "the same, plus the fixes docs/drum-verification.md prescribes: BD f0 50.0 Hz "
               "and the 130 Hz/4 ms attack window, SD noise raised to the machine's share, "
               "CB band-pass 1100 Hz Q 2.8 with a 98 ms tail and each oscillator gated "
@@ -673,12 +710,18 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
         set_env(dx.E_BDCLICK, dx.BD, 0.0, _bd_click_peak(laws["BD.tone_click"](tone)), hold=48)
     elif voice == "SD":
         tone, snappy = knobs
-        tau = laws["SD.tone_tau"](tone)
-        set_mode(dx.M_SDLO, 173.0, math.pi * 173.0 * tau)
-        set_mode(dx.M_SDHI, 336.0, math.pi * 336.0 * tau)
+        # TONE moves the upper partial's LEVEL, not either mode's decay: the
+        # two Q registers stay exactly as the kit writes them (the circuit's),
+        # and one amp register carries the knob.
+        q_hi = _mode_q_from_regs(base[dx.A_MODE + dx.M_SDHI * dx.MODE_STRIDE],
+                                 base[dx.A_MODE + dx.M_SDHI * dx.MODE_STRIDE + 1], 336.0)
+        set_mode(dx.M_SDHI, 336.0, q_hi, _sd_partial_amp(laws["SD.tone_ratio"](tone)))
         share = laws["SD.snappy_share"](snappy)
         trim = {"deg_snappy6": 10 ** (-6 / 20.0), "deg_snappy12": 10 ** (-12 / 20.0)}.get(arm, 1.0)
-        set_env(dx.E_SDN, dx.SD, 15e-3, trim * _sd_noise_peak(share, arm))
+        # the kit's own snappy rate, not a literal: revision 7 measured it
+        set_env(dx.E_SDN, dx.SD,
+                _env_tau_from_reg(base[dx.A_ENV + dx.E_SDN * dx.ENV_STRIDE + 2]),
+                trim * _sd_noise_peak(share, arm))
     elif voice in ("LT", "HT"):
         f0 = laws[f"{voice}.tuning_f0"](knobs[0])
         m = dx.M_LT if voice == "LT" else dx.M_HT
@@ -726,9 +769,14 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
                     choke=dx.CH if e == dx.E_OH else 15)
     elif arm in ("deg_qcoarse", "deg_q6bit", "deg_q5bit"):
         bits = {"deg_qcoarse": 4, "deg_q6bit": 6, "deg_q5bit": 5}[arm]
+        # f0 and Q are read back from the KIT, never re-typed here: `M_SDHP`
+        # and the cowbell's 900 Hz / Q 4 were both re-typed, and both went
+        # stale at contract revision 6 -- the first into an AttributeError
+        # that would have crashed this positive control the moment it ran.
         for m, f0, q, num in ((dx.M_HATBP, 7117.0, 6.0, dx.BP), (dx.M_OHHP, 7800.0, 2.5, dx.HP),
-                              (dx.M_CHHP, 11700.0, 2.5, dx.HP), (dx.M_SDHP, 2750.0, 0.7, dx.HP),
-                              (dx.M_CPBP, 1071.0, 1.6, dx.BP), (dx.M_CBBP, 900.0, 4.0, dx.BP)):
+                              (dx.M_CHHP, 11700.0, 2.5, dx.HP), (dx.M_SDN, 2750.0, 0.7, dx.BP),
+                              (dx.M_CPBP, 1071.0, 1.6, dx.BP), (dx.M_CBBP, 1100.0, 2.8, dx.BP)):
+            num = base[dx.A_MODE + m * dx.MODE_STRIDE + 3]
             set_mode(m, _quantise_f0(f0, bits), q, get_mode_amp(m), num)
 
     return sorted(base.items())
@@ -765,11 +813,23 @@ def _calibrate():
     for name, stop, env, meas in (("sd", dx.SD, dx.E_SDN, None), ("bd", dx.BD, dx.E_BDCLICK, None)):
         pass
     # SD: body power with the noise off, noise power at a reference peak.
-    x0, sr = _render_raw(dx.SD, _override(dx.env_writes(dx.E_SDN, dx.SD, 15e-3, 0.0)))
-    x1, _ = _render_raw(dx.SD, _override(dx.env_writes(dx.E_SDN, dx.SD, 15e-3, 0.5)))
+    # BOTH renders use the KIT's own snappy rate. Calibrating at a literal
+    # 15 ms while the kit runs at the measured 30 ms would leave every solved
+    # peak sqrt(2) high -- the noise power a peak buys is proportional to the
+    # envelope's time constant, so the calibration and the render have to
+    # agree about it.
+    sd_tau = _env_tau_from_reg({a: v for a, v in dx.kit_808()}
+                               [dx.A_ENV + dx.E_SDN * dx.ENV_STRIDE + 2])
+    x0, sr = _render_raw(dx.SD, _override(dx.env_writes(dx.E_SDN, dx.SD, sd_tau, 0.0)))
+    x1, _ = _render_raw(dx.SD, _override(dx.env_writes(dx.E_SDN, dx.SD, sd_tau, 0.5)))
     b = band_share(x0, sr, 0.0, 700.0) * float((x0 ** 2).sum())
     n = max(1e-12, band_share(x1, sr, 700.0, 20000.0) * float((x1 ** 2).sum()))
     _CAL["sd"] = (b, n, 0.5)
+    # SD TONE: the rendered partial ratio at the kit's own upper-mode amp.
+    # The ratio is quadratic in that amp, so one render fixes the whole law.
+    _CAL["sd_tone"] = (partial_ratio(x0, sr),
+                       {a: v for a, v in dx.kit_808()}[dx.A_MODE + dx.M_SDHI * dx.MODE_STRIDE + 2]
+                       / 65536.0)
     # BD: same, for the click above 300 Hz in the first 10 ms.
     y0, sr = _render_raw(dx.BD, _override(dx.env_writes(dx.E_BDCLICK, dx.BD, 0.0, 0.0, hold=48)))
     y1, _ = _render_raw(dx.BD, _override(dx.env_writes(dx.E_BDCLICK, dx.BD, 0.0, 0.06, hold=48)))
@@ -786,6 +846,14 @@ def _sd_noise_peak(target_share: float, arm: str = "ours") -> float:
     if s <= 0:
         return 0.0
     return float(min(1.0, p0 * math.sqrt(s / (1 - s) * b / n)))
+
+
+def _sd_partial_amp(target_ratio: float) -> float:
+    """M_SDHI's amp that puts the two partials at `target_ratio`. Power is
+    quadratic in the amp, so this is exact in level given one calibration
+    render, the same closed form the two envelope peaks use."""
+    ratio0, amp0 = _calibrate()["sd_tone"]
+    return float(min(1.0, amp0 * math.sqrt(max(target_ratio, 1e-12) / max(ratio0, 1e-12))))
 
 
 def _bd_click_peak(target_share: float) -> float:
@@ -1427,6 +1495,43 @@ def test_test_knobs_are_never_fit_knobs():
     assert Clip("BD", (0.0, 5.0), "real").experiment == EXP_SOUND_MATCHING
     assert Clip("BD", (7.5, 5.0), "real").experiment == EXP_EMULATION
     assert not Clip("CB", (), "real").is_test     # no knob -> no emulation verdict
+
+
+def test_a_single_tau_on_two_modes_reads_a_balance_change_as_a_decay_change():
+    """GROUND TRUTH for the SD TONE law, and the control for the one it
+    replaced. Two damped sinusoids at 173 and 336 Hz whose decays are FIXED at
+    30 and 9.7 ms -- the machine's, fitted separately -- and whose amplitude
+    ratio is set to the machine's own 0.48 / 1.43 / 10.1 at TONE 0 / 5 / 10.
+
+    Nothing in this construction decays differently at the three settings. Fit
+    ONE exponential to the sum and it reports 30.1 / 28.8 / 11.4 ms, which is
+    the 28.5 / 27.4 / 13.6 ms the withdrawn law read off the machine and wrote
+    into BOTH of our body modes. So that law's whole content is reproduced by
+    a balance change with fixed decays, and `partial_ratio` recovers the
+    balance monotonically over the same sweep.
+
+    Constructed, so both answers are known in advance. If `measure_tau` ever
+    stops collapsing here, the diagnosis in contract 17.24 is wrong."""
+    sr = 44100
+    t = np.arange(int(0.30 * sr)) / sr
+    taus, ratios = [], []
+    for a_hi in (0.48, 1.43, 10.1):                  # the machine at TONE 0 / 5 / 10
+        x = (np.exp(-t / 0.030) * np.cos(2 * np.pi * 173.0 * t)
+             + a_hi * np.exp(-t / 0.0097) * np.cos(2 * np.pi * 336.0 * t))
+        taus.append(measure_tau(x, sr))
+        ratios.append(partial_ratio(x, sr))
+    assert taus[0] > taus[-1] * 2.0, (
+        f"the single-tau fit did not collapse: {[round(v * 1e3, 1) for v in taus]} ms -- "
+        f"then it is not the artefact the SD TONE law was withdrawn for")
+    assert abs(taus[0] / 0.030 - 1) < 0.10, (
+        f"with the upper partial low the fit should read the lower mode's own 30 ms, "
+        f"not {taus[0] * 1e3:.1f} ms")
+    # the machine measures 28.5 / 27.4 / 13.6; the construction must land near it
+    for got, machine in zip(taus, (0.0285, 0.0274, 0.0136)):
+        assert abs(got - machine) < 0.005, \
+            f"construction {got*1e3:.1f} ms against the machine's {machine*1e3:.1f} ms"
+    assert ratios == sorted(ratios) and ratios[-1] / ratios[0] > 100, \
+        f"partial_ratio did not track the balance: {[round(v, 4) for v in ratios]}"
 
 
 def test_law_interpolates_its_three_fit_points():

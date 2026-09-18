@@ -34,8 +34,11 @@ REV5 = {
 # KIT808 as revision 5 stated it, kept so the change is a visible fact and not
 # an edited literal. Revision 6 refitted the kit to the reference recording.
 KIT808_REV5 = "819ef081eca2aaff17c8f63d9653ee8d62dc69a6f6e48b08082161b8db66b3dc"
-REV6 = {
-    "KIT808":        "06f47f307efbd44317e2aa0fcba99cba96f7cf747cdeffdc6c471b94b869914a",
+# ... and as revision 6 stated it. Revision 7 moved it a second time: the
+# snare's partial balance and snappy rate, both measured on the same machine.
+KIT808_REV6 = "06f47f307efbd44317e2aa0fcba99cba96f7cf747cdeffdc6c471b94b869914a"
+REV7 = {
+    "KIT808":        "7ea9a2e3ae152f3aa7e65ad33b43b154aa8c513105ccde0f2bc6605ee6ae6ec4",
 }
 
 
@@ -51,20 +54,22 @@ def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
     assert {k: got[k] for k in REV3} == REV3
     assert {k: got[k] for k in REV5} == REV5
-    assert {k: got[k] for k in REV6} == REV6
-    assert set(got) == set(REV3) | set(REV5) | set(REV6)
+    assert {k: got[k] for k in REV7} == REV7
+    assert set(got) == set(REV3) | set(REV5) | set(REV7)
 
 
 def test_the_only_hash_that_ever_moved_is_the_kits():
-    """Loudly, because a pinned table changed: KIT808 is NOT what revision 5
-    pinned, and every other table in the contract's history still is. If this
+    """Loudly, because a pinned table has now moved TWICE: KIT808 is not what
+    revision 5 pinned and not what revision 6 pinned, and every other table in
+    the contract's history still is what revision 1 or 3 or 5 pinned. If this
     test ever needs a second entry, a second pinned table has moved and that
     needs its own revision and its own paragraph."""
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
-    was = {**REV3, **REV5, "KIT808": KIT808_REV5}
-    moved = sorted(k for k, v in was.items() if got[k] != v)
-    assert moved == ["KIT808"], moved
-    assert got["KIT808"] == REV6["KIT808"]
+    for stated, rev in ((KIT808_REV5, 5), (KIT808_REV6, 6)):
+        was = {**REV3, **REV5, "KIT808": stated}
+        moved = sorted(k for k, v in was.items() if got[k] != v)
+        assert moved == ["KIT808"], f"against revision {rev}'s pins: {moved}"
+    assert got["KIT808"] == REV7["KIT808"]
 
 
 def test_spot_values_the_contract_quotes():

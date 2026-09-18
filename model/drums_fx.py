@@ -577,8 +577,16 @@ def kit_808() -> list:
                                                              # component-value f0 and its own Q table),
                                                              # not the chart's 56 Hz -- DR 0009; two
                                                              # sample sets corroborate at 48.8-51.6 Hz
-    w += mode_writes(M_SDLO, 173.0, 16.3, 0.0036, RAW)        # SD low, later units, reference 3
-    w += mode_writes(M_SDHI, 336.0, 9.9, 0.00369, RAW)         # SD high; TONE = this pair's ratio
+    w += mode_writes(M_SDLO, 173.0, 16.3, 0.002673, RAW)      # SD low, later units, reference 3
+    w += mode_writes(M_SDHI, 336.0, 9.9, 0.008865, RAW)        # SD high; TONE = this pair's ratio, and
+                                                             # the RATIO here is MEASURED (17.24): the
+                                                             # machine at TONE 5.0 puts the upper partial
+                                                             # 1.42x the lower (+3.0 dB), on both the
+                                                             # SNAPPY-up and SNAPPY-down file. Rev 6
+                                                             # shipped 0.394 (-8.1 dB) -- 11 dB of the
+                                                             # snare's front end missing. The pair is
+                                                             # then scaled together to the kit's own
+                                                             # peak, which is unchanged at 0.46 FS.
     w += mode_writes(M_LT, 90.0, 25.0, 0.0078319, RAW)          # LT, reference 4
     w += mode_writes(M_HT, 185.0, 25.0, 0.0162904, RAW)         # HT, reference 4
     # envelopes: the pulse-shaper's kick is a 0.1 ms exponential (reference 2, "what to implement");
@@ -587,7 +595,13 @@ def kit_808() -> list:
     w += env_writes(E_BDX, BD, 0.1e-3, 0.25)
     w += env_writes(E_BDCLICK, BD, 0.0, 0.06, hold=48)       # the 1 ms pulse leaking through, reference 2
     w += env_writes(E_SDX, SD, 0.1e-3, 0.25)
-    w += env_writes(E_SDN, SD, 15e-3, 0.5)                   # SNAPPY = this peak x M_SDN's amp, reference 3
+    w += env_writes(E_SDN, SD, 30e-3, 0.3046)                # SNAPPY = this peak x M_SDN's amp, reference 3.
+                                                             # The RATE is MEASURED (17.25): the machine's
+                                                             # snappy burst measures T20 63-78 ms over six
+                                                             # files; reference 3's 15 ms is R186 x C51,
+                                                             # the CHARGE path, and gives 34 ms. The peak
+                                                             # holds the noise share at the machine's
+                                                             # 27.7 % with the new rate.
     w += env_writes(E_LTX, LT, 0.1e-3, 0.25)
     w += env_writes(E_HTX, HT, 0.1e-3, 0.25)
     w += env_writes(E_CH, CH, 20e-3, 1.0)                    # reference 11

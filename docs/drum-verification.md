@@ -687,3 +687,257 @@ Beyond §7's list, which stands:
 *Measured 2026-09-18 against `sounds-tr808-fischer` @ `85fbecf`, renders from
 `model/drums_fx.py` at contract revision 6. Script: `model/drum_fit.py`,
 validated by `model/test_drum_fit.py`.*
+
+---
+
+## 8.6 SD again — the burst's LENGTH and the partials' BALANCE (contract rev 7)
+
+§8.1 fixed the snare's noise **band** and its **level**, and both still
+measure right. This section is about the two quantities it did not touch. It
+takes nothing from the withdrawn whole-span Hann split: the "3 % above 700 Hz
+against a real machine's 51.5 %" that issue #26 quotes is *both halves* of
+that artefact and is not used here, and re-measured honestly (rectangular
+250 ms window from onset) ours was **29.4 %** against the machine's **32.3 %**
+before any of the changes below.
+
+### The two findings
+
+| | ours, rev 6 | the machine, TONE 5.0 / SNAPPY 5.0 | ours, rev 7 |
+|---|---:|---:|---:|
+| snappy burst, T20 | **34.2 ms** | **69.3 ms** | 71.8 ms |
+| upper partial over lower, a(336)/a(173) | **0.394 (−8.1 dB)** | **1.43 (+3.1 dB)** | 1.42 (+3.0 dB) |
+| noise share (validated separator) | 30.9 % | 34.5 % | 28.0 % |
+| body modes τ, low / high | 30.1 / 12.6 ms | 31.9 / 9.7 ms | 30.1 / 11.5 ms |
+| noise band %, 0.7–1.5 / 1.5–3 / 3–5 / 5–8 / 8–12 / 12–16 k | 3.1 / 22.1 / 35.9 / 25.2 / 10.4 / 3.2 | 2.3 / 22.8 / 36.0 / 25.4 / 10.4 / 3.0 | unchanged |
+
+**The burst.** The snappy envelope is the one part of this voice that really
+is `docs/reduced-808-precedent.md`'s named hazard — an envelope into a VCA,
+the volca beats' shortcut, "cut out digitally because the decay of the
+bridged t-network would be too long". Here it was cut to half the machine's.
+The bridged-T side is innocent: our two body modes already ring at the
+machine's rates, which is the *opposite* of the cowbell's τ 26 ms against 98.
+
+Measured as T20 of a **short-time RMS** (3 ms) of the hit band-limited to
+1.5–8 kHz — a broadband voice, so an RMS envelope and not the analytic one —
+per hit, from its own peak:
+
+| file | TONE | SNAPPY | T20 | fitted τ | R² |
+|---|---:|---:|---:|---:|---:|
+| SD2550 | 2.5 | 5.0 | 63.2 ms | — | fit runs into the floor |
+| SD5050 | 5.0 | 5.0 | 69.3 ms | — | 0.34 |
+| SD5075 | 5.0 | 7.5 | 67.5 ms | — | 0.47 |
+| SD7550 | 7.5 | 5.0 | 67.6 ms | **29.1 ms** | 0.98 |
+| SD1050 | 10.0 | 5.0 | 67.4 ms | **30.0 ms** | 0.98 |
+| SD5010 | 5.0 | 10.0 | 77.9 ms | **34.2 ms** | 0.99 |
+
+T20 is the robust column and the one asserted; the fitted τ is quoted only
+where the noise stands far enough above the 16-bit floor for the fit to mean
+anything (R² ≥ 0.97), and those three agree with it. **τ ≈ 30 ms**, where
+`tr808-reference.md` §3 infers 15.5 ms from R186 × C51 — which is the
+**charge** path. §3's own prose already says the snap is "a 30–40 ms burst",
+which the measurement agrees with and the RC does not. Contract 17.25 records
+that we have not established whether the discharge path is a different
+resistance or whether Q48's VCA law stretches the envelope.
+
+**The balance.** Roland: "The output ratio of the two can be changed by VR8
+(TONE)" (SN p.6). At the 12 o'clock condition every preset in `kit_808()`
+claims, the machine puts the 336 Hz partial at **1.43×** the 173 Hz one with
+the snappy path up and **1.41×** with it down — the same number, which is
+what says the quantity belongs to the resonators and not to the noise. Rev 6
+shipped **0.394**. Eleven decibels of the snare's upper partial were missing,
+and that partial is what a listener calls the snare's front end — the thing
+the T-8 review says you lose when you push the decay, and the thing the volca
+workaround restores by layering a clap.
+
+One methods note, because this voice's history earns it. The fitted partial
+amplitudes depend on where the analysed window starts: hand `noise_share` a
+render that begins exactly at the onset and it returns 0.505 for revision 6's
+snare, hand it one with a few ms of silence in front — as every reference WAV
+has, and as `trim_onset` then removes — and it returns 0.394, because the
+optimiser lands in a different amplitude/phase trade-off for the fast mode.
+**0.394 is the figure quoted throughout**, measured the same way on both
+sides: leading silence present, `trim_onset` applied, 250 ms window. The gap
+to the machine is 11.1 dB either way, but the two numbers are not
+interchangeable and the acceptance test states which one it makes.
+
+### The TONE law was read wrong, and that is half of the SD 8.8
+
+`docs/discrimination.md` tabulated **SD TONE → "body ring, *not* pitch",
+28.5 / 27.4 / 13.6 ms**. That is the fifth instance of this voice's recurring
+error and the third of one family: **a single τ fitted to a sum of two modes
+that decay at different rates.** Fitted separately, the machine's two modes
+are 29–39 ms and 5–11 ms at *every* TONE position, and what moves across the
+knob is their ratio — 0.0015 → 2.205 in energy, **31.7 dB**.
+
+Constructed so the truth is exact — two damped sinusoids with decays **fixed**
+at 30 and 9.7 ms and the amplitude ratio set to the machine's own 0.48 / 1.43
+/ 10.1:
+
+| a(336)/a(173) | one-τ fit of the sum | the machine measured |
+|---:|---:|---:|
+| 0.48 (TONE 0) | 30.1 ms | 28.5 ms |
+| 1.43 (TONE 5) | 28.8 ms | 27.4 ms |
+| 10.1 (TONE 10) | **11.4 ms** | 13.6 ms |
+
+The whole of the old law is reproduced by a balance change with nothing
+decaying differently. It is now
+`test_discrimination.test_a_single_tau_on_two_modes_reads_a_balance_change_as_a_decay_change`,
+and it matters beyond bookkeeping: the study's `kit_at` wrote that τ into
+**both** of our body modes, so at every knob position our upper partial rang
+up to three times too long while the balance — the thing the knob moves — sat
+still. The discrimination study was driving our snare wrongly, so part of the
+distance it reported was its own.
+
+### What it is worth, on the study's own yardstick
+
+Knob-equivalent separation: how far the machine's own knob must travel before
+it looks this different from itself.
+
+**The full study, run twice — once on `drums` as PR #14 has it, once on this
+branch — same corpus, same split hash, same estimator, one arm (`ours`):**
+
+| voice | PR #14 (rev 6) | this branch (rev 7) |
+|---|---:|---:|
+| **SD** | dist 26.0, **knob-equiv 7.6**, acc 1.000 | dist 18.4, **knob-equiv 3.4**, acc **0.938** |
+| BD | dist 17.2, 2.5 | dist 17.2, 2.5 |
+| LT | dist 30.9, 6.7 | dist 30.9, 6.7 |
+| OH | dist 28.8, 6.9 | dist 28.8, 6.9 |
+| HT | dist 32.0, 7.2 | dist 32.0, 7.2 |
+
+Every other voice's distance is identical to the digit, which is the control
+that says these changes touched the snare and nothing else. **The snare stops
+being our worst voice**: at 3.4 it sits below LT, OH and HT and just above the
+kick, where it was above all four. Its balanced accuracy comes off the ceiling
+for the first time on this voice. (The bass drum's *accuracy* moves too,
+1.000 → 0.844, although its distance does not: one classifier is fitted over
+all the voices at once, so a voice that stops being trivially separable
+changes the fit the others are scored under. The distance, which is what the
+knob-equivalent is read off, is unmoved.)
+
+**Note the baseline.** `docs/discrimination.md` publishes **SD 8.8**, and that
+scorecard describes the *pre*-revision-6 kit; revision 6's band and level fix
+had already moved it to 7.6 before this section began. 8.8 → 7.6 → 3.4.
+
+Separating the two fixes needs an SD-only run (the z-space is built from the
+clips in the run, so its distances are on their own scale and only
+within-run comparisons are meaningful):
+
+| arm, SD-only run | feature distance | knob-equivalent |
+|---|---:|---:|
+| the kit and law as PR #14 has them | 26.0 | 7.6 |
+| kit fixed only (balance + burst) | 22.5 | 5.0 |
+| law fixed only (TONE as the ratio) | 23.1 | 5.0 |
+| **both** | **18.4** | **3.4** |
+
+Neither fix is redundant and neither is the whole of it, and each alone is
+worth about the same.
+
+Two honest limits. The classifier still separates the snare at 1.000 on the
+full run, so the verdict stays *known defect remains* — 5.0 is "closer", not
+"indistinguishable", and this is a screening result about these evaluators,
+not a listening test. What is left at 3.4 has not been identified; the effect
+sizes after the fix are spread thinly across the mid bands and the late
+segments rather than concentrated anywhere, which is what a residue looks
+like rather than a sixth defect. And the study's per-voice percentage diagnostics
+(`share_mid +38290 %`) are ratios against near-zero denominators at the
+held-out SNAPPY positions; they are not a fourteen-thousand-fold error and
+should not be read as one.
+
+### What changed in the kit, and what did not
+
+| | rev 6 | rev 7 | authority |
+|---|---|---|---|
+| SD upper partial amp | 0.00369 (ratio 0.394) | **0.008865** (ratio 1.42) | measured, 17.24 |
+| SD lower partial amp | 0.0036 | **0.002673** | the pair scaled to hold the kit's 0.46 FS peak |
+| SD snappy rate | τ 15 ms (§3's RC) | **τ 30 ms** (measured) | measured, 17.25 |
+| SD snappy peak | 0.5 | **0.3046** | holds the machine's 27.7 % share at the new rate |
+| SD snappy filter | BP 2750 Hz Q 0.7 | **unchanged** | rev 6's band still measures right |
+| SD body τ | 30.1 / 12.6 ms | **unchanged** | already the machine's |
+| everything else in the kit | | **unchanged** | |
+
+*Measured 2026-09-18 against `sounds-tr808-fischer` @ `85fbecf`, renders from
+`model/drums_fx.py` at contract revisions 6 and 7. Scripts: `model/drum_fit.py`
+and `model/test_808_acceptance.py`'s `sd_noise_t20` / `sd_partial_amps`, each
+with an injected-defect control that must reject the revision-6 value. Audio:
+`model/drums_fx_render.py --only sdab` and `--only sdgroove`.*
+
+---
+
+## 9. PR #14's acceptance failures, classified
+
+PR #14 was reported as carrying "14 acceptance failures". Reproduced, they are
+what `main`'s copy of `model/test_808_acceptance.py` does when it is run
+against the drum model on the `drums` branch — which is the comparison CI
+could not make, because the suite lives on one branch and the model it
+measures lives on the other. Exactly:
+
+```sh
+git show origin/main:model/test_808_acceptance.py > model/_mainacc_tmp.py
+TR808_STRICT=1 .venv/bin/python -m pytest model/_mainacc_tmp.py -q   # 13 failed, 40 passed
+             .venv/bin/python -m pytest model/_mainacc_tmp.py -q     # 13 failed, 37 passed, 3 xfailed
+```
+
+**13 in either mode, 16 distinct test ids across the two** — the strict run
+shows the tracked defects failing, the default run shows the ones that have
+started passing. Neither run alone shows all of them, which is worth knowing:
+a suite with strict xfails has to be run both ways to be read.
+
+**None of the sixteen is a live defect in the model.** Every one is either an
+expectation the branch has since superseded or a tracked defect that has been
+fixed, and the branch's own copy of the suite is 53/53 green under
+`TR808_STRICT=1` (314/314 for `model` + `spec`).
+
+| # | test | class | the ground truth now, and where it comes from |
+|---|---|---|---|
+| 1–3 | `test_control_bd_decay_coefficients_carry_the_intended_decay[0.1/0.5/0.9]` | outdated expectation | two changes at once: the DECAY knob is the panel's 0–10, not VR6's 0–1 (`tr808-reference.md` §2 tabulates VR6; `drums_fx.BD_DECAY_Q` is keyed on the panel), and f0 is the schematic's **49.4 Hz**, not the chart's 56 (DR 0009) |
+| 4 | `test_control_body_presets_match_the_reference_table[BD…56.0…]` | outdated expectation | 49.4 Hz (DR 0009) |
+| 5–7 | `test_bd_rendered_decay_at_each_setting[0.1/0.5/0.9]` | outdated expectation | same pair of changes; at knob 0.9 on the old scale the render is τ 143 ms against an expected 352 |
+| 8 | `test_bd_decay_control_spans_roland_s_chart_range` | outdated expectation | same |
+| 9–10 | `test_bd_attack_window_is_written_into_the_coefficients`, `…_is_audible_in_the_first_half_cycle` | **tracked defect CLOSED, and it was hiding** | contract 15.7.1 emits the 130 Hz / Q 6 / 4 ms window on every BD hit. See below — these two are the interesting ones |
+| 11 | `test_sd_noise_balance_matches_a_real_machine` | outdated expectation — **method and target both withdrawn** | §8.0/§8.1: the 700 Hz whole-span Hann split is invalid on a decaying one-shot (1.25 % against an exact 18.55 %). Replaced by the validated separator; the machine at SNAPPY 5.0 carries **27.66 %** |
+| 12 | `test_sd_noise_highpass_corner` | outdated expectation | `AttributeError: module 'drums_fx' has no attribute 'M_SDHP'`. The mode is `M_SDN` and its numerator is a **band-pass**, not a high-pass (§8.1, contract 17.22) |
+| 13 | `test_meta_render_manifest_describes_what_was_played` | outdated expectation | asserts the manifest's BD f0 is 56.0; DR 0009 makes it 49.4 |
+| 14–15 | `test_tom_pitch_falls_during_the_ring[LT/HT]` | **unexpectedly passing — good news** | contract 15.7.1 sweeps the tom f0 from ×1.7 over 60 ms, accent-scaled (`tr808-reference.md` §4). Removed from `KNOWN_DEFECTS` |
+| 16 | `test_cowbell_decay_matches_a_real_machine` | **unexpectedly passing — good news** | `E_CBB` is the measured τ = 98 ms, not 30 (§4.6). Removed from `KNOWN_DEFECTS` |
+
+**Zero real defects.** The reconciliation was already done, in
+`drums@e7c9ae6`; this section is the audit of it, and the audit found the
+tolerances were kept or tightened, not loosened — `56.0` became
+`dx.BD_HZ` with the same ±1 %/±3 %/±10 % bands, and the SD filter test gained
+two assertions and went from ±20 % on the corner to ±2 % on the pole.
+
+### The one that is worth reading twice
+
+Entries 9–10 were **`KNOWN_DEFECTS` entries that were still failing for a
+different reason than the one recorded.** The defect they were written for —
+"`kit_808()` writes one coefficient set per voice and never switches it, so
+the bass drum has no attack window" — was fixed by 15.7.1. They stayed red
+because the *same tests* also asserted the chart's 56 Hz, which DR 0009 had
+made wrong. A strict xfail is supposed to go red the moment its defect is
+fixed, and force the entry out of the table. Here a second, unrelated stale
+expectation kept the xfail satisfied, and the closure would have stayed
+invisible for as long as the two were fixed separately.
+
+This is not hypothetical bookkeeping: it is the mechanism by which a defect
+table stops being a defect table. A tracked-defect marker that can be
+satisfied by *any* failure records "this test fails", not "this defect
+exists". Worth a rule: when a `KNOWN_DEFECTS` entry fires, check that the
+failure is the recorded one.
+
+### One gap the audit found, now closed
+
+`main`'s `BD_DECAY` table was three literals — `(0.1, 5.2, 0.029)` and its
+pair — and the reconciliation replaced it with values derived from
+`dx.bd_decay_q()` and `dx.BD_HZ`. That is right for the *control* test (it
+round-trips the register encoding) but it leaves the rendered-decay tests
+comparing the model against itself: change `BD_HZ` and the reference τ moves
+with it, so nothing is left that can catch a wrong f0.
+
+`tr808-reference.md` §2 tabulates the DECAY knob as a Q **and** as a τ, and
+`τ = Q/(π f0)` closes those two columns to **1.5 % at 49.4 Hz** and is out by
+up to **12.8 % at 56 Hz**. That is DR 0009's argument in one line of
+arithmetic, and it was asserted nowhere. It is now
+`test_bd_decay_table_is_self_consistent_at_the_schematic_s_f0`, five
+parametrised cases, with
+`test_meta_bd_tau_column_rejects_the_chart_s_f0` as the injected-bug control
+that puts 56 Hz back and requires the table to stop closing.
