@@ -123,28 +123,57 @@ def compare(voice: str, refs, laws, arm: str = "ours", n_win: int = N_WIN):
                 diff=B - A, centres=cent, ms=ms, rates=rates)
 
 
+# A band is "significant" for a side when it is within this much of that
+# side's own loudest cell. Ranking raw dB differences without it puts the
+# largest numbers where one side is on the -75 dB clamp, which is a
+# difference between a signal and a floor and not a difference of instrument.
+SIGNIFICANT_DB = 40.0
+
+
 def sentences(r: dict, top: int = 4) -> list:
-    """The report. One line per finding, in the units of the thing to change."""
+    """The report, in three kinds of statement, because they ask for three
+    different fixes:
+
+      (a) the machine has energy here and we get its level wrong
+      (b) we put energy where the machine has essentially none
+      (c) the band is in both but decays at the wrong rate
+    """
     out = []
-    D, cent, ms = r["diff"], r["centres"], r["ms"]
+    D, A, B, cent, ms = r["diff"], r["real"], r["ours"], r["centres"], r["ms"]
     step = ms[1] - ms[0] if len(ms) > 1 else 30.0
-    # 1. the loudest disagreements, as a band and a time span
-    flat = sorted(((abs(D[k, w]), k, w) for k in range(D.shape[0]) for w in range(D.shape[1])),
-                  reverse=True)
+    a_sig, b_sig = A > A.max() - SIGNIFICANT_DB, B > B.max() - SIGNIFICANT_DB
+
+    def span(w):
+        return f"between {ms[w] - step / 2:3.0f} and {ms[w] + step / 2:3.0f} ms"
+
+    # (a) where the MACHINE has energy: a level error on something real
+    flat = sorted(((abs(D[k, w]), k, w) for k in range(D.shape[0]) for w in range(D.shape[1])
+                   if a_sig[k, w]), reverse=True)
     seen = set()
     for _, k, w in flat:
         if len(out) >= top:
             break
-        if (k // 2, w) in seen or r["real"][k, w] <= FLOOR_DB + 1:
+        if (k // 2, w // 2) in seen:
             continue
-        seen.add((k // 2, w))
-        d = D[k, w]
-        out.append(f"{cent[k]:6.0f} Hz is {d:+5.1f} dB between {ms[w] - step / 2:3.0f} and "
-                   f"{ms[w] + step / 2:3.0f} ms")
+        seen.add((k // 2, w // 2))
+        out.append(f"{cent[k]:6.0f} Hz is {D[k, w]:+5.1f} dB {span(w)} "
+                   f"(machine {A[k, w]:+5.1f} dB, ours {B[k, w]:+5.1f})")
+    # (b) where only WE have energy: something the circuit should not emit
+    only = sorted(((D[k, w], k, w) for k in range(D.shape[0]) for w in range(D.shape[1])
+                   if b_sig[k, w] and not a_sig[k, w]), reverse=True)
+    seen = set()
+    for d, k, w in only[:top * 4]:
+        if len([x for x in out if "the machine has none" in x]) >= max(1, top // 2):
+            break
+        if (k // 2, w // 2) in seen or d < 10.0:
+            continue
+        seen.add((k // 2, w // 2))
+        out.append(f"{cent[k]:6.0f} Hz carries {d:+5.1f} dB {span(w)} where the machine has "
+                   f"none ({A[k, w]:+5.1f} dB, {A.max() - A[k, w]:.0f} dB under its own peak)")
     # 2. decay-rate disagreements, which are what "too slowly" means
     rr = []
     for k, (ra, rb) in enumerate(r["rates"]):
-        if ra is None or rb is None:
+        if ra is None or rb is None or not a_sig[k].any():
             continue
         rr.append((abs(rb - ra), k, ra, rb))
     for _, k, ra, rb in sorted(rr, reverse=True)[:top]:

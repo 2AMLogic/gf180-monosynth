@@ -160,7 +160,7 @@ def run_arm(refs, arm, cache, names, level_match=True, floor_clamp=True, seed=0,
         per[v] = sv
     s["per_voice"] = per
     base, imp = group_importance(r["clf"], X, r["y"], r["idx"], names, seed)
-    s["importance"] = dict(list(imp.items())[:8])
+    s["importance"] = dict(list(imp.items())[:24])
     s["eff"] = {v: dict(list(effect_sizes(X, clips, names, v, ~fit).items())[:5])
                 for v in sorted({c.voice for c in te})}
     return s
@@ -367,8 +367,22 @@ def _feature_set_pass(a, refs, laws, cache, names, arms, curve_voices, extra, re
               f"  -> {ver[v]['verdict'][:46]}")
     out["verdicts"] = ver
 
+    print("\n== interpretable diagnostics, HELD-OUT settings only (generalisation) ==")
+    ic = {("interp", f"{side}:{c.voice}:{c.knobs}"): cache[(c.voice, c.knobs, side)]["interp"]
+          for c in refs for side in ("real", "ours")}
+    rows = interpretable_table(refs + [Clip(c.voice, c.knobs, "ours") for c in refs],
+                               laws, a.refs, ic)
+    interp = {}
+    for v in sorted({c.voice for c in refs if c.is_test}):
+        g = interpretable_gap(rows, v, "ours")
+        interp[v] = g
+        worst = sorted(g.items(), key=lambda kv: -abs(kv[1]["abs_rel_err"]))[:3]
+        print(f"  {v:3s} n={list(g.values())[0]['n'] if g else 0}  " +
+              "  ".join(f"{k} {vv['mean_rel_err'] * 100:+.0f}%" for k, vv in worst))
+    out["interpretable"] = interp
+
     print("\n== what carries the discrimination (arm 'ours', held out) ==")
-    for g, d in list(main_s.get("importance", {}).items())[:12]:
+    for g, d in list(main_s.get("importance", {}).items())[:24]:
         print(f"  {g:26s} accuracy drop {d:+.3f} when shuffled")
     results[tag] = out
     return out
