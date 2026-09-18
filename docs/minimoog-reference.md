@@ -120,13 +120,57 @@ V = (V_saw·R031 + V_tri·R030) / (R030 + R031)
 ```
 
 In Q0.15: **5749 and 27019, which sum to exactly 32768** (`SHARK_W_SAW`,
-`SHARK_W_TRI`). The loading of the mixer volume pot on the wiper would shift
-this slightly and is not modelled **[ours]**.
+`SHARK_W_TRI`).
+
+The wiper's load does **not** change this. With the tap fed from two sources
+through R030 and R031 and loaded by the mixer volume pot R_L to ground, the two
+contributions are in the ratio `(1/R030) : (1/R031)` = 10 : 47 **whatever R_L
+is** — the load scales both equally and changes the level, not the mix. The
+saw's own source impedance (it reaches the switch through the bias divider
+R114/R115/R116, §2.3, where the triangle comes from an op-amp buffer) can only
+move the ratio *further* toward the triangle.
+
+**A recorded disagreement.** The reference-emulation comparison recorded a
+shark-tooth target of `h2 −16.9, h3 −18.4, h4 −22.9, h5 −26.3, h6 −26.4,
+h7 −30.8` at 110 Hz. Measured on ours: `h2 −21.7, h3 −18.2, h4 −27.7,
+h5 −25.8, h6 −31.2, h7 −30.2`. **The odd harmonics agree within 0.6 dB and
+every even harmonic is uniformly 4.8 dB low.** A shark-tooth's even harmonics
+come entirely from its sawtooth share, so that is a single-parameter
+disagreement: the reference implies a saw share near 0.25–0.30 where drawing
+1448's resistors give 0.175. The drawing was re-read at 150 dpi to confirm the
+topology and the values; the ratio is load-independent, as above. **We are not
+changing the constant on the strength of an emulation**, and the experiment
+that would settle it is a real Model D or a second scan of drawing 1448. This
+is contract open item 16.
 
 The shark-tooth's step at the wrap is therefore **10/57 of the sawtooth's**, so
 its PolyBLEP correction is the saw's scaled by the same weight — which is what
 `OscFx.render` computes, by mixing the *already-corrected* saw with the
 triangle exactly as the switch mixes the two buffered outputs.
+
+### W3a. The square's duty is 50 %, and Moog hand-selected a resistor to make it so [verified: SM 2.3]
+
+Recorded because a reference emulation measured **52 %** with **h2 at −24 dB**,
+and the service manual is explicit that this is a *unit out of trim*, not the
+design:
+
+> "Resistor R137 is a selected resistor whose value is chosen to achieve
+> accurate symmetry in this output waveform. **This symmetry is important to
+> achieve an accurate 50 percent duty cycle** of the rectangular waveform
+> appearing on pin 15B."
+
+A hand-selected part per unit, whose stated purpose is the 50 %. Our square is
+a true 50 % and therefore has no even harmonics at all, which is what the
+circuit is trimmed to produce. **Whether to model per-unit drift** — a slightly
+asymmetric square is audibly fatter, and three oscillators drifting against
+each other is part of what a Minimoog sounds like — **is a separate and real
+question**, and it is a musical decision rather than a fidelity one. It is
+contract open item 17; it is one constant if taken.
+
+The same comparison recorded the two rectangles as **14.3 % and 16.7 %**.
+Those are 1/7 and 1/6, which is what reading a duty cycle off the position of a
+spectral null produces. SM 2.3 pins 15 % directly, in words, and drawing 1448's
+divider gives the third tap. Ours are 29 % and 15 %.
 
 ### W4. The three rectangular widths are 50 %, 29 % and 15 % [verified + inferred]
 

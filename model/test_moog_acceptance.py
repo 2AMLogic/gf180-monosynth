@@ -1768,3 +1768,70 @@ def test_control_oscillator_3_left_on_the_modulation_bus(monkeypatch):
         return real(self, incs, n, mw)
     monkeypatch.setattr(vf.VoiceFx, "_modulate", always_on)
     _expect_red(test_osc_3_control_takes_oscillator_3_off_the_modulation_bus)
+
+
+# =============================================================================
+# 7. THE ALIASING GAP (contract open item 15)
+#
+# These two do not assert that we are good. They assert what we MEASURE, beside
+# the reference numbers we do not meet, so that the largest known defect in the
+# voice is tracked by a test instead of by a memory -- and so that a change
+# which quietly makes it worse is caught. Every property above this point
+# compared us against our own prediction of what PolyBLEP should do, which is
+# why none of them could ever have seen this.
+# =============================================================================
+ALIAS_CURVE = {40: -42.7, 52: -39.7, 64: -36.6, 76: -33.7, 88: -31.0, 100: -28.5}
+
+
+def test_the_sawtooths_aliasing_floor_degrades_with_pitch_and_is_locked():
+    """**Contract open item 15.** Sawtooth inharmonic fraction, PolyBLEP on,
+    at six registers:
+
+    | note | f0 | ours | Surge |
+    |---|---|---|---|
+    | 40 | 82 Hz | −42.7 dB | ≈ −60 |
+    | 64 | 330 Hz | −36.6 dB | ≈ −60 |
+    | 88 | 1.3 kHz | −31.0 dB | ≈ −60 |
+    | 100 | 2.6 kHz | −28.5 dB | ≈ −60 |
+
+    **About 2.8 dB lost per octave, where Surge is flat across six**, and
+    19–32 dB behind Mini V3 on every waveform. Locked at ±1.5 dB so that a
+    regression is loud, and the *slope* is asserted as PRESENT rather than
+    absent — this test exists to keep a defect visible, not to claim it is
+    fixed. When the fix lands, these numbers move and this docstring is the
+    before."""
+    n = int(0.5 * SR)
+    got = {}
+    for note, want in ALIAS_CURVE.items():
+        x, f0 = _osc("saw", note, n, blep=True)
+        got[note] = am.inharmonic_fraction_db(x, f0).require(f"saw note {note}")
+        assert abs(got[note] - want) < 1.5, f"note {note}: {got[note]:.1f} dB, locked at {want}"
+    octaves = (100 - 40) / 12.0
+    slope = (got[100] - got[40]) / octaves      # POSITIVE: the fraction rises toward 0
+    assert 2.0 < slope < 3.6, f"the degradation is {slope:.2f} dB/octave, was 2.8"
+    assert got[100] > -35.0, "if the top of the range has improved this much, the fix landed"
+
+
+def test_control_oversampling_the_oscillators_without_a_decimator_is_worse():
+    """**A measured NEGATIVE result, kept as a test so it is not re-proposed.**
+
+    The obvious cheap fix is to run the oscillators at the 96 kHz the ladder is
+    already using and let the ladder's existing decimation — which takes the
+    last sub-step, exactly as Surge's Huovilainen does — absorb the rest. No
+    new decimator, no new filter.
+
+    It makes aliasing **worse**: sawtooth at 82 Hz goes −42.7 → −33.1 at 2×
+    and −29.8 at 4×. Dropping every other sample folds the whole 24–48 kHz
+    band back into the baseband, and PolyBLEP at the oversampled rate
+    suppresses images near the *oversampled* Nyquist, not near 24 kHz.
+
+    Oversampling the oscillators is therefore not a cheap option; it is a
+    decimation-filter decision wearing a cheap option's clothes."""
+    n = int(0.5 * SR)
+    base, f0 = _osc("saw", 40, n, blep=True)
+    a = am.inharmonic_fraction_db(base, f0).require("saw at 48 kHz")
+    for os_ in (2, 4):
+        inc = int(round(dsp.phase_inc(dsp.note_hz(40)) / os_))
+        y = vf.OscFx("saw", blep=True).render(n * os_, inc).astype(np.float64)[os_ - 1::os_]
+        b = am.inharmonic_fraction_db(y, inc * os_ * SR / (1 << 24)).require(f"saw at {os_}x")
+        assert b > a + 5.0, f"{os_}x oversampling measured {b:.1f} dB against {a:.1f}: it helped, re-open this"
