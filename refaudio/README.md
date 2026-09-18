@@ -20,8 +20,8 @@ It is **not** a measurement set, and it must not be cited as one:
 - **No panel settings ship with any of it.** That is the same disqualifier
   `docs/moog-recording-protocol.md` gives for the Legowelt pack: without the
   settings a take is a sound, not a measurement. File names carry what the
-  vendor chose to encode (`Decay A`, `Lo`/`Mid`/`Click`, round-robin take
-  numbers) and nothing else.
+  vendor chose to encode (`Decay A`, `Lo`/`Mid`/`Click`, a trailing knob
+  index) and nothing else.
 - **The recording chain is in every file.** Many subsets are deliberately
   coloured — console, tape, sampler, saturation. The packs usually separate a
   clean subset from the coloured ones; the 808's `Clean/Digital` is the closest
@@ -34,16 +34,20 @@ It is **not** a measurement set, and it must not be cited as one:
 
 ## What it does and does not unblock — checked against the index, not assumed
 
-**The true discrimination floor (`docs/discrimination.md` §4) — yes, in
-principle.** That section says the floor needs multi-take material and that
-`808 From Mars` "would supply it; it was **not purchased**." It has now been
-purchased, and the index confirms the shape: each voice is recorded as
-`Clean` and `Color` subsets with repeated takes per setting. The clean bass
-drum is **24 settings × 6 takes = 144 files** (plus 143 coloured). Repeated
-takes at one setting are exactly the Δ = 0 pairs that are off the left edge of
-the current curve. Which knob positions the vendor's 24 setting names
-correspond to is not documented, and whether six takes are enough is a
-question for whoever runs it.
+**The true discrimination floor (`docs/discrimination.md` §4) — no, and this
+paragraph used to say yes.** That section says the floor needs multi-take
+material and that `808 From Mars` "would supply it; it was **not purchased**."
+It has now been purchased, and **it does not supply it.** This file previously
+read the clean bass drum's 144 files as "24 settings × 6 takes"; the trailing
+`01`…`06` is the **TONE knob**, not a take index, and the grid is 2 chains ×
+2 accents × 6 decay × 6 tone with **no take axis at all**. Measured in
+[`docs/bd-repeatability-measurement.md`](../docs/bd-repeatability-measurement.md)
+and confirmed by the vendor's own notes in `catalog.json`; the voices with no
+knob to sweep (Cowbell, Rim Shot, Claves) carry no trailing number at all.
+**There are no Δ = 0 pairs anywhere in this pack.** The nearest thing reachable
+is `808_loops_from_mars.zip`'s bass-drum-only 4/4 loops, in which one setting is
+struck repeatedly inside one continuous take — that pack is indexed in
+`catalog.json` but was not among the copies available when this was checked.
 → [`index/808-from-mars.tsv`](index/808-from-mars.tsv) (1,562 files). The
 vendor's superseded earlier edition is indexed too, as a second recording
 session of the same machine: [`index/808_from_mars_legacy.tsv`](index/808_from_mars_legacy.tsv).

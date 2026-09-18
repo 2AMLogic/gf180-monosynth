@@ -1,0 +1,1920 @@
+{
+ "audit": {
+  "groups": [
+   {
+    "group": "Digital/A/Decay A",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0441,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       50.6386,
+       50.6319,
+       50.6092,
+       50.6019,
+       50.5988,
+       50.5945
+      ]
+     },
+     "attack": {
+      "span": 0.0907,
+      "spearman_vs_tone_index": -0.0857,
+      "values": [
+       6.2132,
+       6.1678,
+       6.1224,
+       6.1451,
+       6.1905,
+       6.1678
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.069,
+      "spearman_vs_tone_index": -0.0286,
+      "values": [
+       -0.0991,
+       -0.0914,
+       -0.0696,
+       -0.063,
+       -0.0776,
+       -0.132
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 4.1215,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -14.4659,
+       -13.8036,
+       -11.7879,
+       -11.1776,
+       -10.794,
+       -10.3444
+      ]
+     },
+     "body spectrum": {
+      "span": 4.1544,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -14.3668,
+       -13.7121,
+       -11.7183,
+       -11.1146,
+       -10.7165,
+       -10.2124
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6651,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -13.0877,
+       -12.7079,
+       -11.3475,
+       -10.9092,
+       -10.5345,
+       -10.4227
+      ]
+     },
+     "decay": {
+      "span": 0.1901,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       38.8583,
+       38.8098,
+       38.7356,
+       38.7266,
+       38.7012,
+       38.6682
+      ]
+     },
+     "early/body energy": {
+      "span": 1.1234,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       0.2983,
+       0.5,
+       1.067,
+       1.2198,
+       1.3256,
+       1.4217
+      ]
+     }
+    },
+    "rank1_loading_spearman": 1.0,
+    "rank1_variance_fraction": 0.9152
+   },
+   {
+    "group": "Digital/A/Decay B",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0258,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       50.7835,
+       50.7594,
+       50.7588,
+       50.7584,
+       50.7581,
+       50.7577
+      ]
+     },
+     "attack": {
+      "span": 0.4308,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       13.6508,
+       13.5828,
+       13.356,
+       13.288,
+       13.22,
+       13.22
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0248,
+      "spearman_vs_tone_index": -0.4857,
+      "values": [
+       -0.0567,
+       -0.058,
+       -0.0502,
+       -0.0472,
+       -0.0646,
+       -0.072
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 4.0743,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -18.0784,
+       -17.5235,
+       -15.4203,
+       -14.7295,
+       -14.0688,
+       -14.0041
+      ]
+     },
+     "body spectrum": {
+      "span": 4.0895,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -18.0217,
+       -17.4655,
+       -15.3701,
+       -14.6823,
+       -14.0042,
+       -13.9321
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6723,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -16.7402,
+       -16.3599,
+       -14.9907,
+       -14.5306,
+       -14.1657,
+       -14.0679
+      ]
+     },
+     "decay": {
+      "span": 0.0781,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       87.4814,
+       87.4379,
+       87.4241,
+       87.4143,
+       87.4033,
+       87.4095
+      ]
+     },
+     "early/body energy": {
+      "span": 0.9564,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -4.0995,
+       -3.9471,
+       -3.4398,
+       -3.2973,
+       -3.1751,
+       -3.1431
+      ]
+     },
+     "pitch drop": {
+      "span": 0.6296,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       9.2472,
+       9.1603,
+       8.7699,
+       8.643,
+       8.6176,
+       8.6226
+      ]
+     }
+    },
+    "rank1_loading_spearman": 1.0,
+    "rank1_variance_fraction": 0.9118
+   },
+   {
+    "group": "Digital/A/Decay C",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0009,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       50.8108,
+       50.8107,
+       50.8102,
+       50.8099,
+       50.8099,
+       50.8099
+      ]
+     },
+     "attack": {
+      "span": 0.4535,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       21.5873,
+       21.5193,
+       21.3152,
+       21.2018,
+       21.1565,
+       21.1338
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0111,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       -0.0407,
+       -0.0423,
+       -0.0409,
+       -0.0413,
+       -0.0457,
+       -0.0519
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 4.2956,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -22.4897,
+       -21.8711,
+       -20.1121,
+       -18.9279,
+       -18.4431,
+       -18.1942
+      ]
+     },
+     "body spectrum": {
+      "span": 4.3067,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -22.449,
+       -21.8288,
+       -20.0711,
+       -18.8866,
+       -18.3975,
+       -18.1423
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6946,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -21.0042,
+       -20.5262,
+       -19.2786,
+       -18.7601,
+       -18.4158,
+       -18.3096
+      ]
+     },
+     "decay": {
+      "span": 0.0512,
+      "spearman_vs_tone_index": -0.3714,
+      "values": [
+       282.2888,
+       282.258,
+       282.2526,
+       282.2376,
+       282.2472,
+       282.26
+      ]
+     },
+     "early/body energy": {
+      "span": 0.9398,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -9.1227,
+       -8.9421,
+       -8.5182,
+       -8.3221,
+       -8.2305,
+       -8.1829
+      ]
+     },
+     "pitch drop": {
+      "span": 1.0034,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       9.6998,
+       9.5498,
+       9.068,
+       8.7593,
+       8.7027,
+       8.6964
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.9429,
+    "rank1_variance_fraction": 0.7798
+   },
+   {
+    "group": "Digital/A/Decay D",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0019,
+      "spearman_vs_tone_index": -0.6,
+      "values": [
+       50.9347,
+       50.9342,
+       50.9332,
+       50.9332,
+       50.9328,
+       50.9337
+      ]
+     },
+     "attack": {
+      "span": 0.4308,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       21.678,
+       21.5873,
+       21.4059,
+       21.2925,
+       21.2472,
+       21.2698
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0125,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       -0.1151,
+       -0.117,
+       -0.1195,
+       -0.1222,
+       -0.1275,
+       -0.1275
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 4.2116,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -24.0742,
+       -23.304,
+       -21.5301,
+       -20.4311,
+       -19.8626,
+       -19.9377
+      ]
+     },
+     "body spectrum": {
+      "span": 4.224,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -23.9591,
+       -23.1869,
+       -21.4106,
+       -20.3089,
+       -19.7351,
+       -19.8102
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6975,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -22.6145,
+       -22.1758,
+       -20.8709,
+       -20.3509,
+       -20.0246,
+       -19.9169
+      ]
+     },
+     "decay": {
+      "span": 0.266,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       539.8207,
+       539.6851,
+       539.6971,
+       539.6323,
+       539.5691,
+       539.5548
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8943,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -11.1906,
+       -10.9989,
+       -10.5899,
+       -10.4092,
+       -10.3167,
+       -10.2963
+      ]
+     },
+     "pitch drop": {
+      "span": 0.8056,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       9.0923,
+       8.8902,
+       8.5476,
+       8.3239,
+       8.2928,
+       8.2867
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.9429,
+    "rank1_variance_fraction": 0.7456
+   },
+   {
+    "group": "Digital/A/Decay E",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0035,
+      "spearman_vs_tone_index": -0.2571,
+      "values": [
+       51.648,
+       51.6465,
+       51.6446,
+       51.6452,
+       51.6451,
+       51.6467
+      ]
+     },
+     "attack": {
+      "span": 0.3855,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       21.7234,
+       21.7234,
+       21.4512,
+       21.4512,
+       21.3379,
+       21.3379
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0124,
+      "spearman_vs_tone_index": 0.7143,
+      "values": [
+       -0.1842,
+       -0.1865,
+       -0.1762,
+       -0.1741,
+       -0.1748,
+       -0.1756
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.9835,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -25.1021,
+       -24.871,
+       -22.5543,
+       -22.2285,
+       -21.1186,
+       -21.1551
+      ]
+     },
+     "body spectrum": {
+      "span": 3.9741,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -24.918,
+       -24.6845,
+       -22.3781,
+       -22.0544,
+       -20.9438,
+       -20.9796
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6803,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -23.7912,
+       -23.3786,
+       -22.0326,
+       -21.6219,
+       -21.1997,
+       -21.1109
+      ]
+     },
+     "decay": {
+      "span": 1.6244,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       1193.7087,
+       1192.3934,
+       1192.1518,
+       1192.0843,
+       1192.1357,
+       1192.1156
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8542,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -12.7477,
+       -12.6553,
+       -12.157,
+       -12.0719,
+       -11.9104,
+       -11.8935
+      ]
+     },
+     "pitch drop": {
+      "span": 0.8211,
+      "spearman_vs_tone_index": -0.8857,
+      "values": [
+       8.3467,
+       8.482,
+       7.8722,
+       7.7871,
+       7.6609,
+       7.6701
+      ]
+     }
+    },
+    "rank1_loading_spearman": 1.0,
+    "rank1_variance_fraction": 0.727
+   },
+   {
+    "group": "Digital/A/Decay F",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0024,
+      "spearman_vs_tone_index": 0.0857,
+      "values": [
+       52.3655,
+       52.3655,
+       52.3645,
+       52.3647,
+       52.3653,
+       52.3669
+      ]
+     },
+     "attack": {
+      "span": 0.4535,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       21.7914,
+       21.7687,
+       21.5193,
+       21.4739,
+       21.3379,
+       21.3379
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0239,
+      "spearman_vs_tone_index": 0.8857,
+      "values": [
+       -0.1853,
+       -0.1853,
+       -0.1692,
+       -0.1645,
+       -0.1615,
+       -0.1625
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 4.2889,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -25.7716,
+       -25.4185,
+       -23.3011,
+       -22.6608,
+       -21.5141,
+       -21.4826
+      ]
+     },
+     "body spectrum": {
+      "span": 4.2662,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -25.5863,
+       -25.2332,
+       -23.1318,
+       -22.4963,
+       -21.3526,
+       -21.3202
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.6651,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -24.3128,
+       -23.9342,
+       -22.5921,
+       -22.0923,
+       -21.7505,
+       -21.6477
+      ]
+     },
+     "decay": {
+      "span": 1.8954,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       2249.7652,
+       2249.1998,
+       2249.0392,
+       2248.1345,
+       2248.5318,
+       2247.8698
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8886,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -13.456,
+       -13.3486,
+       -12.8744,
+       -12.7455,
+       -12.5936,
+       -12.5674
+      ]
+     },
+     "pitch drop": {
+      "span": 0.8942,
+      "spearman_vs_tone_index": -0.8857,
+      "values": [
+       8.3006,
+       8.35,
+       7.774,
+       7.5949,
+       7.4558,
+       7.4654
+      ]
+     }
+    },
+    "rank1_loading_spearman": 1.0,
+    "rank1_variance_fraction": 0.6926
+   },
+   {
+    "group": "Digital/B/Decay A",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.2295,
+      "spearman_vs_tone_index": -0.7143,
+      "values": [
+       50.7743,
+       50.5679,
+       50.5484,
+       50.552,
+       50.5448,
+       50.5502
+      ]
+     },
+     "attack": {
+      "span": 0.1361,
+      "spearman_vs_tone_index": -0.2571,
+      "values": [
+       6.2812,
+       6.2358,
+       6.2132,
+       6.2358,
+       6.1451,
+       6.2358
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.1173,
+      "spearman_vs_tone_index": -0.4286,
+      "values": [
+       -0.3051,
+       -0.3088,
+       -0.2984,
+       -0.2684,
+       -0.3857,
+       -0.3338
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.7712,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -12.9368,
+       -12.3221,
+       -10.8516,
+       -10.3238,
+       -9.1657,
+       -9.5824
+      ]
+     },
+     "body spectrum": {
+      "span": 3.8518,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -12.6317,
+       -12.0133,
+       -10.5532,
+       -10.0554,
+       -8.78,
+       -9.2486
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4055,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -11.0788,
+       -10.6658,
+       -9.5338,
+       -9.0958,
+       -8.7659,
+       -8.6733
+      ]
+     },
+     "decay": {
+      "span": 0.1457,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       37.8197,
+       37.7442,
+       37.7062,
+       37.6946,
+       37.6838,
+       37.674
+      ]
+     },
+     "early/body energy": {
+      "span": 1.1944,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       3.3473,
+       3.5917,
+       4.135,
+       4.3062,
+       4.5417,
+       4.5113
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.9429,
+    "rank1_variance_fraction": 0.9564
+   },
+   {
+    "group": "Digital/B/Decay B",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0092,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       50.9062,
+       50.9005,
+       50.9001,
+       50.9002,
+       50.8984,
+       50.897
+      ]
+     },
+     "attack": {
+      "span": 0.1814,
+      "spearman_vs_tone_index": -0.7143,
+      "values": [
+       6.3946,
+       6.3492,
+       6.2358,
+       6.2132,
+       6.2358,
+       6.2132
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0505,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       -0.1688,
+       -0.1749,
+       -0.1818,
+       -0.1805,
+       -0.1861,
+       -0.2193
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.725,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -16.1739,
+       -15.6424,
+       -13.8537,
+       -13.1538,
+       -12.8195,
+       -12.4489
+      ]
+     },
+     "body spectrum": {
+      "span": 3.7755,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -16.0051,
+       -15.4675,
+       -13.6718,
+       -12.9734,
+       -12.6334,
+       -12.2296
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4433,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -14.4527,
+       -14.0944,
+       -12.8449,
+       -12.4107,
+       -12.0919,
+       -12.0094
+      ]
+     },
+     "decay": {
+      "span": 0.1869,
+      "spearman_vs_tone_index": 0.0857,
+      "values": [
+       92.8405,
+       92.769,
+       92.7562,
+       92.7391,
+       92.926,
+       92.7959
+      ]
+     },
+     "early/body energy": {
+      "span": 0.9833,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -1.8284,
+       -1.6532,
+       -1.1492,
+       -0.9929,
+       -0.9124,
+       -0.8451
+      ]
+     },
+     "pitch drop": {
+      "span": 1.4708,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       8.4925,
+       8.2985,
+       7.5338,
+       7.1826,
+       7.0416,
+       7.0217
+      ]
+     }
+    },
+    "rank1_loading_spearman": 1.0,
+    "rank1_variance_fraction": 0.9093
+   },
+   {
+    "group": "Digital/B/Decay C",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0018,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       51.0043,
+       51.0043,
+       51.0034,
+       51.0029,
+       51.0024,
+       51.0025
+      ]
+     },
+     "attack": {
+      "span": 0.2721,
+      "spearman_vs_tone_index": -0.8857,
+      "values": [
+       6.4626,
+       6.4626,
+       6.3039,
+       6.2585,
+       6.1905,
+       6.2132
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0331,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       -0.1141,
+       -0.1199,
+       -0.1249,
+       -0.1238,
+       -0.1412,
+       -0.1472
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.8106,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -19.6148,
+       -19.2676,
+       -17.4937,
+       -16.7894,
+       -15.9067,
+       -15.8043
+      ]
+     },
+     "body spectrum": {
+      "span": 3.8436,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -19.5007,
+       -19.1477,
+       -17.3688,
+       -16.6656,
+       -15.7655,
+       -15.6571
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4942,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -18.0399,
+       -17.667,
+       -16.4009,
+       -15.9923,
+       -15.6292,
+       -15.5456
+      ]
+     },
+     "decay": {
+      "span": 0.1005,
+      "spearman_vs_tone_index": -0.4857,
+      "values": [
+       268.0104,
+       267.9683,
+       267.9343,
+       267.9099,
+       267.9354,
+       267.9426
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8917,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -6.5015,
+       -6.3771,
+       -5.9124,
+       -5.774,
+       -5.6385,
+       -5.6098
+      ]
+     },
+     "pitch drop": {
+      "span": 1.5068,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       8.1549,
+       8.1666,
+       7.355,
+       6.935,
+       6.6599,
+       6.6599
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.9429,
+    "rank1_variance_fraction": 0.826
+   },
+   {
+    "group": "Digital/B/Decay D",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0024,
+      "spearman_vs_tone_index": -0.4286,
+      "values": [
+       51.6022,
+       51.6021,
+       51.5999,
+       51.6,
+       51.6007,
+       51.6008
+      ]
+     },
+     "attack": {
+      "span": 0.2721,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       6.4853,
+       6.4626,
+       6.2812,
+       6.2358,
+       6.2358,
+       6.2132
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0107,
+      "spearman_vs_tone_index": 0.0286,
+      "values": [
+       -0.1409,
+       -0.142,
+       -0.1378,
+       -0.1355,
+       -0.1373,
+       -0.1463
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.8865,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -21.3251,
+       -20.952,
+       -18.9107,
+       -18.2591,
+       -17.8442,
+       -17.4387
+      ]
+     },
+     "body spectrum": {
+      "span": 3.8918,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -21.1842,
+       -20.81,
+       -18.773,
+       -18.1235,
+       -17.7069,
+       -17.2924
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4906,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -19.711,
+       -19.3956,
+       -18.0536,
+       -17.6389,
+       -17.3156,
+       -17.2204
+      ]
+     },
+     "decay": {
+      "span": 0.1519,
+      "spearman_vs_tone_index": -0.4286,
+      "values": [
+       517.6326,
+       517.5408,
+       517.4807,
+       517.5222,
+       517.5756,
+       517.4909
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8793,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -8.732,
+       -8.6144,
+       -8.1231,
+       -7.9948,
+       -7.9075,
+       -7.8527
+      ]
+     },
+     "pitch drop": {
+      "span": 1.3914,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       7.0779,
+       7.0184,
+       6.229,
+       5.8837,
+       5.7211,
+       5.6865
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.8857,
+    "rank1_variance_fraction": 0.863
+   },
+   {
+    "group": "Digital/B/Decay E",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0042,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       53.2051,
+       53.2038,
+       53.2028,
+       53.2012,
+       53.2009,
+       53.2025
+      ]
+     },
+     "attack": {
+      "span": 0.3628,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       6.5533,
+       6.4853,
+       6.3719,
+       6.2132,
+       6.1905,
+       6.2358
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0147,
+      "spearman_vs_tone_index": 0.7714,
+      "values": [
+       -0.0852,
+       -0.0817,
+       -0.0753,
+       -0.0705,
+       -0.0738,
+       -0.0747
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.948,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -22.6169,
+       -21.9938,
+       -20.4749,
+       -19.189,
+       -18.6688,
+       -18.7194
+      ]
+     },
+     "body spectrum": {
+      "span": 3.9366,
+      "spearman_vs_tone_index": 0.9429,
+      "values": [
+       -22.5317,
+       -21.9121,
+       -20.3997,
+       -19.1186,
+       -18.5951,
+       -18.6448
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4873,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -20.9261,
+       -20.4743,
+       -19.3104,
+       -18.8625,
+       -18.5349,
+       -18.4387
+      ]
+     },
+     "decay": {
+      "span": 1.5798,
+      "spearman_vs_tone_index": -1.0,
+      "values": [
+       1087.0167,
+       1086.4447,
+       1086.1436,
+       1085.9817,
+       1085.5566,
+       1085.4369
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8747,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -10.3774,
+       -10.194,
+       -9.8018,
+       -9.6162,
+       -9.5224,
+       -9.5028
+      ]
+     },
+     "pitch drop": {
+      "span": 1.5526,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       6.8843,
+       6.6517,
+       6.1603,
+       5.4764,
+       5.3316,
+       5.3402
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.8286,
+    "rank1_variance_fraction": 0.8685
+   },
+   {
+    "group": "Digital/B/Decay F",
+    "metrics": {
+     "Pitch trajectory": {
+      "span": 0.0025,
+      "spearman_vs_tone_index": 0.2,
+      "values": [
+       54.2048,
+       54.2044,
+       54.2039,
+       54.2035,
+       54.2047,
+       54.206
+      ]
+     },
+     "attack": {
+      "span": 0.2948,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       6.5079,
+       6.5079,
+       6.2812,
+       6.2812,
+       6.2132,
+       6.2132
+      ]
+     },
+     "band energy 20-200": {
+      "span": 0.0106,
+      "spearman_vs_tone_index": 0.4286,
+      "values": [
+       -0.0442,
+       -0.0457,
+       -0.0374,
+       -0.0351,
+       -0.0389,
+       -0.0421
+      ]
+     },
+     "band energy 200-2000": {
+      "span": 3.9119,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -23.1163,
+       -22.774,
+       -20.6146,
+       -20.223,
+       -19.4038,
+       -19.2044
+      ]
+     },
+     "body spectrum": {
+      "span": 3.9098,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -23.0721,
+       -22.7283,
+       -20.5772,
+       -20.1879,
+       -19.3649,
+       -19.1622
+      ]
+     },
+     "body spectrum (padded)": {
+      "span": 2.4891,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -21.566,
+       -21.2263,
+       -19.8788,
+       -19.4886,
+       -19.1489,
+       -19.0769
+      ]
+     },
+     "decay": {
+      "span": 1.7261,
+      "spearman_vs_tone_index": -0.8286,
+      "values": [
+       2246.1982,
+       2245.7839,
+       2245.3113,
+       2244.5615,
+       2244.4721,
+       2244.8694
+      ]
+     },
+     "early/body energy": {
+      "span": 0.8494,
+      "spearman_vs_tone_index": 1.0,
+      "values": [
+       -11.2438,
+       -11.1332,
+       -10.6428,
+       -10.5432,
+       -10.4258,
+       -10.3944
+      ]
+     },
+     "pitch drop": {
+      "span": 1.3153,
+      "spearman_vs_tone_index": -0.9429,
+      "values": [
+       6.4186,
+       6.4467,
+       5.603,
+       5.3793,
+       5.1346,
+       5.1315
+      ]
+     }
+    },
+    "rank1_loading_spearman": 0.9429,
+    "rank1_variance_fraction": 0.6542
+   }
+  ],
+  "groups_total": 12,
+  "is_repeats": false,
+  "monotone_group_count": {
+   "Pitch trajectory": 3,
+   "attack": 1,
+   "band energy 200-2000": 8,
+   "body spectrum": 8,
+   "body spectrum (padded)": 12,
+   "decay": 3,
+   "early/body energy": 11,
+   "pitch drop": 4
+  },
+  "vendor_note": "A/B = accent; per catalog.json the BD clean set is 'Multi-Sampled Levels of 808 Decay and Tone at 2 accent levels'"
+ },
+ "corpus": {
+  "archive": "808-from-mars.zip",
+  "files": 144,
+  "path": "808 From Mars/WAV/01. Individual Hits/01. Bass Drum/Clean/Digital",
+  "second_session": "808_from_mars_legacy.zip",
+  "verified": "SHA-256 of the archive against refaudio/catalog.json, per-member size against refaudio/index/"
+ },
+ "issue": 111,
+ "knob_travel": {
+  "accent A": {
+   "Pitch trajectory": {
+    "decay_axis_span": 1.7529,
+    "grid_max": 52.3669,
+    "grid_min": 50.5945,
+    "grid_span": 1.7724,
+    "n": 36,
+    "tone_axis_span": 0.0119,
+    "units": "Hz"
+   },
+   "attack": {
+    "decay_axis_span": 15.3704,
+    "grid_max": 21.7914,
+    "grid_min": 6.1224,
+    "grid_span": 15.6689,
+    "n": 36,
+    "tone_axis_span": 0.3628,
+    "units": "ms"
+   },
+   "band energy 20-200": {
+    "decay_axis_span": 0.1348,
+    "grid_max": -0.0407,
+    "grid_min": -0.1865,
+    "grid_span": 0.1458,
+    "n": 36,
+    "tone_axis_span": 0.0182,
+    "units": "dB"
+   },
+   "band energy 200-2000": {
+    "decay_axis_span": 11.2959,
+    "grid_max": -10.3444,
+    "grid_min": -25.7716,
+    "grid_span": 15.4272,
+    "n": 36,
+    "tone_axis_span": 4.144,
+    "units": "dB"
+   },
+   "body spectrum": {
+    "decay_axis_span": 11.2133,
+    "grid_max": -10.2124,
+    "grid_min": -25.5863,
+    "grid_span": 15.3739,
+    "n": 36,
+    "tone_axis_span": 4.1507,
+    "units": "dB"
+   },
+   "body spectrum (padded)": {
+    "decay_axis_span": 11.22,
+    "grid_max": -10.4227,
+    "grid_min": -24.3128,
+    "grid_span": 13.8901,
+    "n": 36,
+    "tone_axis_span": 2.6791,
+    "units": "dB"
+   },
+   "decay": {
+    "decay_axis_span": 2210.0068,
+    "grid_max": 2249.7652,
+    "grid_min": 38.6682,
+    "grid_span": 2211.097,
+    "n": 36,
+    "tone_axis_span": 0.6742,
+    "units": "ms"
+   },
+   "early/body energy": {
+    "decay_axis_span": 13.9029,
+    "grid_max": 1.4217,
+    "grid_min": -13.456,
+    "grid_span": 14.8777,
+    "n": 36,
+    "tone_axis_span": 0.9428,
+    "units": "dB"
+   },
+   "pitch drop": {
+    "decay_axis_span": 1.2559,
+    "grid_max": 9.6998,
+    "grid_min": 7.4558,
+    "grid_span": 2.244,
+    "n": 30,
+    "tone_axis_span": 0.7913,
+    "units": "Hz"
+   }
+  },
+  "accent B": {
+   "Pitch trajectory": {
+    "decay_axis_span": 3.6149,
+    "grid_max": 54.206,
+    "grid_min": 50.5448,
+    "grid_span": 3.6612,
+    "n": 36,
+    "tone_axis_span": 0.0408,
+    "units": "Hz"
+   },
+   "attack": {
+    "decay_axis_span": 0.1172,
+    "grid_max": 6.5533,
+    "grid_min": 6.1451,
+    "grid_span": 0.4082,
+    "n": 36,
+    "tone_axis_span": 0.2457,
+    "units": "ms"
+   },
+   "band energy 20-200": {
+    "decay_axis_span": 0.2761,
+    "grid_max": -0.0351,
+    "grid_min": -0.3857,
+    "grid_span": 0.3506,
+    "n": 36,
+    "tone_axis_span": 0.0249,
+    "units": "dB"
+   },
+   "band energy 200-2000": {
+    "decay_axis_span": 10.0256,
+    "grid_max": -9.1657,
+    "grid_min": -23.1163,
+    "grid_span": 13.9506,
+    "n": 36,
+    "tone_axis_span": 3.7643,
+    "units": "dB"
+   },
+   "body spectrum": {
+    "decay_axis_span": 10.3018,
+    "grid_max": -8.78,
+    "grid_min": -23.0721,
+    "grid_span": 14.2921,
+    "n": 36,
+    "tone_axis_span": 3.7818,
+    "units": "dB"
+   },
+   "body spectrum (padded)": {
+    "decay_axis_span": 10.4287,
+    "grid_max": -8.6733,
+    "grid_min": -21.566,
+    "grid_span": 12.8927,
+    "n": 36,
+    "tone_axis_span": 2.4683,
+    "units": "dB"
+   },
+   "decay": {
+    "decay_axis_span": 2207.479,
+    "grid_max": 2246.1982,
+    "grid_min": 37.674,
+    "grid_span": 2208.5242,
+    "n": 36,
+    "tone_axis_span": 0.5614,
+    "units": "ms"
+   },
+   "early/body energy": {
+    "decay_axis_span": 14.8027,
+    "grid_max": 4.5417,
+    "grid_min": -11.2438,
+    "grid_span": 15.7855,
+    "n": 36,
+    "tone_axis_span": 0.9404,
+    "units": "dB"
+   },
+   "pitch drop": {
+    "decay_axis_span": 1.9095,
+    "grid_max": 8.4925,
+    "grid_min": 5.1315,
+    "grid_span": 3.361,
+    "n": 30,
+    "tone_axis_span": 1.4377,
+    "units": "Hz"
+   }
+  },
+  "both accents": {
+   "Pitch trajectory": {
+    "decay_axis_span": 3.6149,
+    "grid_max": 54.206,
+    "grid_min": 50.5448,
+    "grid_span": 3.6612,
+    "tone_axis_span": 0.0408,
+    "units": "Hz"
+   },
+   "attack": {
+    "decay_axis_span": 15.3704,
+    "grid_max": 21.7914,
+    "grid_min": 6.1224,
+    "grid_span": 15.669,
+    "tone_axis_span": 0.3628,
+    "units": "ms"
+   },
+   "band energy 20-200": {
+    "decay_axis_span": 0.2761,
+    "grid_max": -0.0351,
+    "grid_min": -0.3857,
+    "grid_span": 0.3506,
+    "tone_axis_span": 0.0249,
+    "units": "dB"
+   },
+   "band energy 200-2000": {
+    "decay_axis_span": 11.2959,
+    "grid_max": -9.1657,
+    "grid_min": -25.7716,
+    "grid_span": 16.6059,
+    "tone_axis_span": 4.144,
+    "units": "dB"
+   },
+   "body spectrum": {
+    "decay_axis_span": 11.2133,
+    "grid_max": -8.78,
+    "grid_min": -25.5863,
+    "grid_span": 16.8063,
+    "tone_axis_span": 4.1507,
+    "units": "dB"
+   },
+   "body spectrum (padded)": {
+    "decay_axis_span": 11.22,
+    "grid_max": -8.6733,
+    "grid_min": -24.3128,
+    "grid_span": 15.6395,
+    "tone_axis_span": 2.6791,
+    "units": "dB"
+   },
+   "decay": {
+    "decay_axis_span": 2210.0068,
+    "grid_max": 2249.7652,
+    "grid_min": 37.674,
+    "grid_span": 2212.0912,
+    "tone_axis_span": 0.6742,
+    "units": "ms"
+   },
+   "early/body energy": {
+    "decay_axis_span": 14.8027,
+    "grid_max": 4.5417,
+    "grid_min": -13.456,
+    "grid_span": 17.9977,
+    "tone_axis_span": 0.9428,
+    "units": "dB"
+   },
+   "pitch drop": {
+    "decay_axis_span": 1.9095,
+    "grid_max": 9.6998,
+    "grid_min": 5.1315,
+    "grid_span": 4.5683,
+    "tone_axis_span": 1.4377,
+    "units": "Hz"
+   }
+  }
+ },
+ "self_test": {
+  "determinism": {
+   "identical": true,
+   "nondeterministic": []
+  },
+  "editing_noise": {
+   "Pitch trajectory": {
+    "n": 6,
+    "sd": 0.00015692039120170323,
+    "span": 0.00035088462684029764
+   },
+   "attack": {
+    "n": 6,
+    "sd": 0.04056359142856634,
+    "span": 0.09070294784580213
+   },
+   "band energy 20-200": {
+    "n": 6,
+    "sd": 0.0006943160914715769,
+    "span": 0.001409267730498688
+   },
+   "band energy 200-2000": {
+    "n": 6,
+    "sd": 0.2535228693350324,
+    "span": 0.5662727951773086
+   },
+   "body spectrum": {
+    "n": 6,
+    "sd": 0.2541661948864114,
+    "span": 0.567682062907803
+   },
+   "body spectrum (padded)": {
+    "n": 6,
+    "sd": 0.00020477524737727926,
+    "span": 0.0004578723284254238
+   },
+   "decay": {
+    "n": 6,
+    "sd": 9.688146859408419e-05,
+    "span": 0.00025233724210238506
+   },
+   "early/body energy": {
+    "n": 6,
+    "sd": 0.028556199412530167,
+    "span": 0.06385312958952483
+   },
+   "pitch drop": {
+    "n": 6,
+    "sd": 0.07303445053790643,
+    "span": 0.16317442844112406
+   }
+  },
+  "ground_truth": {
+   "f0_error_pct": 6.094492718489164e-05,
+   "f0_hz": 50.0,
+   "f0_measured": 50.00003047246359,
+   "t20_error_pct": 0.007898586993804795,
+   "t20_measured": 276.3320357616867,
+   "t20_ms": 276.31021115928553
+  },
+  "t20_truncation_sensitivity_pct": {
+   "Decay A": -0.001782887007836314,
+   "Decay B": -0.002292665891286276,
+   "Decay C": -0.002659533509036539,
+   "Decay D": -0.002618267140861703,
+   "Decay E": -0.0024754478717095157,
+   "Decay F": -0.0023982980831173265
+  },
+  "truncation_red_test": {
+   "cut_t20_ms": 282.2596763785495,
+   "cut_tail_db": -43.23544990231616,
+   "cut_to_s": 0.4,
+   "full_t20_ms": 1192.1517995326408,
+   "probe_fires": true,
+   "probe_pct": -11.172987997142428
+  }
+ },
+ "session_to_session": {
+  "cross_correlation": 0.99597,
+  "end_stop_evidence": {
+   "Decay A": {
+    "current_t20_ms": 38.86,
+    "disagreement_pct": 1.4,
+    "legacy_t20_ms": 38.32
+   },
+   "Decay B": {
+    "current_t20_ms": 87.48,
+    "disagreement_pct": 12.4,
+    "legacy_t20_ms": 98.32
+   },
+   "Decay C": {
+    "current_t20_ms": 282.29,
+    "disagreement_pct": 21.9,
+    "legacy_t20_ms": 220.53
+   },
+   "Decay D": {
+    "current_t20_ms": 539.82,
+    "disagreement_pct": 26.7,
+    "legacy_t20_ms": 395.84
+   },
+   "Decay E": {
+    "current_t20_ms": 1193.71,
+    "disagreement_pct": 49.0,
+    "legacy_t20_ms": 608.51
+   },
+   "Decay F": {
+    "current_t20_ms": 2249.77,
+    "disagreement_pct": 68.0,
+    "legacy_t20_ms": 719.26
+   }
+  },
+  "f0_attribution": {
+   "df0_per_ln_t20_hz": 0.1786,
+   "f0_attributable_to_knob_hz": 0.0025,
+   "f0_difference_hz": 1.4447,
+   "knob_share_pct": 0.17,
+   "t20_mismatch_pct": 1.38
+  },
+  "metrics": {
+   "Pitch trajectory": {
+    "abs_diff_max": 1.5345,
+    "abs_diff_median": 1.3852,
+    "mean_current": 50.6125,
+    "mean_legacy": 49.2029,
+    "n": 6,
+    "rel_diff_median_pct": 2.738,
+    "units": "Hz"
+   },
+   "attack": {
+    "abs_diff_max": 0.1361,
+    "abs_diff_median": 0.0794,
+    "mean_current": 6.1678,
+    "mean_legacy": 6.0809,
+    "n": 6,
+    "rel_diff_median_pct": 1.285,
+    "units": "ms"
+   },
+   "band energy 20-200": {
+    "abs_diff_max": 0.085,
+    "abs_diff_median": 0.0399,
+    "mean_current": -0.0888,
+    "mean_legacy": -0.1071,
+    "n": 6,
+    "rel_diff_median_pct": 50.085,
+    "units": "dB"
+   },
+   "band energy 200-2000": {
+    "abs_diff_max": 1.081,
+    "abs_diff_median": 0.8551,
+    "mean_current": -12.0622,
+    "mean_legacy": -11.2309,
+    "n": 6,
+    "rel_diff_median_pct": 7.058,
+    "units": "dB"
+   },
+   "body spectrum": {
+    "abs_diff_max": 1.166,
+    "abs_diff_median": 0.8545,
+    "mean_current": -11.9735,
+    "mean_legacy": -11.1239,
+    "n": 6,
+    "rel_diff_median_pct": 7.217,
+    "units": "dB"
+   },
+   "body spectrum (padded)": {
+    "abs_diff_max": 0.2146,
+    "abs_diff_median": 0.1591,
+    "mean_current": -11.5016,
+    "mean_legacy": -11.6171,
+    "n": 6,
+    "rel_diff_median_pct": 1.324,
+    "units": "dB"
+   },
+   "decay": {
+    "abs_diff_max": 0.5376,
+    "abs_diff_median": 0.5055,
+    "mean_current": 38.7499,
+    "mean_legacy": 38.2418,
+    "n": 6,
+    "rel_diff_median_pct": 1.304,
+    "units": "ms"
+   },
+   "early/body energy": {
+    "abs_diff_max": 0.4336,
+    "abs_diff_median": 0.4209,
+    "mean_current": 0.9721,
+    "mean_legacy": 0.5656,
+    "n": 6,
+    "rel_diff_median_pct": 37.769,
+    "units": "dB"
+   }
+  }
+ },
+ "verdicts": {
+  "dominated_by_the_apparatus": [
+   "body spectrum (padded)",
+   "attack"
+  ],
+  "finer_than_the_machine": [],
+  "rows": [
+   {
+    "estimator_editing_noise": 0.5677,
+    "finer_than_the_apparatus": false,
+    "finer_than_the_machine": false,
+    "knob_travel_full_grid": 15.6395,
+    "knob_travel_tone_axis": 2.6791,
+    "machine_over_estimator": 0.28,
+    "machine_session_to_session": 0.1591,
+    "metric": "body spectrum (padded)",
+    "tolerance": 3.0,
+    "tolerance_basis": "energy ratio",
+    "tolerance_over_estimator": 5.3,
+    "tolerance_over_full_travel": 0.192,
+    "tolerance_over_machine": 18.9,
+    "tolerance_over_tone_travel": 1.12,
+    "units": "dB",
+    "used_by": "the band split: D02A-D08A, D13A, D14A. Machine floor from the #101-corrected variant; apparatus noise from the path that ships"
+   },
+   {
+    "estimator_editing_noise": 0.0639,
+    "finer_than_the_apparatus": false,
+    "finer_than_the_machine": false,
+    "knob_travel_full_grid": 17.9977,
+    "knob_travel_tone_axis": 0.9428,
+    "machine_over_estimator": 6.59,
+    "machine_session_to_session": 0.4209,
+    "metric": "early/body energy",
+    "tolerance": 3.0,
+    "tolerance_basis": "energy ratio",
+    "tolerance_over_estimator": 47.0,
+    "tolerance_over_full_travel": 0.167,
+    "tolerance_over_machine": 7.1,
+    "tolerance_over_tone_travel": 3.18,
+    "units": "dB",
+    "used_by": "D01A"
+   },
+   {
+    "estimator_editing_noise": 0.0004,
+    "finer_than_the_apparatus": false,
+    "finer_than_the_machine": false,
+    "knob_travel_full_grid": 3.6612,
+    "knob_travel_tone_axis": 0.0408,
+    "machine_over_estimator": 3947.74,
+    "machine_session_to_session": 1.3852,
+    "metric": "Pitch trajectory",
+    "tolerance": 5.0613,
+    "tolerance_basis": "frequency",
+    "tolerance_over_estimator": 14424.3,
+    "tolerance_over_full_travel": 1.382,
+    "tolerance_over_machine": 3.7,
+    "tolerance_over_tone_travel": 124.05,
+    "units": "Hz",
+    "used_by": "D01A, D04A, D06A, D08A -- 10 % of the reference"
+   },
+   {
+    "estimator_editing_noise": 0.0003,
+    "finer_than_the_apparatus": false,
+    "finer_than_the_machine": false,
+    "knob_travel_full_grid": 2212.0912,
+    "knob_travel_tone_axis": 0.6742,
+    "machine_over_estimator": 2003.27,
+    "machine_session_to_session": 0.5055,
+    "metric": "decay",
+    "tolerance": 19.3749,
+    "tolerance_basis": "time",
+    "tolerance_over_estimator": 76782.0,
+    "tolerance_over_full_travel": 0.009,
+    "tolerance_over_machine": 38.3,
+    "tolerance_over_tone_travel": 28.74,
+    "units": "ms",
+    "used_by": "every drum case -- 50 % of the reference"
+   },
+   {
+    "estimator_editing_noise": 0.0907,
+    "finer_than_the_apparatus": false,
+    "finer_than_the_machine": false,
+    "knob_travel_full_grid": 15.669,
+    "knob_travel_tone_axis": 0.3628,
+    "machine_over_estimator": 0.88,
+    "machine_session_to_session": 0.0794,
+    "metric": "attack",
+    "tolerance": 3.0839,
+    "tolerance_basis": "time",
+    "tolerance_over_estimator": 34.0,
+    "tolerance_over_full_travel": 0.197,
+    "tolerance_over_machine": 38.8,
+    "tolerance_over_tone_travel": 8.5,
+    "units": "ms",
+    "used_by": "D02A, D09A -- 50 % of the reference"
+   }
+  ],
+  "wider_than_the_machines_knob_travel": [
+   "Pitch trajectory"
+  ]
+ }
+}
