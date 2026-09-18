@@ -47,6 +47,30 @@ against a model the built instrument does not reproduce.
 Reference identity and patch · parameter mappings · allowed alignment and level
 matching · measurement definitions · acceptance tolerances.
 
+**For the filter cases that is a file: [`refprofile/`](../../refprofile/README.md).**
+The reference audio is rendered **once** through the qualified rig of #87,
+cached, and hashed; `refprofile/profile.json` — which is committed — holds the
+hashes, the plugin's bundle version *and* its binary SHA-256, all 2,855
+parameters after setup, the readbacks the rig qualified on, and the commit it
+was built at. `tools/run_case.py` reads that cache and **never renders a
+plugin**; a cache that is absent or whose bytes do not hash to what the profile
+says is a stated no-verdict, and re-rendering is an explicit act whose diff
+somebody reviews.
+
+The profile is also one of the runner's `DEPENDENCIES`: a batch whose profile
+differs from `origin/main` refuses the whole batch, for the same reason a stale
+`drums_fx.py` does.
+
+### The profile says no, three times, and those entries are the point
+
+Moog's **Model D** — the cross-check every Mono case names — renders **exact
+silence** headlessly: peak 0.0 with oscillator 1 on at full level, and 0.0 with
+the filter self-oscillating. **Mini V3** makes sound, but its envelope knobs are
+bare 0..1 values that nothing here maps to a time, and every Mono case requires
+envelope timing. **Diva** is unlicensed and clicks. So the eight First-32 Mono
+cases stay `not run`, each carrying that measurement as its reason — a profile
+covering one subject honestly beats one covering four with three quietly wrong.
+
 A fixed, calibrated cutoff conversion between synths is legitimate. **Retuning
 each patch after inspecting its error is not** — it conceals a deficient control
 response by fitting around it.
@@ -91,6 +115,23 @@ case must come back **fail**. The second points the reference at a file that is
 not there: it must come back **no verdict**, with the reason on the record and
 no `error` key at all. `--inject` refuses to write into `results/` — a
 control's output is not evidence about the instrument.
+
+Three more cover the frozen profile, and the last is the one that makes
+"frozen" mean anything:
+
+```
+tools/run_case.py --inject REF_CORNER_2X        F1A --results build/x --expect fail
+tools/run_case.py --inject REF_PROFILE_MISSING  F1A --results build/x --expect 'no verdict'
+tools/run_case.py --inject REF_PROFILE_TAMPERED F1A --results build/x --expect 'no verdict'
+```
+
+`REF_CORNER_2X` time-stretches the frozen clip by two, which moves the
+reference filter's corner down an octave — far past the 10 % frequency
+tolerance, so the case must come back **fail**. `REF_PROFILE_TAMPERED` makes
+the cached audio disagree with the hash in the committed profile: the runner
+must refuse to read it at all. A frozen reference whose only failure mode that
+matters is *drifted audio read as though it were the reference* needs that
+control more than it needs any other.
 
 ### The tolerances, and that they are not per case
 

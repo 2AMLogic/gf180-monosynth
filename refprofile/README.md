@@ -1,0 +1,105 @@
+# refprofile — the frozen reference side
+
+Reference audio rendered **once** through a qualified rig, cached, hashed, and
+described in a file that is committed.
+
+**The profile is committed; the audio is not.** `profile.json` holds the
+hashes, the plugin's identity, every parameter the rig set, the rig's own
+qualification verdict and the commit it was built at. The WAVs live in
+`cache/`, which is gitignored.
+
+```sh
+python tools/refprofile.py            # verify the cache against the profile
+python tools/refprofile.py --list     # what it holds, and which rigs it rejects
+python tools/refprofile.py --render   # re-render it — an explicit act, a visible diff
+```
+
+## Why a profile and not a render on demand
+
+A reference that is re-rendered on demand is not a reference. It moves when the
+plugin updates, when the host block rate changes, when a preset drifts — and it
+moves *silently*, because the number coming out looks exactly the same. Every
+comparison made against it before the move becomes a comparison against
+something nobody can reconstruct.
+
+So `refprofile.load_clip` **never renders**. A cache that is absent, short, at
+the wrong rate, silent, or whose bytes do not hash to what `profile.json` says
+is a stated refusal, and the case that wanted it is a no-verdict with the
+reason on its record. Re-rendering is `--render` and nothing else, so it always
+produces a diff that somebody reviews.
+
+This is the shape [`refaudio/`](../refaudio/README.md) already uses — index
+committed, audio not — with one difference: this audio has no upstream to fetch
+from. It exists because a plugin on an operator's machine produced it, and
+`profile.json` is the record of what that was.
+
+## Three outcomes, kept apart
+
+| exit | | |
+|---|---|---|
+| 0 | **OK** | every clip is on disk and hashes correctly |
+| 1 | **FAIL** | a clip is there and is *not* what the profile describes |
+| 2 | **REFUSED** | a precondition is unmet, so nothing was attempted |
+
+**REFUSED is not a failure of the profile and must never be read as one.** Most
+hosts in this fleet have neither the plugins nor `dawdreamer`; on those, every
+case that depends on the profile is a stated no-verdict, which is the correct
+answer and not a hole in the instrument.
+
+## What is in it, and what is not
+
+One rig qualifies. Three do not, and the entries that say **no** are the
+load-bearing ones — "we did not use Model D" and "Model D cannot be used" are
+different facts and only the second one tells the next person not to try.
+
+| rig | | why |
+|---|---|---|
+| **Surge XT 1.2.3** Type 2 | ✅ | open source; its LP Vintage Ladder subtype Type 2 is `sst-filters`' `VintageLadder::Huov` — Huovilainen's DAFx-04 model, the same paper DR 0001 implements. The **only** reference here whose cutoff is commanded in Hz and reads back in Hz |
+| **Moog Model D** | ❌ | **renders exact silence headlessly.** Measured, not inherited: peak 0.0 with oscillator 1 on at full level and the filter wide open, and peak 0.0 with the filter self-oscillating. The rig builds and its pins hold; it simply makes no sound |
+| **Arturia Mini V3** | ❌ | makes sound, and every parameter is a bare 0..1 with no units and no readback. Its cutoff can be calibrated against its own self-oscillation (`reference_compare.calibrate_knob`); its **envelope** knobs cannot, because nothing here maps a Mini V3 envelope knob to a time. Its Range control also defaults an octave down — note 48 reads 65.42 Hz until parameter 45 is written |
+| **u-he Diva** | ❌ | found running unlicensed and inserting clicks (`docs/reference-integrity.md` §1), and is a general analogue-modelling synth rather than a Minimoog emulation |
+
+Fourteen clips, all from Surge XT Type 2 at 48 kHz, all at the 250 Hz cutoff
+region the First-32 filter cases state:
+
+- one **wide open** (20 kHz) stepped-tone render — the passband reference that
+  makes "low-band gain" a ratio *inside one instrument*
+- ten at **250 Hz**, at resonance 0 and at each rung of
+  `reference_compare.RES_GRID["surge"]`
+- three **drive** clips: a steady 100 Hz tone at −12, −6 and 0 dBFS
+
+## The probe level, and the floor it comes from
+
+Every stepped-tone clip is at **−12.04 dBFS** (`amp = 0.25`), the level
+`reference_compare.response_curve` has probed at since #87. That is not a level
+chosen after seeing an answer, and it is not arbitrary — it is the only level
+inside **our own side's** measured stability window:
+
+| input | our corner at res 0 | our corner at res 1.20 |
+|---|---|---|
+| −60 dBFS | — | 55.7 Hz *(quantisation noise)* |
+| −36 dBFS | — | 282.6 Hz |
+| −24 dBFS | 125.2 Hz | — |
+| −18 dBFS | 124.3 Hz | — |
+| −12 dBFS | 117.8 Hz | 361.2 Hz |
+| −6 dBFS | 105.0 Hz | — |
+
+Below about −24 dBFS the stepped-tone probe on our 16-bit ladder is reading
+truncation noise: at −60 dBFS `audio_measure.slope_db_oct` refuses every
+resonant row and the corner moves by 300 Hz. Above −12 dBFS our own saturation
+moves the corner. Surge is *level-independent* over the whole range — its
+`thermal = 1/70` input scaling keeps it small-signal — so **the window is ours,
+and it is stated as ours.** (Issue #92: a published floor that was not actually
+constant withdrew a whole column of #61.)
+
+## Rules
+
+- **Audio is never committed.** `refprofile/cache/` is gitignored.
+- **A result that used a clip names it**, by clip id and content hash.
+  `tools/run_case.py` writes both into every record's `provenance.inputs`.
+- **`profile.json` is generated by `--render`, not edited by hand.** It is also
+  one of `tools/run_case.py`'s `DEPENDENCIES`: a batch whose profile differs
+  from `origin/main` refuses, because a result measured against a different
+  frozen reference is not comparable with one measured against this one.
+- **Re-rendering is a decision, and its diff is the review.** If a clip's hash
+  changes, something about the reference changed, and the diff says what.
