@@ -1,6 +1,6 @@
 # 0002: The product this block is for — a bus-powered, class-compliant sound module
 
-- **Status**: proposed
+- **Status**: proposed — **commercial argument withdrawn, see Corrections**
 - **Date**: 2026-09-17
 - **Decided by**: block agent, from market research; endorsed in conversation by the program sponsor
 
@@ -114,3 +114,65 @@ the silicon would be guaranteed to match.
 - This constrains the block toward an instrument and away from an
   input-driven effect. A microphone-driven toy is a different product and
   would reopen this record.
+
+## Corrections (2026-09-17, same day)
+
+Recorded alongside the original rather than rewritten, because the errors are
+instructive. **The commercial argument above does not hold and should not be
+cited.** The engineering constraints — no battery, MCU owns USB, mono or
+paraphonic, pin count binding — survive; the market case does not.
+
+**1. The "€611 ladder filter floor" is false.** The Moog **Mavis** is $349
+(promotionally $299) and has a genuine Moog low-pass ladder filter; the
+Werkstatt-01 before it was cheaper still, and Behringer sells ladder-filter
+clones below that. The source actually said "cheapest route into a brand-new
+Moog **keyboard**" — the word *keyboard* was dropped and a much broader claim
+substituted. Quoting accurately and then generalising past the quote is the
+specific error; the price gap it implied was the load-bearing part of the
+argument.
+
+**2. A digital model of a ladder is not "the same voice."** Bit-exact agreement
+with our reference model proves we implemented *our model* correctly. It says
+nothing about resemblance to any particular Moog, which depends on oscillators,
+saturation, envelopes, aliasing and control response, and would need its own
+comparison against real hardware. The phrasing "the same voice for the price of
+a cable" was an overclaim.
+
+**3. The underserved bus-powered slot is not established.** The IK UNO Synth
+documents both USB power and USB-MIDI, and the NTS-1 is USB-powered. The
+original claim rested on a single forum remark, which is thin evidence for a
+market-structure assertion.
+
+**4. USB-MIDI is not USB-Audio, and the phone demo was described wrongly.**
+Class-compliant USB-MIDI carries *control* only. Audio leaves through our DAC
+and our jack — it does **not** come back over USB to the phone's speaker, which
+would need a USB Audio Class implementation, a separate and much heavier
+function. The demo still works (phone → USB-MIDI → chip → jack → headphones),
+but "plug into your phone and play through it" was misleading. "No vendor
+driver" is a defensible promise; "any app, no setup" is not.
+
+**5. "Untethered means no notes" was circular.** It follows only from having
+already chosen a host-dependent instrument. Local controls can generate notes,
+and a battery does not require BLE. The no-battery decision still stands on
+parts count, shipping restrictions and certification — not on that argument.
+
+**6. "The first sound chip with an executable specification" is unsupported.**
+Primacy cannot be demonstrated. Describe the specification and the verification
+directly — a frozen contract, SHA-256-pinned tables, a reference model that is
+the spec, RTL checked bit-exact against it — and let a reader judge how unusual
+that is.
+
+**7. The $712M market figure is unverified.** The category definition and the
+report's methodology were never examined, and the reports contradict each other
+across overlapping categories.
+
+**8. A relevant competitor was missed.** Once the product requires a phone,
+Moog's own Model D app at $29.99 — with four-note polyphony — competes directly
+for the same sound. The hardware must offer something a user values beyond
+access to that family of sounds.
+
+**What this leaves unanswered, and it is the important one:** the consumer
+promise still does not explain *why someone wants to play it*. A sound module
+that is smaller and cheaper is not by itself a reason. The physical-interaction
+direction — an object that changes how a tap rings, or responds to touch — has
+a clearer answer to that question and should not be treated as settled against.
