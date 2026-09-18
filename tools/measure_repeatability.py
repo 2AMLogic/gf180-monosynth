@@ -505,3 +505,326 @@ def self_test(report=print) -> tuple[bool, dict]:
            f"length probe {red:+.1f} %; schroeder_t20 says {said}")
     ok &= bool(ev["truncation_red_test"]["probe_fires"])
     return ok, ev
+
+
+# ===========================================================================
+# 5. What the corpus CAN answer
+#
+# Take-to-take is refused: there are no repeats. Two quantities remain, and
+# between them they say what #111 wanted to know -- whether a tolerance is
+# finer than the machine.
+#
+#   KNOB TRAVEL. How far each metric moves across the machine's OWN controls,
+#   over the whole 6 decay x 6 tone grid. A tolerance is only meaningful beside
+#   this: one that is a large fraction of a knob's entire travel cannot tell
+#   two settings apart, and one that is a small fraction of a single step is
+#   asking for more resolution than the machine offers.
+#
+#   SESSION-TO-SESSION. The vendor recorded this machine twice, years apart --
+#   the current edition and the superseded legacy edition. The DECAY letters do
+#   NOT correspond between the two sessions (current Decay F reads a 2250 ms
+#   T20, legacy Decay F reads 719 ms), so the vendor's six positions are
+#   session-local labels and most settings cannot be compared at all. ONE can:
+#   a knob against its end stop is reproducible without calibration, and Decay
+#   A is the only letter whose T20 agrees across the two sessions -- 38.9 vs
+#   38.3 ms, 1.4 % -- while every other letter disagrees by 10 to 213 %. That
+#   pattern is what an end stop looks like.
+#
+#   And the bass drum's f0 HAS NO KNOB. The TR-808 bass drum offers LEVEL, TONE
+#   and DECAY and no tuning control, so whatever f0 does between two sessions
+#   is the machine and its converter clock, with no knob-setting error in it at
+#   all. That makes f0 the one metric here that is cleanly attributable.
+# ===========================================================================
+def knob_travel(report=print) -> dict:
+    """Every board metric's full range across the 6 x 6 decay/tone grid."""
+    plan = metrics()
+    out: dict = {}
+    for accent in ("A", "B"):
+        g = current_grid(accent, "Digital")
+        vals = collections.defaultdict(list)
+        per_axis = {"decay": collections.defaultdict(list), "tone": collections.defaultdict(list)}
+        for (d, t), path in sorted(g.items()):
+            x, sr = load(path)
+            m = measure_all(rc.prepare(x, sr), sr, plan)
+            for k, v in m.items():
+                if v is None:
+                    continue
+                vals[k].append(v)
+                per_axis["decay"][(k, d)].append(v)
+                per_axis["tone"][(k, t)].append(v)
+        row = {}
+        for k in plan:
+            v = vals[k]
+            if len(v) < 2:
+                continue
+            dec = [np.mean(per_axis["decay"][(k, d)]) for d in "ABCDEF"
+                   if per_axis["decay"][(k, d)]]
+            ton = [np.mean(per_axis["tone"][(k, t)]) for t in range(1, 7)
+                   if per_axis["tone"][(k, t)]]
+            row[k] = {"units": plan[k][0], "n": len(v),
+                      "grid_min": round(min(v), 4), "grid_max": round(max(v), 4),
+                      "grid_span": round(max(v) - min(v), 4),
+                      "decay_axis_span": round(max(dec) - min(dec), 4) if dec else None,
+                      "tone_axis_span": round(max(ton) - min(ton), 4) if ton else None}
+        out[f"accent {accent}"] = row
+    report("  metric                      units      min        max       span"
+           "    by DECAY   by TONE")
+    for k, r in out["accent A"].items():
+        report(f"  {k:26s} {r['units']:4s} {r['grid_min']:10.3f} {r['grid_max']:10.3f} "
+               f"{r['grid_span']:10.3f} {r['decay_axis_span']:10.3f} {r['tone_axis_span']:9.3f}")
+    return out
+
+
+def cross_session(report=print) -> dict:
+    """The same machine, two recording sessions, at the one knob position that
+    is reproducible without calibration."""
+    plan = metrics()
+    cur = current_grid("A", "Digital")
+    leg = legacy_grid("1. No Accent", "1. Digital")
+    if len(cur) != 36 or len(leg) != 36:
+        raise Refused(f"expected a 6x6 grid in each session, got {len(cur)} and {len(leg)}")
+
+    # The end-stop evidence, stated as a table rather than assumed.
+    t20 = rc._t20_ms(0.005)
+    stops = {}
+    for d in "ABCDEF":
+        a, sa = load(cur[(d, 1)])
+        b, sb = load(leg[(d, 1)])
+        va, vb = t20(rc.prepare(a, sa), sa), t20(rc.prepare(b, sb), sb)
+        if va.ok and vb.ok:
+            stops[f"Decay {d}"] = {"current_t20_ms": round(va.value, 2),
+                                   "legacy_t20_ms": round(vb.value, 2),
+                                   "disagreement_pct": round(
+                                       100 * abs(va.value - vb.value) / va.value, 1)}
+    report("  which knob letters correspond between the two sessions?")
+    for k, v in stops.items():
+        report(f"      {k}   current {v['current_t20_ms']:9.2f} ms   "
+               f"legacy {v['legacy_t20_ms']:9.2f} ms   {v['disagreement_pct']:6.1f} % apart")
+
+    # Independence: two editions of one vendor's pack could be the same events
+    # re-pressed. Nominally different "808" sets in this project's other corpora
+    # cross-correlate at 1.000 and are exactly that.
+    a, sa = load(cur[("A", 1)])
+    b, sb = load(leg[("A", 1)])
+    n = min(len(a), len(b))
+    ca = a[:n] - a[:n].mean()
+    cb = b[:n] - b[:n].mean()
+    r = float(np.max(np.abs(np.correlate(ca / np.linalg.norm(ca),
+                                         cb / np.linalg.norm(cb), "full"))))
+    if r > 0.9999:
+        raise Refused(f"the two editions cross-correlate at {r:.5f}: the same events "
+                      "re-pressed, not a second recording session")
+    report(f"  independence     best cross-correlation between editions r = {r:.4f} "
+           f"(1.0000 would be a re-press)")
+
+    # The measurement, at the end stop, across the tone axis.
+    rows = {}
+    for tone in range(1, 7):
+        xa, sa = load(cur[("A", tone)])
+        xb, sb = load(leg[("A", tone)])
+        ma = measure_all(rc.prepare(xa, sa), sa, plan)
+        mb = measure_all(rc.prepare(xb, sb), sb, plan)
+        for k in plan:
+            if ma[k] is None or mb[k] is None:
+                continue
+            rows.setdefault(k, []).append((ma[k], mb[k]))
+    out = {"end_stop_evidence": stops, "cross_correlation": round(r, 5), "metrics": {}}
+    report("  the machine, twice, at DECAY's counter-clockwise stop:")
+    report("  metric                      units   session A   session B      diff"
+           "     rel %")
+    for k, pairs in rows.items():
+        da = [abs(p[0] - p[1]) for p in pairs]
+        rel = [100 * abs(p[0] - p[1]) / abs(p[0]) for p in pairs if p[0]]
+        out["metrics"][k] = {"units": plan[k][0], "n": len(pairs),
+                             "mean_current": round(float(np.mean([p[0] for p in pairs])), 4),
+                             "mean_legacy": round(float(np.mean([p[1] for p in pairs])), 4),
+                             "abs_diff_median": round(float(np.median(da)), 4),
+                             "abs_diff_max": round(float(np.max(da)), 4),
+                             "rel_diff_median_pct": round(float(np.median(rel)), 3) if rel else None}
+        o = out["metrics"][k]
+        report(f"  {k:26s} {o['units']:4s} {o['mean_current']:11.3f} {o['mean_legacy']:11.3f} "
+               f"{o['abs_diff_median']:9.3f} {(o['rel_diff_median_pct'] or 0):9.2f}")
+    return out
+
+
+def f0_knob_attribution(report=print) -> dict:
+    """How much of the cross-session f0 difference could be knob position?
+
+    f0 is not directly settable on the TR-808 bass drum, but it is not
+    completely independent of DECAY either -- across the current session's own
+    decay axis it moves 1.77 Hz. So "the two sessions differ in f0" is only the
+    machine if the two sessions' DECAY knobs are in the same place, and they
+    are only known to be within the 1.3 % of T20 measured at the end stop.
+
+    This bounds the knob-attributable part: take df0/dln(T20) from the current
+    session's own A->B step, multiply by the observed ln(T20) mismatch. If that
+    is small against the f0 difference, the difference is the machine."""
+    cur = current_grid("A", "Digital")
+    leg = legacy_grid("1. No Accent", "1. Digital")
+    t20, f0 = rc._t20_ms(0.005), rc._f0("BD", 0.010, 0.500)
+
+    def read(p):
+        x, sr = load(p)
+        y = rc.prepare(x, sr)
+        return t20(y, sr).require("T20"), f0(y, sr).require("f0")
+
+    tA, fA = read(cur[("A", 1)])
+    tB, fB = read(cur[("B", 1)])
+    tL, fL = read(leg[("A", 1)])
+    slope = (fB - fA) / math.log(tB / tA)                     # Hz per ln(T20)
+    knob_hz = abs(slope * math.log(tL / tA))
+    got_hz = abs(fL - fA)
+    out = {"df0_per_ln_t20_hz": round(slope, 4),
+           "t20_mismatch_pct": round(100 * abs(tL - tA) / tA, 2),
+           "f0_attributable_to_knob_hz": round(knob_hz, 4),
+           "f0_difference_hz": round(got_hz, 4),
+           "knob_share_pct": round(100 * knob_hz / got_hz, 2) if got_hz else None}
+    report(f"  f0 attribution   df0/dln(T20) = {slope:+.3f} Hz; the sessions' T20 differ by "
+           f"{out['t20_mismatch_pct']:.2f} %,")
+    report(f"                   so at most {knob_hz:.4f} Hz of the {got_hz:.3f} Hz f0 "
+           f"difference is knob position ({out['knob_share_pct']:.2f} %).")
+    return out
+
+
+# ===========================================================================
+# 6. The verdicts. Each tolerance beside the three things it has to beat.
+# ===========================================================================
+#: For a tolerance to mean anything it has to sit above what the APPARATUS does
+#: on its own and above what the MACHINE does on its own, and below what the
+#: machine's own KNOBS do -- otherwise it cannot tell two settings apart.
+def verdicts(machine: dict, estimator: dict, travel: dict, report=print) -> dict:
+    rows = []
+    cases = [
+        ("energy ratio", 3.0, "dB", "body spectrum (padded)", "body spectrum",
+         "the band split: D02A-D08A, D13A, D14A. Machine floor from the #101-"
+         "corrected variant; apparatus noise from the path that ships"),
+        ("energy ratio", 3.0, "dB", "early/body energy", "early/body energy", "D01A"),
+        ("frequency", None, "Hz", "Pitch trajectory", "Pitch trajectory",
+         "D01A, D04A, D06A, D08A -- 10 % of the reference"),
+        ("time", None, "ms", "decay", "decay", "every drum case -- 50 % of the reference"),
+        ("time", None, "ms", "attack", "attack", "D02A, D09A -- 50 % of the reference"),
+    ]
+    for basis, fixed, units, metric, shipped_metric, used_by in cases:
+        m = machine["metrics"].get(metric)
+        if m is None:
+            continue
+        ref = abs(m["mean_current"])
+        tol = fixed if fixed is not None else (
+            0.10 * ref if basis == "frequency" else 0.50 * ref)
+        mach = m["abs_diff_median"]
+        est = estimator["editing_noise"][shipped_metric]["span"]
+        tr = travel["accent A"][metric]
+        rows.append({
+            "tolerance_basis": basis, "metric": metric, "units": units,
+            "tolerance": round(tol, 4), "used_by": used_by,
+            "machine_session_to_session": mach,
+            "estimator_editing_noise": round(est, 4) if est else None,
+            "knob_travel_full_grid": tr["grid_span"],
+            "knob_travel_tone_axis": tr["tone_axis_span"],
+            "tolerance_over_machine": round(tol / mach, 1) if mach else None,
+            "tolerance_over_estimator": round(tol / est, 1) if est else None,
+            "tolerance_over_tone_travel": round(tol / tr["tone_axis_span"], 2)
+            if tr["tone_axis_span"] else None,
+            # A tolerance wider than everything the machine's OWN controls can
+            # do to a metric cannot distinguish any two settings of it.
+            "tolerance_over_full_travel": round(tol / tr["grid_span"], 3)
+            if tr["grid_span"] else None,
+            # The ratio the brief asks for: below 1 the number describes the
+            # apparatus, not the machine, and the spread is not a measurement
+            # of anything the TR-808 did.
+            "machine_over_estimator": round(mach / est, 2) if est else None,
+            "finer_than_the_machine": bool(mach and tol < mach),
+            "finer_than_the_apparatus": bool(est and tol < est)})
+    report("  metric                        tol   machine  apparatus  mach/appar  tol/mach"
+           "   tol/knob travel")
+    for r in rows:
+        report(f"  {r['metric']:24s} {r['tolerance']:8.3f} {r['machine_session_to_session']:9.3f} "
+               f"{(r['estimator_editing_noise'] or 0):10.4f} "
+               f"{(r['machine_over_estimator'] or 0):11.2f} "
+               f"{(r['tolerance_over_machine'] or 0):9.1f} "
+               f"{(r['tolerance_over_full_travel'] or 0):16.3f}")
+    too_tight = [r["metric"] for r in rows if r["finer_than_the_machine"]]
+    apparatus = [r["metric"] for r in rows
+                 if r["machine_over_estimator"] is not None and r["machine_over_estimator"] < 1.0]
+    blind = [r["metric"] for r in rows
+             if r["tolerance_over_full_travel"] is not None and r["tolerance_over_full_travel"] > 1.0]
+    report(f"  finer than the machine's own floor (scoring noise):  "
+           f"{', '.join(too_tight) if too_tight else 'NONE'}")
+    report(f"  dominated by the apparatus (mach/appar < 1):         "
+           f"{', '.join(apparatus) if apparatus else 'NONE'}")
+    report(f"  wider than the machine's whole knob travel (blind):  "
+           f"{', '.join(blind) if blind else 'NONE'}")
+    return {"rows": rows, "finer_than_the_machine": too_tight,
+            "dominated_by_the_apparatus": apparatus,
+            "wider_than_the_machines_knob_travel": blind}
+
+
+# ===========================================================================
+# 7. CLI
+# ===========================================================================
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--audit", action="store_true")
+    ap.add_argument("--measure", action="store_true")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--json", type=pathlib.Path)
+    a = ap.parse_args(argv)
+    if not (a.self_test or a.audit or a.measure or a.all):
+        a.all = True
+    out: dict = {"issue": 111, "corpus": {
+        "archive": "808-from-mars.zip", "second_session": "808_from_mars_legacy.zip",
+        "path": "808 From Mars/WAV/01. Individual Hits/01. Bass Drum/Clean/Digital",
+        "files": 144, "verified": "SHA-256 of the archive against refaudio/catalog.json, "
+                                  "per-member size against refaudio/index/"}}
+    try:
+        if a.self_test or a.all:
+            print("ESTIMATOR, before the machine")
+            ok, ev = self_test()
+            out["self_test"] = ev
+            if not ok:
+                print("REFUSED  the estimators did not pass their own controls; "
+                      "a machine number taken with them would be meaningless")
+                return REFUSED
+            print()
+        if a.audit or a.all:
+            print("AUDIT    are the trailing-numbered files repeats of one setting?")
+            is_repeats, ev = audit()
+            out["audit"] = ev
+            out["audit"]["is_repeats"] = is_repeats
+            print()
+            if not is_repeats:
+                print("REFUSED  the take-to-take question, as #111 asks it, cannot be")
+                print("         answered from this corpus: the trailing 01..06 is the TONE")
+                print("         knob, so there are no repeated takes to take a spread over.")
+                print("         808_loops_from_mars.zip, whose bass-drum-only 4/4 loops")
+                print("         would hold repeated strikes inside one continuous take, is")
+                print("         the one 808 pack of the three NOT present on this host.")
+                print()
+        if a.measure or a.all:
+            print("KNOB TRAVEL   what each metric does across the machine's own controls")
+            travel = knob_travel()
+            out["knob_travel"] = travel
+            print()
+            print("SESSION TO SESSION   the same machine, recorded twice")
+            machine = cross_session()
+            machine["f0_attribution"] = f0_knob_attribution()
+            out["session_to_session"] = machine
+            print()
+            print("VERDICTS   each tolerance beside what it has to beat")
+            out["verdicts"] = verdicts(machine, out.get("self_test") or self_test(
+                report=lambda *x: None)[1], travel)
+    except Refused as why:
+        print(f"REFUSED  {why}")
+        return REFUSED
+    if a.json:
+        a.json.parent.mkdir(parents=True, exist_ok=True)
+        a.json.write_text(json.dumps(out, indent=1, sort_keys=True), encoding="utf-8")
+        print(f"\nwrote {a.json}")
+    # The take-to-take question was refused, and a refusal is the outcome.
+    return REFUSED if (a.all or a.audit) and not out.get("audit", {}).get("is_repeats", True) else MEASURED
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
