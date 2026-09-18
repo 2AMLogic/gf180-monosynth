@@ -304,7 +304,7 @@ a note on; `[` `]` sweep the cutoff, `-` `=` resonance, `;` `'` drive. A MIDI
 device is auto-detected (CC 74 cutoff, CC 71 resonance, CC 73 drive).
 
 ```bash
-.venv/bin/python -m pytest model/ -q                  # 34 tests
+.venv/bin/python -m pytest model/ -q                  # 45 tests
 .venv/bin/python model/voice_fx_render.py             # eight patches, integer voice, beside float
 afplay model/audio/voice_fx/00-float-vs-fixed.wav     # float, fixed, float, fixed ... loudness-matched
 afplay model/audio/voice_fx/00-all-fixed.wav          # the integer voice alone, raw output level
