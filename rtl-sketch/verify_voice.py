@@ -19,6 +19,16 @@ the test suite runs; --only picks by key):
   para       a paraphonic multi-trigger phrase through the reference host
   waveforms  every waveform in every oscillator slot, at low and high notes,
              with the shapes and weights changed mid-note
+  waves3     the Model D shapes revision 9 adds -- shark-tooth, reverse
+             sawtooth, wide (29 %) and narrow (15 %) rectangular
+  noise      white and pink alone through a swept ladder; three oscillators
+             and pink together (the mixer's four sources); the noise weight
+             at 65535 into a 30 Hz filter, where the mixer saturates
+  modulation oscillator 3 as the LFO: a 4 Hz triangle to pitch with OSC-3
+             CONTROL off; a 2 Hz reverse saw to the cutoff; the wheel swept
+             with both destinations on and OSC-3 CONTROL ON, which is
+             oscillator 3 modulating its own pitch; and both depths at the
+             register maximum, where the octave word saturates
   notes      every NOTE_INC entry (0..127) with the default detunes; the
              increments where 5.5's clamp fires (note 127 + 24 semitones =
              2^24 - 1); the powers of two where the reciprocal clamps; inc =
@@ -70,17 +80,19 @@ import dsp
 from dsp import SR, PHASE_MASK
 from verify_ladder import tool
 
-A = dict(INC=0x00, WAVE=0x04, W=0x08, GLIDE=0x0C, VOL=0x0D, AMP=0x10, FILT=0x14,
-         CUT_LO=0x18, CUT_HI=0x19, TRACK=0x1A, K=0x1C, GAIN=0x1D, OGAIN=0x1E,
-         GATE_ON=0x20, GATE_OFF=0x21, TRIG=0x22)
-WAVE_CODE = dict(saw=0, square=1, pulse25=2, tri=3, sine=4)
+A = dict(INC=0x00, WAVE=0x04, W=0x08, WN=0x0B, GLIDE=0x0C, VOL=0x0D, AMP=0x10, FILT=0x14,
+         CUT_LO=0x18, CUT_HI=0x19, TRACK=0x1A, NSEL=0x1B, K=0x1C, GAIN=0x1D, OGAIN=0x1E,
+         MROUTE=0x1F, GATE_ON=0x20, GATE_OFF=0x21, TRIG=0x22,
+         MMIX=0x24, MWHEEL=0x25, MPD=0x26, MFD=0x27)
+WAVE_CODE = vf.WAVE_CODE
 FULL24 = (1 << 24) - 1
 FIELDS = ["sample", "osc0", "osc1", "osc2", "inc0", "inc1", "inc2", "sh0", "sh1", "sh2",
           "r0", "r1", "r2", "mixed", "ae", "fe", "cut", "g", "kc", "k_eff", "y19", "v", "out_v"]
 STATE_FIELDS = ["phase0", "phase1", "phase2", "inc_acc0", "inc_acc1", "inc_acc2",
                 "level_a", "level_f", "seg_a", "seg_f"]
 RTL_FILES = ["tb_voice.v", "voice_dp.v", "recip_div.v", "ladder_dp_n.v"]
-BUGS = ["SQUARE_SIGN", "ENV_FLOOR", "KEFF", "MIX_SAT", "GLIDE_FLOOR", "RECIP_CLAMP", "TRIG_RESET", "OUT_SAT"]
+BUGS = ["SQUARE_SIGN", "ENV_FLOOR", "KEFF", "MIX_SAT", "GLIDE_FLOOR", "RECIP_CLAMP", "TRIG_RESET", "OUT_SAT",
+        "LFSR_TAP", "NOISE_SEL", "SHARK_MIX", "MOD_NODELAY"]
 
 
 # ---- the model's writes as register writes -----------------------------------
@@ -93,9 +105,13 @@ def patch_to_writes(regs: dict, f0: int) -> list:
     for k, wgt in enumerate(regs["weights"]): out.append((f0, 0, A["W"] + k, int(wgt)))
     for base, key in ((A["AMP"], "amp"), (A["FILT"], "fenv")):
         for j, v in enumerate(regs[key]): out.append((f0, 0, base + j, int(v)))
+    out.append((f0, 0, A["WN"], int(regs["weights"][3])))
     out += [(f0, 0, A["CUT_LO"], int(regs["cut_lo"])), (f0, 0, A["CUT_HI"], int(regs["cut_hi"])),
             (f0, 0, A["K"], int(regs["k"])), (f0, 0, A["GAIN"], int(regs["gain"])), (f0, 0, A["OGAIN"], int(regs["ogain"])),
             (f0, 0, A["VOL"], int(regs["vol"])), (f0, 0, A["GLIDE"], int(regs["glide"]))]
+    out += [(f0, 0, A["NSEL"], int(regs.get("nsel", 0))), (f0, 0, A["MROUTE"], int(regs.get("mroute", 0))),
+            (f0, 0, A["MMIX"], int(regs.get("mmix", 0))), (f0, 0, A["MWHEEL"], int(regs.get("mwheel", 0))),
+            (f0, 0, A["MPD"], int(regs.get("mpd", 0))), (f0, 0, A["MFD"], int(regs.get("mfd", 0)))]
     return out
 
 
@@ -110,6 +126,7 @@ def model_writes_to_regs(writes: list, f0: int) -> list:
         elif op == "GATE":  out.append((f, 0, A["GATE_ON"] if int(args[0]) else A["GATE_OFF"], 0))
         elif op == "TRIG":  out.append((f, 0, A["TRIG"], 0))
         elif op == "GLIDE": out.append((f, 0, A["GLIDE"], int(args[0])))
+        elif op == "MWHEEL": out.append((f, 0, A["MWHEEL"], int(args[0])))
         else: raise ValueError(op)
     return out
 
@@ -168,6 +185,68 @@ def scenarios(which: str, only=None) -> list:
         writes = _note_writes(note, regs) + ([(0, "GATE", 1)] if i == 0 else [])
         add("waveforms", f"waveforms {waves} at note {note}" + (" (shapes and weights changed mid-note)" if i else ""),
             regs, writes, n)
+
+    # -- waves3: the Model D shapes contract rev 9 adds (W1, W3, W4, W5) --------
+    n = int((0.012 if q else 0.06) * SR)
+    rot = [(("shark", "revsaw", "pulse29"), 33), (("pulse15", "shark", "revsaw"), 96),
+           (("revsaw", "pulse29", "pulse15"), 69), (("pulse29", "pulse15", "shark"), 21),
+           (("shark", "shark", "shark"), 108)]
+    for i, (waves, note) in enumerate(rot):
+        regs = v.patch_regs(waves=waves, detune=(0.0, 0.07, -12.0), mix=(1.0, 0.9, 0.8), q=0.7,
+                            drive=1.8, cutoff=(300, 8000), track=0.5)
+        writes = _note_writes(note, regs) + ([(0, "GATE", 1)] if i == 0 else [])
+        add("waves3", f"shark / revsaw / wide / narrow {waves} at note {note}", regs, writes, n)
+
+    # -- noise: the fourth mixer source, both colours, through the ladder --------
+    n = int((0.05 if q else 0.25) * SR)
+    for nsel, name in ((0, "white"), (1, "pink")):
+        regs = v.patch_regs(mix=(0.0, 0.0, 0.0), noise=1.0, nsel=nsel, cutoff=(200, 9000),
+                            q=0.9, drive=2.0, amp=(0.002, 0.15, 0.7, 0.08))
+        add("noise", f"{name} noise alone at mixer weight 1.0, swept filter",
+            regs, _note_writes(48, regs) + [(0, "GATE", 1), (n - 200, "GATE", 0)], n)
+    regs = v.patch_regs(waves=("saw", "pulse29", "shark"), mix=(1.0, 0.6, 0.4), noise=0.8, nsel=1,
+                        cutoff=(400, 6000), q=1.02, drive=2.4, track=0.4)
+    add("noise", "three oscillators AND pink noise, res 1.02: the mixer's four sources",
+        regs, _note_writes(40, regs) + [(0, "GATE", 1)], n)
+    regs = v.patch_regs(mix=(0.0,), noise=1.0, nsel=0, cutoff=(30, 30), q=0.2, drive=0.5)
+    regs["weights"] = [0, 0, 0, 65535]                       # the weight register at its maximum
+    add("noise", "white noise at weight 65535 into a 30 Hz filter: the mixer saturates",
+        regs, [(0, "GATE", 1)], 400 if q else 1200)
+
+    # -- modulation: oscillator 3 as the LFO (M1-M9) -----------------------------
+    n = int((0.08 if q else 0.4) * SR)
+    lo = dsp.phase_inc(4.0)                                   # osc 3 in LO range
+    regs = v.patch_regs(waves=("saw", "saw", "tri"), mix=(1.0, 0.9, 0.0), cutoff=(500, 5000),
+                        q=0.8, drive=2.0, osc_mod=True, osc3_ctl=False, mod_wheel=1.0, mod_mix=0.0)
+    w = [(0, "INC", 0, _incs(57)[0], True), (0, "INC", 1, _incs(57)[1], True),
+         (0, "INC", 2, lo, True), (0, "TRACK", vf.VoiceFx.note_track(57, regs["track"])), (0, "GATE", 1)]
+    add("modulation", "vibrato: osc 3 triangle at 4 Hz to pitch, wheel full, OSC-3 CONTROL off", regs, w, n)
+    regs = v.patch_regs(waves=("saw", "saw", "revsaw"), mix=(1.0, 0.0, 0.0), cutoff=(440, 440),
+                        q=1.0, drive=2.0, track=0.0, filt_mod=True, osc3_ctl=False,
+                        mod_wheel=1.0, mod_mix=0.0)
+    w = [(0, "INC", 0, _incs(45)[0], True), (0, "INC", 2, dsp.phase_inc(2.0), True),
+         (0, "TRACK", 0), (0, "GATE", 1)]
+    add("modulation", "filter sweep: osc 3 reverse saw at 2 Hz to the cutoff, wheel full", regs, w, n)
+    # the wheel swept mid-note, the mix panned from oscillator 3 to noise, and
+    # OSC-3 CONTROL ON -- oscillator 3 modulating its own pitch (M9's loop)
+    regs = v.patch_regs(waves=("saw", "square", "tri"), mix=(1.0, 0.5, 0.3), noise=0.2, nsel=1,
+                        cutoff=(300, 7000), q=0.9, drive=2.2, osc_mod=True, filt_mod=True,
+                        osc3_ctl=True, mod_wheel=0.0, mod_mix=0.35)
+    w = _note_writes(52, regs) + [(0, "GATE", 1)]
+    for j in range(8):
+        w.append((j * (n // 9) + 10, "MWHEEL", (j * 32767) // 7))
+    add("modulation", "wheel swept 0 -> full with BOTH destinations on and OSC-3 CONTROL on "
+        "(oscillator 3 modulating its own pitch, M9)", regs, w, n)
+    # the extremes of the path: both depths at the register maximum (the octave
+    # word saturates at +-4), the pan past its top, the wheel at its top
+    regs = v.patch_regs(waves=("square", "saw", "pulse15"), mix=(1.0, 0.8, 0.5), noise=1.0, nsel=0,
+                        cutoff=(200, 12000), q=1.0, drive=2.0, osc_mod=True, filt_mod=True, osc3_ctl=True)
+    regs["mpd"] = regs["mfd"] = 65535
+    regs["mmix"] = 65535                                      # past MMIX_FULL: clamps to noise only
+    regs["mwheel"] = 65535
+    w = _note_writes(64, regs) + [(0, "GATE", 1), (n // 2, "MWHEEL", 0)]
+    add("modulation", "both depths at 65535 (the octave word saturates at +-4), mmix past its top, "
+        "wheel at 65535 then 0", regs, w, n)
 
     # -- notes: the full note range and the increments where 5.5's clamps fire ----
     per = 12 if q else 40
@@ -240,23 +319,26 @@ def scenarios(which: str, only=None) -> list:
     # -- extremes: the register image at its limits ---------------------------------
     n = 400 if q else 960
     regs = v.patch_regs()
-    regs["weights"] = [(1 << 16) - 1] * 3
+    regs["weights"] = [(1 << 16) - 1] * 4
     regs["amp"] = regs["fenv"] = (FULL24, FULL24, FULL24, 65535)
     regs["cut_lo"] = regs["cut_hi"] = 65535
     regs["k"], regs["gain"], regs["ogain"] = (1 << 17) - 1, (1 << 20) - 1, (1 << 20) - 1
     regs["vol"], regs["glide"] = 65535, FULL24
+    regs["nsel"] = 1
+    regs["mmix"] = regs["mwheel"] = regs["mpd"] = regs["mfd"] = 65535
+    regs["mroute"] = 7
     writes = [(0, "INC", k, FULL24, True) for k in range(3)] + [(0, "TRACK", 65535), (0, "GATE", 1),
                                                                  (n // 2, "INC", 0, 1, False), (n // 2, "TRIG")]
     add("extremes", "the all-maximum control image (weights, envelopes, cutoff, k, gain, ogain, vol, glide, inc)", regs, writes, n)
     regs = v.patch_regs()
-    regs["weights"] = [0] * 3; regs["amp"] = regs["fenv"] = (0, 0, 0, 0); regs["cut_lo"] = regs["cut_hi"] = 0
+    regs["weights"] = [0] * 4; regs["amp"] = regs["fenv"] = (0, 0, 0, 0); regs["cut_lo"] = regs["cut_hi"] = 0
     regs["k"] = regs["gain"] = regs["ogain"] = regs["vol"] = regs["glide"] = 0
     writes = [(0, "INC", k, 0, True) for k in range(3)] + [(0, "TRACK", 0), (0, "GATE", 1)]
     add("extremes", "the all-zero image: silent (14)", regs, writes, 200 if q else 480)
     n = 1500 if q else 3000
     regs = v.patch_regs(q=0.6, drive=2.0, amp=(0.002, 0.05, 0.9, 0.1), fenv=(0.05, 0.05, 0.2, 0.1))
     regs["cut_lo"], regs["cut_hi"] = 9000, 100                              # negative span
-    regs["weights"] = [30000, 30000, 30000]                                 # the mixer saturates
+    regs["weights"] = [30000, 30000, 30000, 30000]                           # the mixer saturates
     regs["k"] = (1 << 17) - 1                                               # k_eff saturates near the kc peak
     regs["ogain"] = (1 << 20) - 1                                           # the ladder's 19-bit word saturates
     regs["vol"] = 65535                                                     # the rail
@@ -315,6 +397,7 @@ def coverage(v: vf.VoiceFx, regs: dict, writes: list, phases0: list, trig, gate)
         pow2 += int(((inc > 0) & ((inc & (inc - 1)) == 0)).sum())
         zero += int((inc == 0).sum())
     acc = sum(t["osc"][k] * int(regs["weights"][k]) for k in range(3))
+    acc = acc + t["noise"] * int(regs["weights"][3])
     mix_sat = int(((acc >> 15) > 32767).sum() + ((acc >> 15) < -32768).sum())
     out_v = (t["vca"] * int(regs["vol"])) >> 15
     out_sat = int((out_v > 32767).sum() + (out_v < -32768).sum())
@@ -333,6 +416,12 @@ def coverage(v: vf.VoiceFx, regs: dict, writes: list, phases0: list, trig, gate)
     if keff_sat: notes.append(f"k_eff sat {keff_sat}")
     if y_sat: notes.append(f"ladder sat19 {y_sat}")
     if moving: notes.append(f"inc changes {moving}")
+    if int(regs["weights"][3]):
+        notes.append(f"noise w {int(regs['weights'][3])}" + (" (pink)" if regs.get("nsel") else " (white)"))
+    if int(regs.get("mroute", 0)) & 3:
+        mv = np.abs(t["mod_sig"]).max()
+        notes.append(f"mod route {int(regs['mroute'])}, |mod_sig| max {int(mv)}, "
+                     f"cut {int(t['cut'].min())}..{int(t['cut'].max())}")
     notes.append(f"gate on {g_on}/{n}, trig {int(trig.sum())}" + (f", ae=0 after gate-off {ae0_off}" if ae0_off else ""))
     return "; ".join(notes)
 

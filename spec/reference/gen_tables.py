@@ -12,12 +12,13 @@ drifting away from it. It does three things:
         SINE_Q256  256 x Q1.15     dsp._QUARTER (midpoint-sampled quarter wave)
         TANH16      16 x Q1.15     fixed.LadderFx(tanh_entries=16, interp=True).tbl
         G_ROM128   129 x Q0.16     voice_fx.make_g_rom()  (128 entries + guard)
+        EXP_ROM65   65 x Q0.15     voice_fx.make_exp_rom() (64 entries + guard, DR 0012)
         K_ROM32     33 x Q1.15     voice_fx.make_k_rom()  (32 entries + guard, DR 0006)
         NOISE64     64 x Q1.15     drums_fx.lfsr_frame from LFSR_SEED (the first 64 noise words, DR 0008)
         KIT808      (addr, value)  drums_fx.kit_808()  (the reference kit, informative but pinned)
      plus two derived images the contract also states hashes for:
         SINE_FULL1024   the 1024-entry expansion via voice_fx.sine_fx
-        TANH16_ROM      the 17-word ROM image ladder_dp.v reads (TANH16 + 32767)
+        TANH16_ROM      the 17-word ROM image ladder_dp.v reads (TANH16 + the guard word)
   2. Writes each table as one hex word per line to spec/reference/tables/, and
      rewrites the appendix block of the contract between the two marker lines
      <!-- BEGIN GENERATED APPENDICES --> / <!-- END GENERATED APPENDICES -->.
@@ -72,7 +73,7 @@ def tanh16() -> list[int]:
 
 
 def tanh16_rom() -> list[int]:
-    return tanh16() + [32767]           # the top word tanh_fx interpolates toward
+    return tanh16() + [fixed.TANH_GUARD]   # the guard word: tanh(4), not full scale
 
 
 def g_rom128() -> list[int]:
@@ -81,6 +82,13 @@ def g_rom128() -> list[int]:
 
 def k_rom32() -> list[int]:
     return [int(v) for v in vf.make_k_rom(vf.KROM_BITS, vf.GROM_BITS, vf.LADDER_CFG.get("oversample", 2))]
+
+
+def exp_rom65() -> list[int]:
+    """65 x Q0.15, the modulation path's 2^x table (contract 6.9, DR 0012):
+    (2^(i/64) - 1) * 32768, edge-sampled over one octave with the guard entry.
+    Stored biased by -32768 so the top entry (2.0) still fits in 16 bits."""
+    return [int(v) for v in vf.make_exp_rom()]
 
 
 def noise64() -> list[int]:
@@ -113,6 +121,7 @@ def tables():
         ("TANH16_ROM", tanh16_rom(), 4, True, None),
         ("G_ROM128", g_rom128(), 4, False, "g_rom128.hex"),
         ("K_ROM32", k_rom32(), 4, False, "k_rom32.hex"),
+        ("EXP_ROM65", exp_rom65(), 4, False, "exp_rom65.hex"),
         ("NOISE64", noise64(), 4, True, "noise64.hex"),
         ("KIT808", kit808_words(), 10, False, "kit808.hex"),
     ]
@@ -161,12 +170,18 @@ def appendix() -> str:
     s.append("### Appendix C -- TANH16: the ladder's tanh table, i = 0..15\n")
     s.append("Normative. `TANH16[i] = round(tanh(i / 16 * 4.0) * 32767)` -- EDGE sampled over [0, 4), "
              "Q1.15, read with linear interpolation (section 11.3). The interpolation's top word, "
-             "used above entry 15, is 32767 and is NOT tanh(4.0) (which would round to 32745).\n")
+             "used above entry 15 AND returned by the clamp for |v| >= 4.0, is `fixed.TANH_GUARD` = "
+             "round(tanh(4.0) * 32767) = 32745. Revisions 1-9 used 32767 there, which left the top bin "
+             "[3.75, 4) up to 6.5e-4 high and put a step of that size at exactly x = 4 inside the "
+             "feedback loop; revision 10 corrects it (DR 0013). It changes no harmonic at "
+             "self-oscillation by as much as 0.05 dB on this 16-entry table -- the table's own worst "
+             "interpolation error, 5.97e-3 at x = 0.625, is nine times larger -- and only becomes the "
+             "limiting error at 64 entries or more.\n")
     s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
     s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     s.append(_rows(th, 8))
     s.append(f"\nSHA-256 of the 16 decimal values joined by commas: `{sha(th)}`  ")
-    s.append(f"SHA-256 of the 17-word ROM image (`TANH16` followed by 32767), which is exactly "
+    s.append(f"SHA-256 of the 17-word ROM image (`TANH16` followed by the guard word), which is exactly "
              f"`rtl-sketch/tanh16.hex`: `{sha(thr)}`\n")
     s.append("### Appendix D -- G_ROM128: cutoff (Hz) -> ladder coefficient g, i = 0..128\n")
     s.append("Normative. `G_ROM128[i] = clip(round((1 - exp(-2*pi * (256*i) / 96000)) * 65536), 0, 65535)` "
@@ -189,6 +204,19 @@ def appendix() -> str:
     s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     s.append(_rows(kr, 8))
     s.append(f"\nSHA-256 of the 33 decimal values joined by commas: `{sha(kr)}`\n")
+    er = exp_rom65()
+    s.append("### Appendix H -- EXP_ROM65: 2^x for the modulation path, i = 0..64\n")
+    s.append("Normative (DR 0012). `EXP_ROM65[i] = round(2^(i/64) * 32768) - 32768` -- the modulation "
+             "path's exponential, EDGE sampled over ONE octave, 64 entries plus entry 64 as the "
+             "interpolation guard (`voice_fx.make_exp_rom`). Stored biased by -32768 so that the top "
+             "entry (2.0 in Q1.15, 65536) still fits in 16 bits; `voice_fx.exp2_q` adds it back, reads "
+             "the table on the top 6 bits of the Q3.12 octave word's fraction and interpolates on the "
+             "low 6, and turns the integer part into a right shift of 12..19 places. Worst relative "
+             "error over the octave 3.57e-5, which is 0.062 cents. Eight entries per row.\n")
+    s.append("| i | +0 | +1 | +2 | +3 | +4 | +5 | +6 | +7 |")
+    s.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    s.append(_rows(er, 8))
+    s.append(f"\nSHA-256 of the 65 decimal values joined by commas: `{sha(er)}`\n")
     nz, kit = noise64(), kit808()
     s.append("### Appendix F -- NOISE64: the first 64 noise words from reset\n")
     s.append("Normative (DR 0008), derived. The drum section's noise source (section 15.4) is a 31-bit LFSR, "
@@ -255,6 +283,11 @@ def write() -> int:
         if fn:
             with open(os.path.join(TABLE_DIR, fn), "w") as fh:
                 fh.write(hex_image(vals, digits, signed))
+    # rtl-sketch/tanh16.hex is the 17-word ROM IMAGE (the table plus its guard
+    # word), not the 16-word table -- `check()` has always verified it and
+    # nothing wrote it, which is how its guard word and the model's could
+    # differ. It is written here now.
+    open(RTL_TANH_HEX, "w").write(hex_image(tanh16_rom(), 4, True))
     text = open(CONTRACT).read()
     head, tail = _contract_parts(text)
     new = head + "\n" + appendix() + "\n" + tail

@@ -68,21 +68,22 @@ from voice_fx import VoiceFx, LADDER_CFG, CUT_MIN, CUT_MAX
 from fixed import LadderFx
 
 SEC_VOICE, SEC_DRUM = 0, 1
-WAVE_NAME = {0: "saw", 1: "square", 2: "pulse25", 3: "tri"}      # 4..7 all sine (DR 0007 s.3)
+WAVE_NAME = {v: k for k, v in vf.WAVE_CODE.items()}              # 9..15 all sine (DR 0007 s.3)
 
 # ---- the SEC = 0 page (DR 0007 revision 2 section 3) --------------------------
-A_INC, A_WAVE, A_W = 0x00, 0x04, 0x08
+A_INC, A_WAVE, A_W, A_WN = 0x00, 0x04, 0x08, 0x0B
 A_GLIDE, A_VOL, A_DVOL, A_ROUTE = 0x0C, 0x0D, 0x0E, 0x0F
 A_AMP, A_FILT = 0x10, 0x14
-A_CUT_LO, A_CUT_HI, A_TRACK = 0x18, 0x19, 0x1A
-A_K, A_GAIN, A_OGAIN = 0x1C, 0x1D, 0x1E
+A_CUT_LO, A_CUT_HI, A_TRACK, A_NSEL = 0x18, 0x19, 0x1A, 0x1B
+A_K, A_GAIN, A_OGAIN, A_MROUTE = 0x1C, 0x1D, 0x1E, 0x1F
+A_MMIX, A_MWHEEL, A_MPD, A_MFD = 0x24, 0x25, 0x26, 0x27
 A_GATE_ON, A_GATE_OFF, A_TRIG, A_RESET = 0x20, 0x21, 0x22, 0x23
 A_DCUT, A_DK, A_DGAIN, A_DOGAIN, A_BVOL = 0x28, 0x29, 0x2A, 0x2B, 0x2C
 A_NOP = 0x3F
 
 # the widths the register keeps (DR 0007 section 3); the datum is 32 bits and
 # the register takes its low bits, so the model must mask exactly as the RTL does
-W24, W20, W17, W16, W15, W3, W1 = (1 << 24) - 1, (1 << 20) - 1, (1 << 17) - 1, 0xFFFF, 0x7FFF, 7, 1
+W24, W20, W17, W16, W15, W4, W3, W1 = (1 << 24) - 1, (1 << 20) - 1, (1 << 17) - 1, 0xFFFF, 0x7FFF, 15, 7, 1
 
 
 def sat16(v):
@@ -106,7 +107,8 @@ class SynthTopModel:
         self.voice.reset()
         self.drums.reset()
         self.dl = LadderFx(**LADDER_CFG)          # ladder context 1 has no separate reset port
-        self.img = dict(waves=[0, 0, 0], weights=[0, 0, 0],
+        self.img = dict(waves=[0, 0, 0], weights=[0, 0, 0, 0],
+                        nsel=0, mmix=0, mwheel=0, mpd=0, mfd=0, mroute=0,
                         amp=[0, 0, 0, 0], fenv=[0, 0, 0, 0],
                         cut_lo=0, cut_hi=0, k=0, gain=0, ogain=0,
                         vol=0, dvol=0, bvol=0, glide=0, route=0,
@@ -118,7 +120,9 @@ class SynthTopModel:
         r.update(waves=[WAVE_NAME.get(w, "sine") for w in i["waves"]],
                  weights=list(i["weights"]), amp=list(i["amp"]), fenv=list(i["fenv"]),
                  cut_lo=i["cut_lo"], cut_hi=i["cut_hi"], k=i["k"], gain=i["gain"],
-                 ogain=i["ogain"], vol=i["vol"], glide=i["glide"])
+                 ogain=i["ogain"], vol=i["vol"], glide=i["glide"],
+                 nsel=i["nsel"], mmix=i["mmix"], mwheel=i["mwheel"],
+                 mpd=i["mpd"], mfd=i["mfd"], mroute=i["mroute"])
         return r
 
     # ---- one SEC = 0 write: exactly voice_dp.v's decode ----------------------
@@ -130,9 +134,11 @@ class SynthTopModel:
         if addr <= 0x02:
             return ("INC", addr & 3, data & W24, bool(flag))
         if A_WAVE <= addr <= A_WAVE + 2:
-            i["waves"][addr - A_WAVE] = data & W3; return "image"
+            i["waves"][addr - A_WAVE] = data & W4; return "image"
         if A_W <= addr <= A_W + 2:
             i["weights"][addr - A_W] = data & W16; return "image"
+        if addr == A_WN:
+            i["weights"][3] = data & W16; return "image"            # the noise source (6.10)
         if addr == A_GLIDE:
             i["glide"] = data & W24; return ("GLIDE", data & W24)
         if addr == A_VOL:   i["vol"]   = data & W16; return "image"
@@ -154,6 +160,12 @@ class SynthTopModel:
         if addr == A_GATE_ON:  return ("GATE", 1)
         if addr == A_GATE_OFF: return ("GATE", 0)
         if addr == A_TRIG:     return ("TRIG",)
+        if addr == A_NSEL:   i["nsel"]   = data & W1;  return "image"
+        if addr == A_MROUTE: i["mroute"] = data & W3;  return "image"
+        if addr == A_MMIX:   i["mmix"]   = data & W16; return "image"
+        if addr == A_MWHEEL: i["mwheel"] = data & W16; return ("MWHEEL", data & W16)
+        if addr == A_MPD:    i["mpd"]    = data & W16; return "image"
+        if addr == A_MFD:    i["mfd"]    = data & W16; return "image"
         if addr == A_RESET:    return "reset"
         if addr == A_DCUT:   i["dcut"]   = data & W16; return "image"
         if addr == A_DK:     i["dk"]     = data & W17; return "image"
@@ -253,7 +265,8 @@ class SynthTopModel:
         """The SEC = 0 RESET (0x23) zeroes the voice's registers and state and
         leaves the drum section alone; the SEC = 1 RESET (0xFF) does the
         converse, and DrumsFx.write handles it."""
-        self.img = dict(waves=[0, 0, 0], weights=[0, 0, 0],
+        self.img = dict(waves=[0, 0, 0], weights=[0, 0, 0, 0],
+                        nsel=0, mmix=0, mwheel=0, mpd=0, mfd=0, mroute=0,
                         amp=[0, 0, 0, 0], fenv=[0, 0, 0, 0],
                         cut_lo=0, cut_hi=0, k=0, gain=0, ogain=0,
                         vol=0, dvol=0, bvol=0, glide=0, route=0,

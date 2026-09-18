@@ -46,6 +46,17 @@ SIG_Q = 15
 COEF_Q = 16
 VT2 = 0.05                      # 2*Vt, the paper's scaling
 TANH_DOMAIN = 4.0               # tanh(4) = 0.9993; beyond this, clamp
+# The table's GUARD word: the value the top bin interpolates toward and the
+# value the clamp returns above the domain. It is tanh(TANH_DOMAIN), not full
+# scale. Revisions 1-9 used 32767, which made the top bin [3.75, 4) up to
+# 6.5e-4 high -- twelve times the error of any other bin's interpolation -- and
+# put a step of that size at exactly x = 4, inside a feedback loop. Correcting
+# it costs nothing: it is one ROM word. What it does NOT do, measured, is move
+# the harmonic fingerprint at self-oscillation by as much as 0.05 dB on the
+# shipped 16-entry table, because the state never reaches the top bin there;
+# the 16-entry table's own worst error is 5.97e-3 at x = 0.625, nine times
+# larger. The guard only becomes the limiting error at 64 entries or more.
+TANH_GUARD = int(round(math.tanh(TANH_DOMAIN) * 32767))    # 32745
 
 
 def shl(v: int, k: int) -> int:
@@ -103,14 +114,14 @@ class LadderFx:
         neg = y < 0
         a = -y if neg else y
         if a >= self.dom_fx:
-            r = 32767
+            r = TANH_GUARD
         else:
             pos = a * self.N
             idx = pos // self.dom_fx
             if self.interp:
                 rem = pos - idx * self.dom_fx
                 t0 = self.tbl[idx]
-                t1 = self.tbl[idx + 1] if idx + 1 < self.N else 32767
+                t1 = self.tbl[idx + 1] if idx + 1 < self.N else TANH_GUARD
                 r = t0 + ((t1 - t0) * rem) // self.dom_fx
             else:
                 r = self.tbl[idx]
@@ -158,8 +169,11 @@ class LadderFx:
                 assert len(g_tab) == n, f"g_q16 has {len(g_tab)} entries, need {n}"
         else:
             # coefficient per sample, Q0.16 -- a real design would ROM this
+            # DR 0011: the same tuning the ROM is built with, so the float
+            # path and voice_fx's integer ROM describe ONE filter.
             g_tab = np.clip(
-                np.round((1.0 - np.exp(-2.0 * math.pi * np.clip(cutoff_hz, 20.0, fs * 0.45) / fs))
+                np.round((1.0 - np.exp(-2.0 * math.pi
+                                       * tuned_cutoff(np.clip(cutoff_hz, 20.0, fs * 0.45)) / fs))
                          * (1 << COEF_Q)), 1, (1 << COEF_Q) - 1).astype(np.int64)
         rk, rgain, rogain = self.regs(res, drive)
         k = rk if k is None else k
@@ -207,6 +221,19 @@ class LadderFx:
             out[i] = sat((shl(y[3], -TQ) * ogain) >> COEF_Q, OB)
         self.y, self.w, self.d1, self.d2 = y, w, d1, d2
         return out
+
+
+def tuned_cutoff(cutoff_hz):
+    """The frequency the one-pole cascade is actually run at for a COMMANDED
+    cutoff: `f * CUT_TRIM * fcr(f)`, Huovilainen's tuning polynomial and DR
+    0011's constant. Hand this to any float reference (`dsp.ladder`) and it
+    becomes the same filter as `LadderFx` at the commanded cutoff -- which is
+    what makes a float/fixed comparison a measurement of QUANTISATION rather
+    than of the tuning difference. Imported locally: voice_fx imports this
+    module."""
+    import voice_fx as _vf
+    c = np.asarray(cutoff_hz, dtype=np.float64)
+    return c * _vf.CUT_TRIM * _vf.fcr(c)
 
 
 def f2q15(x: np.ndarray) -> np.ndarray:
