@@ -618,7 +618,14 @@ CY_LO_HZ, CY_Q = 3453.0, 6.0
 # (Hh1 2.5 kHz Q 0.97 on the low band, Hh2 unspecified resonant, Hh3 resonant
 # ~10.5 kHz) and the bank has room for two, so which two is an evidence
 # question and was settled by measurement -- see CY_FIT below.
-CY_HI_HZ, CY_HI_Q = 10500.0, 2.5
+# Q IS A FIT, NOT A CIRCUIT VALUE. Reference 10 calls Hh3 third-order and
+# the bank realises it as a single 2-pole, so a raised Q stands in for the
+# missing pole's skirt. Measured: 2.5 -> 4.0 takes the five-band cost from
+# 18.1 to 6.0 against cy8/CY5025.WAV, two thirds of the error, with no new
+# mode, path or numerator -- and a SECOND 2-pole instead reaches only 10.3,
+# so more filtering is not the lever. +60 % is outside reference 1.7's
+# +-50 % unit-to-unit normal; this is compensation, not a transcription fix.
+CY_HI_HZ, CY_HI_Q = 10500.0, 4.0
 # The three VCA envelopes. The short one is VERIFIED only as "its decay time is
 # short" [SN] -- 20 ms is INFERRED. The low band's ~100 ms is reference 10's
 # own "what to implement". The middle band is the DECAY knob: VR2 2 MOhm || R93
@@ -739,8 +746,16 @@ def kit_808() -> list:
         w.append((A_OSC + i, osc_inc_reg(hz)))
     # modes: filters first (numerators), then the bodies
     w += mode_writes(M_HATBP, 7117.0, 6.0, 0.0, BP)          # hats' band-pass, reference 10/11; tapped only
-    w += mode_writes(M_OHHP, 7800.0, 2.5, 0.45, HP)          # OH high-pass, reference 11
-    w += mode_writes(M_CHHP, 11700.0, 2.5, 0.69, HP)         # CH high-pass, reference 11
+    # FIT, not reference 11's 7831 Hz / Q 2.509. The (1 - z^-1)^2 high-pass
+    # numerator rises to Nyquist and never falls, which put 84 % of OH in
+    # 6-9 kHz against the machine's 67 %. A band-pass at 10 kHz / Q 3.0
+    # takes the four-band cost 35.6 -> 9.0. Circuit value kept in the
+    # comment so the departure stays visible.
+    w += mode_writes(M_OHHP, 10000.0, 3.0, 0.45, BP)         # OH, retuned (circuit: 7800 / 2.5 HP)
+    # FIT, not reference 11's 11746 Hz / Q 2.509. Same numerator problem:
+    # CH put 47 % above 13 kHz against the machine's 30 %. 10750 Hz / Q 4.0
+    # takes the four-band cost 40.3 -> 10.5.
+    w += mode_writes(M_CHHP, 10750.0, 4.0, 0.69, HP)         # CH, retuned (circuit: 11700 / 2.5)
     w += mode_writes(M_SDN, 2750.0, 0.7, 0.2059, BP)         # SD snappy filter: the pole is VERIFIED
                                                              # IN A SOURCE (reference 3's 2.75 kHz /
                                                              # Q 0.7); the NUMERATOR is MEASURED -- a

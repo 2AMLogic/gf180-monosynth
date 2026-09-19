@@ -1,0 +1,73 @@
+{
+  "engine": "fixed-model",
+  "case_id": "D16B",
+  "subject": "Closed hat / variation",
+  "source_commit": "3d8c169",
+  "analysis_run": "run_case@1c5e8c37d7c6 + audio_measure@7386f4a9297f at 2026-09-18T21:20:06Z",
+  "reference_profile": "",
+  "render_run": "",
+  "audio": "",
+  "provenance": {
+    "engine": "fixed-model",
+    "worktree": {
+      "commit": "3d8c169",
+      "described": "node/D-drums-bitexact-39-g3d8c169-dirty",
+      "branch": "drums-high-band-retune",
+      "dirty": true,
+      "uncommitted_sha256": "dce69fcbed832968",
+      "untracked_files": 2
+    },
+    "base_check": {
+      "checked": true,
+      "origin_main": "3d8c1694a983",
+      "behind_commits": 0,
+      "n_stops_here": 11,
+      "n_stops_origin_main": 11,
+      "stale_dependencies": {
+        "model/drums_fx.py": {
+          "origin_main": "5ea51e6cf91b",
+          "here": "6d5cf4323ce3"
+        }
+      },
+      "allow_stale": true,
+      "problems": [
+        "these inputs differ from origin/main: model/drums_fx.py"
+      ]
+    },
+    "command": "tools/run_case.py --allow-stale D14A D14B D15A D15B D16A D16B",
+    "config": {
+      "refs": "/tmp/tr808-ref",
+      "inject": null
+    },
+    "python": "3.14.7",
+    "run_at": "2026-09-18T21:20:06Z",
+    "inputs": {
+      "model/drums_fx.py": "sha256:6d5cf4323ce3f1c9",
+      "model/voice_fx.py": "sha256:fc17442f2e21856a",
+      "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
+      "tools/run_case.py": "sha256:1c5e8c37d7c6f065",
+      "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
+    },
+    "artefacts": {},
+    "outcome_code": 2,
+    "outcome_code_meaning": "0 match, 1 mismatch (a result), 2 did not run (no evidence)"
+  },
+  "note": "REFUSED: this runner has no plan for this case.",
+  "metrics": {
+    "Band energy": {
+      "units": "",
+      "valid": false,
+      "why": "no measurement plan"
+    },
+    "attack": {
+      "units": "",
+      "valid": false,
+      "why": "no measurement plan"
+    },
+    "decay": {
+      "units": "",
+      "valid": false,
+      "why": "no measurement plan"
+    }
+  }
+}
