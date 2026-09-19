@@ -110,8 +110,15 @@ Results at the fit settings are sound-matching and are never quoted as
 emulation. **Every number in §3–§6 is emulation.** The Minimoog work in §8
 could only ever have been sound-matching, and is labelled so.
 
-Split hash and per-run revision hashes are written into
-`/tmp/discrimination.json` by every run.
+Split hash and per-run revision hashes are written into the `--json` file by
+every run (`docs/discrimination-results.json` for the eight-voice
+reproduction, `docs/discrimination-results-16.json` for the sixteen).
+
+**The split is unchanged in form and larger in fact**: 54 fit settings and
+**62 held out** across sixteen sounds, against 30 and 38 across eight. The
+eight-voice split hash `6738610a454806f8` reproduces exactly, so the
+before/after in §3.2 compares two runs of one experiment and not two
+experiments.
 
 ### The knob laws, and where they came from
 
@@ -125,12 +132,43 @@ three fit positions, not assumed:
 | SD | TONE | ~~body ring, *not* pitch (168/172 Hz throughout)~~ — **WITHDRAWN 2026-09-18**; the two partials' amplitude **ratio**, and neither mode's decay | 0.0015 / 0.0839 / 2.205 (energy, upper over lower) |
 | SD | SNAPPY | noise share above 700 Hz | 0.00 / 51.7 / 92.5 % |
 | LT | TUNING | f0 | 80.0 / 90.0 / 100.0 Hz |
+| MT | TUNING | f0 | 123.3 / 136.7 / 153.3 Hz |
 | HT | TUNING | f0 | 170.0 / 186.7 / 213.3 Hz |
+| LC | TUNING | f0 | 183.3 / 200.0 / 223.3 Hz |
+| MC | TUNING | f0 | 260.0 / 280.0 / 320.0 Hz |
+| HC | TUNING | f0 | 376.7 / 413.3 / 466.7 Hz |
 | OH | DECAY | envelope τ — **saturates**, and 7.5 is held out | 22.9 / 186 / 219 ms |
+| CY | DECAY | envelope τ | 158 / 394 / 510 ms |
+| CY | TONE | the two bands' **ratio**, *not* a decay | 0.236 / 0.257 / 0.381 (5–13 kHz over 2–5 kHz) |
 
 Each law is a three-parameter interpolant through exactly those three points
-(log link for τ and f0, logit for energy shares). CH, CP and CB have no knob,
-so they have no law and — see §7 — no possible held-out setting.
+(log link for τ and f0, logit for energy shares). **Six of the sixteen have
+no knob — CH, CP, CB, RS, CL and MA** — so they have no law and, see §7, no
+possible held-out setting and no knob-equivalent.
+
+> **CY TONE IS A BALANCE, NOT A DECAY, and it is the second voice in this
+> study where the distinction had to be made the hard way.** Measured down
+> the TONE column the cymbal's single fitted τ runs **464 → 196 ms**, which
+> reads exactly like a decay knob and would have been written into a circuit
+> whose decay the knob does not touch — the same error withdrawn from the
+> snare's TONE law on 2026-09-18, in a different voice.
+>
+> Three things say it is the balance. The **file lengths the recordist chose
+> never move** down TONE (2.50 s at every position) and do move down DECAY
+> (1.50 → 4.00 s); the band split moves (2–5 kHz 0.762 → 0.686, 5–13 kHz
+> 0.180 → 0.261); and the τ that does move is the weighted mix of a long
+> 3.45 kHz band and a short 10.5 kHz one. `tools/probe_new_voice_knobs.py`
+> is the measurement.
+>
+> **A knob that moves the file length the recordist chose is the decay knob.**
+> That is the cheapest independent check available on this corpus and it is
+> the one that settled which of the two filename codes is which.
+
+> **The six TUNING laws were checked before they were used, not assumed from
+> LT and HT.** f0 is monotone across the knob on all six and τ is flat to
+> 1.05–1.08× over the whole dial, so the LT/HT law form carries over
+> unchanged. Ours lands **2–7 % sharp at every held-out position, all six
+> high** (§6.5) — a systematic sign, and the one thing these laws get wrong.
 
 > **The SD TONE row was wrong, and it was the fifth instance of this voice's
 > recurring error.** "28.5 / 27.4 / 13.6 ms" is one τ fitted to a sum of two
