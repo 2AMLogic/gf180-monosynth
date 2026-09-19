@@ -1,0 +1,589 @@
+{
+ "provenance": {
+  "commit": "9c1e69fe83d7c083cd57bbd3b0df6478687f4fce",
+  "described": "node/D-drums-bitexact-75-g9c1e69f",
+  "dirty": false,
+  "model_sha256": "c8d273a057a9966f",
+  "corpus_commit": "85fbecf",
+  "corpus_n_wav": 116,
+  "corpus_sha256": "6e6af82198eb5b46"
+ },
+ "refs": "/tmp/tr808-ref",
+ "split_hash": "ab381e78f9f4cc41",
+ "n_clips": 116,
+ "published_148": {
+  "SD": 3.4,
+  "BD": 2.5,
+  "OH": 6.9,
+  "HT": 7.3,
+  "LT": NaN,
+  "CY": 8.1,
+  "MT": 5.2,
+  "LC": 3.5,
+  "MC": 5.4,
+  "HC": NaN
+ },
+ "artefact": {
+  "BD": {
+   "n": 25,
+   "real": 0.9128416159187032,
+   "ours": 0.3793707900362823,
+   "resid": 0.47142943878340193,
+   "paired_fixed": 5.243942282518476,
+   "paired_legacy": 5.68224042589113,
+   "frac": 0.08989981456412816,
+   "real_max_col_dB": 3.880900466606807,
+   "ours_max_col_dB": 1.559637779375631,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "CB": {
+   "n": 1,
+   "real": 0.016503590130288622,
+   "ours": 3.68834747440651,
+   "resid": 3.7025145408831572,
+   "paired_fixed": 13.272239475931132,
+   "paired_legacy": 12.3562315987,
+   "frac": 0.27896682753483865,
+   "real_max_col_dB": 0.07085416224802188,
+   "ours_max_col_dB": 13.949231142223102,
+   "lead_ms_real": 0.22675736961451248,
+   "lead_ms_ours": 0.0
+  },
+  "CH": {
+   "n": 1,
+   "real": 0.6744359313071112,
+   "ours": 10.133426488290858,
+   "resid": 9.845879470042055,
+   "paired_fixed": 8.5530563696741,
+   "paired_legacy": 7.2285579568936695,
+   "frac": 1.15115334735216,
+   "real_max_col_dB": 4.077106286949741,
+   "ours_max_col_dB": 38.559964564297076,
+   "lead_ms_real": 0.15873015873015872,
+   "lead_ms_ours": 0.0
+  },
+  "CL": {
+   "n": 1,
+   "real": 0.30503901589058363,
+   "ours": 6.665285357981732,
+   "resid": 6.9263681419529535,
+   "paired_fixed": 5.314258722403278,
+   "paired_legacy": 5.775141001454299,
+   "frac": 1.3033554638116354,
+   "real_max_col_dB": 1.221388019862033,
+   "ours_max_col_dB": 26.255022895414868,
+   "lead_ms_real": 0.18140589569160998,
+   "lead_ms_ours": 0.0
+  },
+  "CP": {
+   "n": 1,
+   "real": 0.17686457655786658,
+   "ours": 3.706107384224057,
+   "resid": 3.7468831617367964,
+   "paired_fixed": 13.441025196755104,
+   "paired_legacy": 16.23219402722592,
+   "frac": 0.27876468549745437,
+   "real_max_col_dB": 1.016769215967005,
+   "ours_max_col_dB": 15.173872229829275,
+   "lead_ms_real": 0.18140589569160998,
+   "lead_ms_ours": 0.0
+  },
+  "CY": {
+   "n": 25,
+   "real": 0.022580833175775746,
+   "ours": 5.193337593248209,
+   "resid": 5.193741442527391,
+   "paired_fixed": 39.96825973161919,
+   "paired_legacy": 36.447940184339416,
+   "frac": 0.12994664960152325,
+   "real_max_col_dB": 0.0822297719821119,
+   "ours_max_col_dB": 21.220797231644966,
+   "lead_ms_real": 0.2494331065759637,
+   "lead_ms_ours": 0.0
+  },
+  "HC": {
+   "n": 5,
+   "real": 0.20180690743901097,
+   "ours": 1.0166213561980941,
+   "resid": 0.9162679335347819,
+   "paired_fixed": 1.0500709783575253,
+   "paired_legacy": 1.3052355700595002,
+   "frac": 0.8725771423261004,
+   "real_max_col_dB": 0.8243231879565371,
+   "ours_max_col_dB": 4.163332960757966,
+   "lead_ms_real": 0.15873015873015872,
+   "lead_ms_ours": 0.0
+  },
+  "HT": {
+   "n": 5,
+   "real": 1.2195186757363763,
+   "ours": 0.34901546025559615,
+   "resid": 0.9742448778786517,
+   "paired_fixed": 8.864764162296831,
+   "paired_legacy": 8.695238500683342,
+   "frac": 0.10990082308362595,
+   "real_max_col_dB": 5.030319872088143,
+   "ours_max_col_dB": 1.4272847196373029,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "LC": {
+   "n": 5,
+   "real": 0.29891224584499915,
+   "ours": 0.7780301681683804,
+   "resid": 0.6986594710731908,
+   "paired_fixed": 0.8102912352049956,
+   "paired_legacy": 1.1194804525068331,
+   "frac": 0.8622325414842195,
+   "real_max_col_dB": 1.2220301760294205,
+   "ours_max_col_dB": 3.177639289228118,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "LT": {
+   "n": 5,
+   "real": 1.8381022322631473,
+   "ours": 1.0012401998626108,
+   "resid": 2.8338899655756142,
+   "paired_fixed": 8.853671186529425,
+   "paired_legacy": 9.135634965849809,
+   "frac": 0.3200807784557536,
+   "real_max_col_dB": 7.545145542549694,
+   "ours_max_col_dB": 4.091681236561069,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "MA": {
+   "n": 1,
+   "real": 0.18771067080251583,
+   "ours": 3.1653848282439547,
+   "resid": 3.1421335743452268,
+   "paired_fixed": 23.646380853372875,
+   "paired_legacy": 22.519611776205696,
+   "frac": 0.13288010515558615,
+   "real_max_col_dB": 1.3150876262703548,
+   "ours_max_col_dB": 12.95160949146954,
+   "lead_ms_real": 1.1791383219954648,
+   "lead_ms_ours": 0.0
+  },
+  "MC": {
+   "n": 5,
+   "real": 0.07355407765012731,
+   "ours": 0.3001636796625965,
+   "resid": 0.27567230737529713,
+   "paired_fixed": 0.9524314612351549,
+   "paired_legacy": 0.7862856728944589,
+   "frac": 0.2894405724668032,
+   "real_max_col_dB": 0.30664896439162703,
+   "ours_max_col_dB": 1.5046429888367463,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "MT": {
+   "n": 5,
+   "real": 2.254125914945211,
+   "ours": 0.9756819686734373,
+   "resid": 3.229556482639715,
+   "paired_fixed": 7.961795651330996,
+   "paired_legacy": 8.422990785544293,
+   "frac": 0.40563167205878,
+   "real_max_col_dB": 9.245923966064904,
+   "ours_max_col_dB": 3.984139297134295,
+   "lead_ms_real": 0.11337868480725624,
+   "lead_ms_ours": 0.0
+  },
+  "OH": {
+   "n": 5,
+   "real": 0.634222724956226,
+   "ours": 3.5258004120742568,
+   "resid": 3.500316540241721,
+   "paired_fixed": 14.014919840713228,
+   "paired_legacy": 16.470248288095917,
+   "frac": 0.24975644384874254,
+   "real_max_col_dB": 3.931822027371412,
+   "ours_max_col_dB": 13.67978264064657,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "RS": {
+   "n": 1,
+   "real": 1.9243793182353006,
+   "ours": 5.307401106596705,
+   "resid": 7.044782173422027,
+   "paired_fixed": 6.902641683681585,
+   "paired_legacy": 5.456685921409891,
+   "frac": 1.0205921872022523,
+   "real_max_col_dB": 9.62110470928604,
+   "ours_max_col_dB": 22.749157036238117,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  },
+  "SD": {
+   "n": 25,
+   "real": 0.39632907031802733,
+   "ours": 0.8505257428044825,
+   "resid": 1.223219639128265,
+   "paired_fixed": 7.634754480173588,
+   "paired_legacy": 7.3578579435470015,
+   "frac": 0.16021728561210435,
+   "real_max_col_dB": 1.6996476852461528,
+   "ours_max_col_dB": 3.779749969863815,
+   "lead_ms_real": 0.1360544217687075,
+   "lead_ms_ours": 0.0
+  }
+ },
+ "knob_equivalents": {
+  "legacy": {
+   "BD": {
+    "knob_equivalent": 2.527694328430223,
+    "ours_distance": 17.23739586615499,
+    "knob_equivalent_frozen": 5.170131711925387,
+    "ours_distance_frozen": 20.39886529339162,
+    "ke_at_dist_minus_1pct": 2.634717208617351,
+    "ke_at_dist_plus_1pct": 2.5880981113535095,
+    "curve": {
+     "TONE|2.5": 2.4074093560611596,
+     "TONE|5.0": 3.5940182934592086,
+     "TONE|7.5": 4.634946976526447,
+     "TONE|10.0": 5.2022973275479725,
+     "DECAY|2.5": 17.282001103984918,
+     "DECAY|5.0": 20.90775195348175,
+     "DECAY|7.5": 29.128602826834985,
+     "DECAY|10.0": 34.88468280324136
+    },
+    "knob10": 34.88468280324136
+   },
+   "CB": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CH": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CL": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CP": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CY": {
+    "knob_equivalent": 8.130777795135453,
+    "ours_distance": 29.92642448968553,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 87.90290332547377,
+    "ke_at_dist_minus_1pct": 7.918018761642186,
+    "ke_at_dist_plus_1pct": 8.343536828628721,
+    "curve": {
+     "TONE|2.5": 20.834613070180332,
+     "TONE|5.0": 26.12914685910958,
+     "TONE|7.5": 29.03918018583844,
+     "TONE|10.0": 32.55564949836617,
+     "DECAY|2.5": 16.908893864762334,
+     "DECAY|5.0": 16.232774278779655,
+     "DECAY|7.5": 17.453490554901578,
+     "DECAY|10.0": 19.314421529135345
+    },
+    "knob10": 32.55564949836617
+   },
+   "HC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 18.4409040756904,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 16.700887431997412,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 19.653748776438746,
+     "TUNING|5.0": 24.79477293961185,
+     "TUNING|7.5": 29.319259918246242
+    },
+    "knob10": 29.319259918246242
+   },
+   "HT": {
+    "knob_equivalent": 4.573087962501155,
+    "ours_distance": 27.76216759768807,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 64.75993118602042,
+    "ke_at_dist_minus_1pct": 4.483309820785054,
+    "ke_at_dist_plus_1pct": 4.662866104217256,
+    "curve": {
+     "TUNING|2.5": 21.351540872788377,
+     "TUNING|5.0": 29.082311154679058,
+     "TUNING|7.5": 32.39188211131691
+    },
+    "knob10": 32.39188211131691
+   },
+   "LC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 14.689796548079642,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 10.624237882847462,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 17.612996118314474,
+     "TUNING|5.0": 30.307732614726344,
+     "TUNING|7.5": 33.981583542593256
+    },
+    "knob10": 33.981583542593256
+   },
+   "LT": {
+    "knob_equivalent": 7.048672619719256,
+    "ours_distance": 31.533215664519915,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 84.59804982174015,
+    "ke_at_dist_minus_1pct": 6.871843869747458,
+    "ke_at_dist_plus_1pct": 7.225501369691054,
+    "curve": {
+     "TUNING|2.5": 21.819487559310232,
+     "TUNING|5.0": 27.87989370449322,
+     "TUNING|7.5": 32.33805105582168
+    },
+    "knob10": 32.33805105582168
+   },
+   "MA": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "MC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 8.02725076433229,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 7.332095420680884,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 22.299139885500402,
+     "TUNING|5.0": 24.252628616739067,
+     "TUNING|7.5": 32.39323211189111
+    },
+    "knob10": 32.39323211189111
+   },
+   "MT": {
+    "knob_equivalent": 4.413015706663135,
+    "ours_distance": 27.97942522452327,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 79.3538433439023,
+    "ke_at_dist_minus_1pct": 4.333740164245052,
+    "ke_at_dist_plus_1pct": 4.492291249081218,
+    "curve": {
+     "TUNING|2.5": 21.22764803255665,
+     "TUNING|5.0": 30.051121316714514,
+     "TUNING|7.5": 32.14921918630198
+    },
+    "knob10": 32.14921918630198
+   },
+   "OH": {
+    "knob_equivalent": 6.877983148403827,
+    "ours_distance": 28.795454160662082,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 53.0759209902847,
+    "ke_at_dist_minus_1pct": 6.392317928936685,
+    "ke_at_dist_plus_1pct": 7.36364836787097,
+    "curve": {
+     "DECAY|2.5": 20.094284643448944,
+     "DECAY|5.0": 27.68198390385246,
+     "DECAY|7.5": 29.16425260492681
+    },
+    "knob10": 29.16425260492681
+   },
+   "RS": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "SD": {
+    "knob_equivalent": 3.416608191739022,
+    "ours_distance": 18.41736796352501,
+    "knob_equivalent_frozen": 4.692423354155459,
+    "ours_distance_frozen": 19.636185229128053,
+    "ke_at_dist_minus_1pct": 3.282288126578614,
+    "ke_at_dist_plus_1pct": 3.5509282568994296,
+    "curve": {
+     "TONE|2.5": 16.71957578128535,
+     "TONE|5.0": 20.58844415592769,
+     "TONE|7.5": 24.77275964332223,
+     "TONE|10.0": 25.519488967717344,
+     "SNAPPY|2.5": 17.160555712467904,
+     "SNAPPY|5.0": 23.659819586469446,
+     "SNAPPY|7.5": 26.019893663980938,
+     "SNAPPY|10.0": 27.71685662883514
+    },
+    "knob10": 27.71685662883514
+   }
+  },
+  "fixed": {
+   "BD": {
+    "knob_equivalent": 3.9770394813046397,
+    "ours_distance": 18.2557914388572,
+    "knob_equivalent_frozen": 5.361513435095101,
+    "ours_distance_frozen": 20.672569812936903,
+    "ke_at_dist_minus_1pct": 3.885835851881925,
+    "ke_at_dist_plus_1pct": 4.068243110727354,
+    "curve": {
+     "TONE|2.5": 1.9202954429392083,
+     "TONE|5.0": 3.1428345317674125,
+     "TONE|7.5": 3.815518636058102,
+     "TONE|10.0": 4.525053641933786,
+     "DECAY|2.5": 15.299272615173244,
+     "DECAY|5.0": 20.303402262866417,
+     "DECAY|7.5": 28.414647367453476,
+     "DECAY|10.0": 35.30825204687762
+    },
+    "knob10": 35.30825204687762
+   },
+   "CB": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CH": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CL": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CP": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "CY": {
+    "knob_equivalent": 8.610063812475941,
+    "ours_distance": 30.629338388466113,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 91.04650573043489,
+    "ke_at_dist_minus_1pct": 8.389668675883378,
+    "ke_at_dist_plus_1pct": 8.830458949068504,
+    "curve": {
+     "TONE|2.5": 20.805904299227855,
+     "TONE|5.0": 26.079776458315717,
+     "TONE|7.5": 29.08663101883971,
+     "TONE|10.0": 32.56099742977935,
+     "DECAY|2.5": 16.92356636228685,
+     "DECAY|5.0": 16.26676772151001,
+     "DECAY|7.5": 17.432006288422045,
+     "DECAY|10.0": 19.358110771225736
+    },
+    "knob10": 32.56099742977935
+   },
+   "HC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 14.104796744502185,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 10.750954533507175,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 18.15520524366203,
+     "TUNING|5.0": 25.523528304077214,
+     "TUNING|7.5": 29.30551381817751
+    },
+    "knob10": 29.30551381817751
+   },
+   "HT": {
+    "knob_equivalent": 5.885743772338327,
+    "ours_distance": 27.749555147063166,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 63.9892307475802,
+    "ke_at_dist_minus_1pct": 5.7720228297929665,
+    "ke_at_dist_plus_1pct": 5.999464714883688,
+    "curve": {
+     "TUNING|2.5": 23.461760135295645,
+     "TUNING|5.0": 25.588212204722865,
+     "TUNING|7.5": 31.688573872054842
+    },
+    "knob10": 31.688573872054842
+   },
+   "LC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 14.311015209045369,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 10.238781134901917,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 18.07983073703412,
+     "TUNING|5.0": 31.0590312583751,
+     "TUNING|7.5": 34.01846400992274
+    },
+    "knob10": 34.01846400992274
+   },
+   "LT": {
+    "knob_equivalent": 6.824567371267076,
+    "ours_distance": 31.379243382525598,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 83.73640827921382,
+    "ke_at_dist_minus_1pct": 6.648629335163894,
+    "ke_at_dist_plus_1pct": 7.000505407370258,
+    "curve": {
+     "TUNING|2.5": 22.010720312650463,
+     "TUNING|5.0": 28.125055437786514,
+     "TUNING|7.5": 32.583904143492575
+    },
+    "knob10": 32.583904143492575
+   },
+   "MA": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "MC": {
+    "knob_equivalent": 2.5,
+    "ours_distance": 9.60448771291884,
+    "knob_equivalent_frozen": 2.5,
+    "ours_distance_frozen": 11.056633641036864,
+    "ke_at_dist_minus_1pct": 2.5,
+    "ke_at_dist_plus_1pct": 2.5,
+    "curve": {
+     "TUNING|2.5": 22.05993705301719,
+     "TUNING|5.0": 24.263371755110278,
+     "TUNING|7.5": 32.08834779531611
+    },
+    "knob10": 32.08834779531611
+   },
+   "MT": {
+    "knob_equivalent": 3.5431116257082502,
+    "ours_distance": 25.631161114329334,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 77.69503474109507,
+    "ke_at_dist_minus_1pct": 3.480187510347706,
+    "ke_at_dist_plus_1pct": 3.606035741068795,
+    "curve": {
+     "TUNING|2.5": 21.382207913229184,
+     "TUNING|5.0": 31.565569636897067,
+     "TUNING|7.5": 32.520621782478514
+    },
+    "knob10": 32.520621782478514
+   },
+   "OH": {
+    "knob_equivalent": 6.000711528458863,
+    "ours_distance": 28.466395058031537,
+    "knob_equivalent_frozen": NaN,
+    "ours_distance_frozen": 48.59850076230621,
+    "ke_at_dist_minus_1pct": 5.345542188513856,
+    "ke_at_dist_plus_1pct": 6.655880868403871,
+    "curve": {
+     "DECAY|2.5": 19.855120860264975,
+     "DECAY|5.0": 28.031596785715745,
+     "DECAY|7.5": 29.117819588068684
+    },
+    "knob10": 29.117819588068684
+   },
+   "RS": {
+    "refused": "no knob -> no held-out setting and no yardstick"
+   },
+   "SD": {
+    "knob_equivalent": 3.4328139380708436,
+    "ours_distance": 18.301495023322584,
+    "knob_equivalent_frozen": 4.699862156297295,
+    "ours_distance_frozen": 19.33019165585013,
+    "ke_at_dist_minus_1pct": 3.3075037575584694,
+    "ke_at_dist_plus_1pct": 3.558124118583218,
+    "curve": {
+     "TONE|2.5": 16.66201634088535,
+     "TONE|5.0": 20.590363158037672,
+     "TONE|7.5": 25.775035248435486,
+     "TONE|10.0": 25.448710996190037,
+     "SNAPPY|2.5": 16.939124498000133,
+     "SNAPPY|5.0": 23.64918237244463,
+     "SNAPPY|7.5": 25.885193939791808,
+     "SNAPPY|10.0": 27.530990143073495
+    },
+    "knob10": 27.530990143073495
+   }
+  }
+ },
+ "command": "model/condition_boundary.py --refs /tmp/tr808-ref --json docs/condition-boundary-results.json"
+}
