@@ -586,6 +586,8 @@ def main(argv=None):
     ap.add_argument("--floors", action="store_true", help="the instrument's limits, measured")
     ap.add_argument("--map", action="store_true", help="the band x time map with floors")
     ap.add_argument("--attribute", action="store_true", help="per-path mute sweep")
+    ap.add_argument("--dc", action="store_true",
+                    help="the excitation's mean and the DC gain it is multiplied by")
     ap.add_argument("--bands", action="store_true",
                     help="the 0.7-5 kHz split the shared-circuit constraint is stated in")
     ap.add_argument("--study-conditioning", action="store_true",
@@ -593,7 +595,7 @@ def main(argv=None):
     ap.add_argument("--voices", default="")
     ap.add_argument("--top", type=int, default=6)
     a = ap.parse_args(argv)
-    if not (a.floors or a.map or a.attribute or a.bands):
+    if not (a.floors or a.map or a.attribute or a.bands or a.dc):
         a.floors = a.map = True
     rc = 0
     if a.floors:
@@ -616,6 +618,8 @@ def main(argv=None):
             print()
     if a.bands:
         rc |= report_bands(a.refs, a.voices.split(",") if a.voices else None)
+    if a.dc:
+        rc |= report_dc(a.refs, a.voices.split(",") if a.voices else None)
     return rc
 
 
@@ -819,8 +823,6 @@ def test_a_gain_does_not_move_the_map():
     assert np.allclose(A, B, atol=1e-9)
 
 
-if __name__ == "__main__":
-    sys.exit(main())
 
 
 # ===========================================================================
@@ -942,3 +944,118 @@ def test_a_decaying_resonators_own_skirt_is_above_the_leakage_floor():
     s = parseval_shares(x, sr)
     f = parseval_leakage_floor(x, sr)
     assert s[1] > 10 * f[1], (s[1], f[1])
+
+
+# ===========================================================================
+# The other half of the attribution: DC in, DC gain, DC out
+# ===========================================================================
+def mode_dc_gain(kit: dict, m: int) -> float:
+    """Gain from a mode's excitation to its output at DC.
+
+    A two-pole resonator with the RAW numerator is ALL-POLE: it has no zero at
+    z = 1, so its DC gain is 1/(1 - a1 - a2) -- 18 to 23,899 in the shipped
+    kit. The BP numerator (1 - z^-2) and the HP numerator (1 - z^-1)^2 both
+    have a zero at z = 1 and gain exactly 0 there. Modes at or above N_NUMS
+    cannot carry a numerator at all, so they are always all-pole."""
+    b = dx.A_MODE + m * dx.MODE_STRIDE
+    a1 = dx.s26(kit.get(b, 0)) / (1 << 24)
+    a2 = dx.s26(kit.get(b + 1, 0)) / (1 << 24)
+    num = kit.get(b + 3, 0) & 3
+    if m < dx.N_NUMS and num in (dx.BP, dx.HP):
+        return 0.0
+    d = 1.0 - a1 - a2
+    return float("inf") if abs(d) < 1e-12 else 1.0 / d
+
+
+def report_dc(refdir, voices=None, ms: float = 30.0):
+    """Why a strike emits a low-frequency step at all: the excitation's MEAN
+    is not zero and the resonator it drives has no zero at DC.
+
+    `SRC_PULSE` is the constant +32767 gated by an envelope -- a positive-only
+    pulse -- and `NL_SWING` (x<<2 above zero, x>>3 below it) rectifies a
+    bipolar source into one. Neither is followed by anything that removes a
+    mean: the block has no output coupling anywhere."""
+    print(provenance(refdir))
+    print(f"\nexcitation mean over the first {ms:.0f} ms and the DC gain it is multiplied by\n")
+    print(f"    {'voice':6s} {'mode':6s} {'num':>4s} {'DC gain':>10s} {'mean exc':>10s} "
+          f"{'mean|exc|':>10s} {'mean/|mean|':>11s}")
+    for v in (voices or list(dx.SOUND_NAMES)):
+        kit = dx.kit_with_sounds(v)
+        n = int(td.RENDER_S * dx.SR)
+        d = dx.DrumsFx()
+        dmix, body = d.play(dx.hit_writes([(10, dx.SOUND_STOP[v], 1.0)], kit), n)
+        tot = np.asarray(dmix, float) + np.asarray(body, float)
+        i = td.onset(tot)
+        w = slice(i, i + int(dx.SR * ms / 1e3))
+        kd = dict(kit)
+        exc = d.trace["exc"]
+        for m in range(exc.shape[1]):
+            if np.abs(exc[:, m]).max() == 0:
+                continue
+            e = exc[w, m].astype(float)
+            g = mode_dc_gain(kd, m)
+            num = {0: "RAW", 1: "BP", 2: "HP", 3: "RAW"}[kd.get(
+                dx.A_MODE + m * dx.MODE_STRIDE + 3, 0) & 3]
+            frac = e.mean() / (np.abs(e).mean() + 1e-20)
+            print(f"    {v:6s} m{m:<5d} {num:>4s} {g:10.1f} {e.mean():10.1f} "
+                  f"{np.abs(e).mean():10.1f} {frac:11.3f}")
+    print("\n  mean/|mean| = 1.000 means the excitation NEVER changes sign: it is a pulse with")
+    print("  a full DC component, and an all-pole mode multiplies that by its DC gain.")
+    return 0
+
+
+def test_the_pulse_source_has_a_full_dc_component():
+    """The excitation shape, as a number. `SRC_PULSE` is +32767 gated by an
+    envelope, so its mean equals its mean magnitude exactly -- it never goes
+    negative -- and every mode it drives in the shipped kit is all-pole."""
+    kit = dx.kit_with_sounds("RS")
+    n = int(0.1 * dx.SR)
+    d = dx.DrumsFx()
+    d.play(dx.hit_writes([(10, dx.SOUND_STOP["RS"], 1.0)], kit), n)
+    exc = d.trace["exc"]
+    kd = dict(kit)
+    for m in (dx.M_RS1, dx.M_RS2):
+        e = exc[:, m].astype(float)
+        assert e.min() >= 0.0 and e.max() > 0.0, (m, e.min(), e.max())
+        assert abs(e.mean() / np.abs(e).mean() - 1.0) < 1e-12, m
+        assert mode_dc_gain(kd, m) > 10.0, (m, mode_dc_gain(kd, m))
+
+
+def test_a_numerator_removes_the_dc_gain_and_raw_does_not():
+    """The control on `mode_dc_gain`, measured on the bank itself.
+
+    A constant excitation into the same pole pair: RAW settles at a large
+    positive DC, BP and HP settle at a small NEGATIVE residue -- their zero at
+    z = 1 is exact in the transfer function but the datapath's arithmetic
+    shifts FLOOR, so a steady drive leaves about -1 % of itself behind. That
+    residue is real and is recorded here; it is 30 dB under what RAW does and
+    is not the mechanism this probe is about."""
+    from modal_fixed import ModalFx
+    got = {}
+    for num in (dx.RAW, dx.BP, dx.HP):
+        kit = dict(dx.mode_writes(0, 1100.0, 2.8, 0.25, num))
+        bank = ModalFx(modes=1, nums=1, headroom=dx.BODY_HR, out_bits=dx.BODY_BITS)
+        a1, a2 = dx.s26(kit[dx.A_MODE]), dx.s26(kit[dx.A_MODE + 1])
+        amp = kit[dx.A_MODE + 2]
+        y = [bank.step([1000], [(a1, a2, amp)], [num]) for _ in range(20000)]
+        got[num] = (mode_dc_gain(kit, 0), float(np.mean(y[-2000:])))
+    assert got[dx.RAW][0] > 1.0 and got[dx.RAW][1] > 100.0, got
+    for num in (dx.BP, dx.HP):
+        assert got[num][0] == 0.0, got
+        assert abs(got[num][1]) < 0.05 * abs(got[dx.RAW][1]), got
+        assert abs(got[num][1]) < 0.02 * 1000, got        # the truncation residue
+
+
+def test_the_swing_nonlinearity_rectifies(  ):
+    """`NL_SWING` is x<<2 above zero and x>>3 below it, so a zero-mean square
+    comes out with a large positive mean -- the second source of the onset
+    step. Measured on the block's own `_nonlinear`, not reimplemented."""
+    d = dx.DrumsFx()
+    sq = np.array([1000, -1000] * 64)
+    out = np.array([d._nonlinear(int(v), dx.NL_SWING) for v in sq], float)
+    assert abs(sq.mean()) < 1e-9
+    assert out.mean() / np.abs(out).mean() > 0.7, out.mean() / np.abs(out).mean()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
