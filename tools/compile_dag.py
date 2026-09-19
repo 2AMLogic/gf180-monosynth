@@ -89,7 +89,39 @@ def run_evidence(nid: str, n: dict) -> tuple[bool, str]:
         last = [l for l in r.stdout.strip().splitlines() if l.strip()]
         return r.returncode == 0, (last[-1][:90] if last else "no output")
     if "evidence_file" in n:
-        return (ROOT / n["evidence_file"]).exists(), n["evidence_file"]
+        # The docstring above describes exactly this bug -- and until now it was
+        # fixed for `suite` and left intact HERE. Existence is a precondition,
+        # not a verdict: a JSON saying `"passed": false` rendered the node GREEN
+        # because the file was on disk. Fixing the instance and not the class is
+        # the repeating failure this file was written to catch.
+        fp = ROOT / n["evidence_file"]
+        if not fp.exists():
+            return False, f"{n['evidence_file']} missing"
+        # A node may declare what makes its evidence a PASS. Text evidence uses
+        # `evidence_requires` (a substring); JSON evidence may name a key.
+        need = n.get("evidence_requires")
+        try:
+            body = fp.read_text()
+        except Exception as exc:
+            return False, f"{n['evidence_file']} unreadable: {type(exc).__name__}"
+        if need and need not in body:
+            return False, f"{n['evidence_file']} lacks {need!r}"
+        # If it is JSON and carries a verdict, HONOUR IT. A falsy verdict is a
+        # failure no matter how present the file is.
+        if fp.suffix == ".json":
+            try:
+                doc = json.loads(body)
+            except Exception as exc:
+                return False, f"{n['evidence_file']} is not valid JSON: {type(exc).__name__}"
+            for key in ("passed", "ok", "success", "green"):
+                if isinstance(doc, dict) and key in doc:
+                    good = bool(doc[key])
+                    return good, f"{n['evidence_file']} {key}={doc[key]!r}"
+        if need:
+            return True, f"{n['evidence_file']} contains {need!r}"
+        # Nothing declared and no verdict found. Say so, rather than implying
+        # the file was read and approved.
+        return True, f"{n['evidence_file']} EXISTS ONLY -- no verdict declared"
     if "tool" in n:
         r = subprocess.run([sys.executable, n["tool"]], cwd=ROOT,
                            capture_output=True, text=True, timeout=3600)
