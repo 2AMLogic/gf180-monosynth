@@ -586,6 +586,9 @@ def main(argv=None):
     ap.add_argument("--floors", action="store_true", help="the instrument's limits, measured")
     ap.add_argument("--map", action="store_true", help="the band x time map with floors")
     ap.add_argument("--attribute", action="store_true", help="per-path mute sweep")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="re-measure every row #152 rests on, in its own cell")
+    ap.add_argument("--traj", default=TRAJ_DEFAULT)
     ap.add_argument("--shared", action="store_true",
                     help="the tom/conga 0.7-5 kHz constraint, at HEAD and before #154")
     ap.add_argument("--dc", action="store_true",
@@ -597,7 +600,8 @@ def main(argv=None):
     ap.add_argument("--voices", default="")
     ap.add_argument("--top", type=int, default=6)
     a = ap.parse_args(argv)
-    if not (a.floors or a.map or a.attribute or a.bands or a.dc or a.shared):
+    if not (a.floors or a.map or a.attribute or a.bands or a.dc or a.shared
+            or a.reconcile):
         a.floors = a.map = True
     rc = 0
     if a.floors:
@@ -624,6 +628,8 @@ def main(argv=None):
         rc |= report_dc(a.refs, a.voices.split(",") if a.voices else None)
     if a.shared:
         rc |= report_shared(a.refs, a.voices.split(",") if a.voices else None)
+    if a.reconcile:
+        rc |= report_reconcile(a.refs, a.traj, a.sounds)
     return rc
 
 
@@ -1142,6 +1148,88 @@ def test_the_pre_154_sweep_is_the_one_that_was_shipped():
     assert abs(onset_ratio(tom_pitch_drop_writes_before_154, dx.M_HT, 400.0, 1.0) - 1.7) < 0.02
     assert dx.tom_drop_excess(dx.M_HT, 400.0, 1.0) == 0.0
     assert abs(onset_ratio(dx.tom_pitch_drop_writes, dx.M_HT, 400.0, 1.0) - 1.0) < 1e-4
+
+
+# ===========================================================================
+# Reconciling #152's own rows, one at a time
+# ===========================================================================
+TRAJ_DEFAULT = str(ROOT / "docs" / "discrimination-trajectory.txt")
+_EXCESS_RE = __import__("re").compile(
+    r"^\s*(\d+) Hz carries\s*([+-][\d.]+) dB between\s*(\d+) and\s*(\d+) ms")
+_VOICE_RE = __import__("re").compile(r"^([A-Z]{2})\s+\(")
+
+
+def parse_trajectory_excess(path=TRAJ_DEFAULT):
+    """The '(b)' rows of `docs/discrimination-trajectory.txt` -- the ones #152
+    is made of -- as (voice, centre Hz, window index, dB). Parsed, never
+    transcribed: a number retyped into prose is a claim, not evidence."""
+    out, voice = [], None
+    for line in pathlib.Path(path).read_text().splitlines():
+        m = _VOICE_RE.match(line)
+        if m:
+            voice = m.group(1)
+            continue
+        m = _EXCESS_RE.match(line)
+        if m and voice:
+            hz, db, t0, t1 = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+            out.append((voice, hz, int(round((t0 + t1) / 2 / 30.0 - 0.5)), db))
+    return out
+
+
+def report_reconcile(refdir, traj=TRAJ_DEFAULT, sounds="16"):
+    """Every row #152 rests on, re-measured in its OWN cell at HEAD with a
+    causal conditioning. The band and window are the trajectory file's, read
+    out of the file; only the instrument and the commit have changed."""
+    print(provenance(refdir))
+    rowsrc = parse_trajectory_excess(traj)
+    print(f"\n{len(rowsrc)} 'carries N dB where the machine has none' rows in {traj}")
+    print("re-measured in the SAME band and window, at HEAD, causal conditioning.\n")
+    all16 = sounds == "16"
+    refs = td.ref_clips(refdir, include_unmodelled=all16)
+    laws = td.fit_laws(refdir, all_sounds=all16)
+    print(f"    {'voice':6s} {'band':>7s} {'window':>9s} {'#152 said':>10s} {'HEAD+causal':>12s} "
+          f"{'machine':>9s} {'ours':>8s} {'16-bit':>8s} {'need':>6s}  verdict")
+    survive = []
+    for v in sorted({r[0] for r in rowsrc}):
+        r = voice_map(v, refs, laws, refdir)
+        if r is None:
+            continue
+        for voice, hz, w, db in [x for x in rowsrc if x[0] == v]:
+            k = int(np.argmin(np.abs(r["centres"] - hz)))
+            w = min(max(w, 0), r["diff"].shape[1] - 1)
+            need = max(MARGIN_DB, 2.0 * r["scatter"][k])
+            d = r["diff"][k, w]
+            if r["counts"][k] == 0:
+                verdict = "REFUSED (F3: no bin)"
+            elif abs(d) < need:
+                verdict = "GONE (inside the floor)"
+            elif d <= 0:
+                verdict = "SIGN FLIPPED"
+            elif d < db - 10.0:
+                verdict = f"SHRUNK by {db - d:.0f} dB"
+            else:
+                verdict = "STANDS"
+            survive.append((voice, verdict))
+            print(f"    {voice:6s} {r['centres'][k]:6.0f}  {30 * w:4.0f}-{30 * w + 30:4.0f} ms "
+                  f"{db:10.1f} {d:12.1f} {r['real'][k, w]:9.1f} {r['ours'][k, w]:8.1f} "
+                  f"{r['quant'][k, w]:8.1f} {need:6.1f}  {verdict}")
+    n_stand = sum(1 for _, x in survive if x == "STANDS")
+    print(f"\n  {n_stand} of {len(survive)} stand.")
+    return 0
+
+
+def test_the_trajectory_file_has_fourteen_excess_rows_not_sixteen():
+    """#152 says 'all sixteen voices carry broadband energy in the first 30 ms
+    that the real machine does not have'. Its own source file carries such a
+    row for FOURTEEN voices: BD and LT have none. Parsed, so this cannot drift
+    away from the file."""
+    rows = parse_trajectory_excess()
+    voices = sorted({v for v, _, _, _ in rows})
+    assert len(rows) == 14, (len(rows), rows)
+    assert set(voices) == set(dx.SOUND_NAMES) - {"BD", "LT"}, voices
+    # and they are not all in the first 30 ms either: CY, MA and SD are in 30-60
+    late = sorted(v for v, _, w, _ in rows if w != 0)
+    assert late == ["CY", "MA", "SD"], late
 
 
 if __name__ == "__main__":
