@@ -111,7 +111,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "audition"))
 
 from scipy.io import wavfile
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfilt, sosfiltfilt
 from scipy.stats import beta as beta_dist
 
 warnings.filterwarnings("ignore", message=".*EOF.*")
@@ -312,26 +312,67 @@ def assert_same_preparation(a: dict, b: dict, lead_tol_ms: float = 0.1) -> bool:
     return True
 
 
-def condition(x: np.ndarray, sr: int, level_match: bool = True) -> np.ndarray:
-    """Remove DC, high-pass, onset-align, cut to WINDOW_S, optionally peak
-    normalise. Everything here is applied identically to a real clip and to
-    one of ours; nothing is resampled (the features are rate-independent).
+def _highpass_sos(sr: int):
+    return butter(1, HPF_HZ / (sr / 2.0), btype="highpass", output="sos")
 
-    ORDER MATTERS. The high-pass runs on the WHOLE signal before the window is
-    cut, never inside it: a 20 Hz filter settles over ~50 ms, and filtering a
-    240 ms window in place puts that transient right on top of the attack --
-    which is where most of the discrimination lives. Mean subtraction does the
-    real work here (the refs carry about 1 LSB of converter DC, our renders
-    carry none); the first-order high-pass is belt and braces below FMIN."""
+
+def condition(x: np.ndarray, sr: int, level_match: bool = True,
+              legacy: bool = False) -> np.ndarray:
+    """Onset-align, cut to WINDOW_S, remove DC, high-pass, optionally peak
+    normalise. Applied identically to a real clip and to one of ours; nothing
+    is resampled (the features are rate-independent).
+
+    ORDER, AND WHY IT IS NOT THE ORDER THIS FUNCTION USED TO USE (#161).
+
+    It used to high-pass the WHOLE signal first, with `sosfiltfilt`, and cut
+    afterwards. The docstring's reason was sound -- a filter transient must
+    not land on the attack, which is where the discrimination lives -- but the
+    filter it reached for is the one that cannot honour it. `sosfiltfilt` pads
+    6 samples; the 20 Hz pole is 0.99715 at 44.1 k and 0.99739 at 48 k, about
+    2,400 samples to settle. Six samples against that is not a boundary
+    condition, it is an initial condition chosen at random, and on a unit
+    impulse at index 0 it answers with a full-scale NEGATIVE pedestal: second
+    sample -0.994, first 30 ms integrating to -342 (-373 at 48 k) against a
+    causal filter's +0.02. That pedestal sat on window 0 of every one of the
+    320 feature columns.
+
+    Filtering the whole signal first had a second cost, which is the one #163
+    is about: it let everything AHEAD of the onset into the answer. Our render
+    reaches here pre-trimmed by `_render_raw` and the machine's does not
+    (#160's F2), so the two sides were filtered from different initial
+    conditions while the call site read `condition(ours)` and
+    `condition(theirs)` and looked obviously fair.
+
+    Cutting at the onset FIRST and filtering CAUSALLY from rest fixes both.
+    The window depends on nothing outside itself, so the answer is invariant
+    to the lead -- `test_a_measurement_does_not_depend_on_where_the_record_
+    begins` asserts it to 1e-9 for 1, 10 and 50 ms of silence and for a
+    converter's DC-plus-hiss lead -- and the causal filter's initial condition
+    is rest, which is a stated one rather than a reflected guess. Subtracting
+    the window's own mean first (the refs carry about 1 LSB of converter DC,
+    our renders carry none) makes the DC removal exact instead of exponential,
+    so the first-order high-pass is again belt and braces below FMIN.
+
+    `legacy=True` restores the shipped acausal path EXACTLY, so #148's
+    published numbers stay re-derivable and the delta can be measured rather
+    than asserted (the same reason `_zspace` keeps its unfrozen ruler). It is
+    not for use in a result; `model/condition_boundary.py` is its only caller
+    outside the tests."""
     x = np.asarray(x, dtype=float)
-    x = x - x.mean()
-    sos = butter(1, HPF_HZ / (sr / 2.0), btype="highpass", output="sos")
-    x = sosfiltfilt(sos, x)
-    i = onset(x)
     n = int(round(WINDOW_S * sr))
-    seg = x[i:i + n]
+    if legacy:
+        y = x - x.mean()
+        y = sosfiltfilt(_highpass_sos(sr), y)
+        i = onset(y)
+        seg = y[i:i + n]
+    else:
+        i = onset(x)
+        seg = x[i:i + n]
     if len(seg) < n:                      # never expected; pad rather than lie about length
         seg = np.concatenate([seg, np.zeros(n - len(seg))])
+    if not legacy:
+        seg = seg - seg.mean()
+        seg = sosfilt(_highpass_sos(sr), seg)
     if level_match:
         pk = float(np.abs(seg).max())
         if pk > 0:
@@ -1777,6 +1818,24 @@ def test_conditioning_does_not_answer_an_impulse_with_a_pedestal():
             f"sr={sr}: first 30 ms integrates to {float(y[:n30].sum()):.1f}, not ~0"
         # and the impulse itself must survive: a high-pass keeps an impulse
         assert y[0] > 0.9, f"sr={sr}: the impulse itself was eaten ({y[0]:.3f})"
+
+
+def test_the_published_boundary_is_still_reachable_and_still_wrong():
+    """`legacy=True` must keep reproducing the defect exactly, or #148's
+    numbers stop being re-derivable and the delta becomes an assertion instead
+    of a measurement. This is the control that keeps its own teeth."""
+    sr = 44100
+    x = np.zeros(int(0.30 * sr))
+    x[0] = 1.0
+    y = condition(x, sr, level_match=False, legacy=True)
+    assert y[1] < -0.9, y[1]
+    assert float(y[:int(0.030 * sr)].sum()) < -300.0, float(y[:int(0.030 * sr)].sum())
+    # and it must still be lead-dependent, which is the other half of #161
+    hit = _tone(200, sr, 0.40, 0.05)
+    lead = np.concatenate([np.zeros(int(0.010 * sr)), hit])
+    d = np.abs(features(condition(hit, sr, legacy=True), sr)[0]
+               - features(condition(lead, sr, legacy=True), sr)[0]).max()
+    assert d > 1e-3, d
 
 
 def test_a_measurement_does_not_depend_on_where_the_record_begins():
