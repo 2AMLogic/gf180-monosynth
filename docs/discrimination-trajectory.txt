@@ -1,0 +1,132 @@
+band x time trajectory, arm 'ours', 8 windows of 30 ms over the study's own conditioned window
+
+BD  (16 held-out settings)
+       302 Hz is -22.4 dB between   0 and  30 ms (machine -15.3 dB, ours -37.7)
+       170 Hz is -19.7 dB between   0 and  30 ms (machine  +1.5 dB, ours -18.1)
+       240 Hz is -17.0 dB between   0 and  30 ms (machine -12.6 dB, ours -29.5)
+       170 Hz decays too slowly: ours  -8.9 dB/100 ms against the machine's -44.1
+       240 Hz decays too slowly: ours  -8.3 dB/100 ms against the machine's -31.9
+       269 Hz decays too slowly: ours  -7.9 dB/100 ms against the machine's -30.7
+
+CB  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+      3417 Hz is -23.8 dB between   0 and  30 ms (machine  -2.8 dB, ours -26.6)
+      1076 Hz is -20.5 dB between   0 and  30 ms (machine +11.0 dB, ours  -9.6)
+      4305 Hz is -20.5 dB between   0 and  30 ms (machine  -5.6 dB, ours -26.1)
+        67 Hz carries +35.4 dB between   0 and  30 ms where the machine has none (-40.2 dB, 64 dB under its own peak)
+       959 Hz decays too slowly: ours  -9.4 dB/100 ms against the machine's -29.2
+      7671 Hz decays too slowly: ours  -9.1 dB/100 ms against the machine's -11.6
+      6089 Hz decays too slowly: ours  -9.1 dB/100 ms against the machine's -11.5
+
+CH  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+      4305 Hz is -17.2 dB between   0 and  30 ms (machine  +3.1 dB, ours -14.1)
+      2416 Hz is -14.8 dB between   0 and  30 ms (machine -11.1 dB, ours -25.8)
+      2712 Hz is -14.1 dB between   0 and  30 ms (machine  -9.4 dB, ours -23.5)
+        95 Hz carries +33.4 dB between   0 and  30 ms where the machine has none (-41.5 dB, 62 dB under its own peak)
+      3836 Hz decays too slowly: ours -39.8 dB/100 ms against the machine's -49.6
+      6089 Hz decays too slowly: ours -43.1 dB/100 ms against the machine's -50.0
+
+CL  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+      2416 Hz is  -0.2 dB between   0 and  30 ms (machine +24.6 dB, ours +24.5)
+        67 Hz carries +29.9 dB between   0 and  30 ms where the machine has none (-31.7 dB, 56 dB under its own peak)
+
+CP  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+       761 Hz is -27.5 dB between 210 and 240 ms (machine -15.3 dB, ours -42.7)
+       959 Hz is -26.4 dB between 210 and 240 ms (machine  -9.1 dB, ours -35.5)
+      1076 Hz is -24.1 dB between 210 and 240 ms (machine  -6.7 dB, ours -30.8)
+       170 Hz carries +22.9 dB between   0 and  30 ms where the machine has none (-23.8 dB, 42 dB under its own peak)
+      4305 Hz decays too slowly: ours -24.8 dB/100 ms against the machine's -49.9
+      6089 Hz decays too slowly: ours -24.7 dB/100 ms against the machine's -48.6
+     10849 Hz decays too slowly: ours -22.2 dB/100 ms against the machine's -44.5
+
+CY  (16 held-out settings)
+      1522 Hz is +21.3 dB between  30 and  60 ms (machine -18.1 dB, ours  +3.2)
+      1522 Hz is +17.4 dB between 120 and 150 ms (machine -16.4 dB, ours  +0.9)
+      1356 Hz is +16.7 dB between  60 and  90 ms (machine -20.2 dB, ours  -3.5)
+       135 Hz carries +67.0 dB between  30 and  60 ms where the machine has none (-72.9 dB, 91 dB under its own peak)
+     10849 Hz decays too slowly: ours  -3.2 dB/100 ms against the machine's  -7.6
+      5424 Hz decays too slowly: ours  -1.6 dB/100 ms against the machine's  -5.6
+      4833 Hz decays too slowly: ours  -1.7 dB/100 ms against the machine's  -5.6
+
+HC  (2 held-out settings)
+       538 Hz is +35.0 dB between   0 and  30 ms (machine -14.6 dB, ours +20.3)
+       381 Hz is -23.9 dB between   0 and  30 ms (machine +20.7 dB, ours  -3.2)
+       427 Hz is -17.3 dB between   0 and  30 ms (machine +19.1 dB, ours  +1.9)
+       678 Hz carries +53.2 dB between   0 and  30 ms where the machine has none (-35.0 dB, 56 dB under its own peak)
+       479 Hz decays too fast: ours -43.2 dB/100 ms against the machine's -25.8
+       302 Hz decays too fast: ours -38.6 dB/100 ms against the machine's -25.1
+       339 Hz decays too fast: ours -28.9 dB/100 ms against the machine's -25.1
+
+HT  (2 held-out settings)
+       269 Hz is +27.7 dB between   0 and  30 ms (machine  -4.6 dB, ours +23.2)
+       190 Hz is -24.6 dB between   0 and  30 ms (machine +23.8 dB, ours  -0.8)
+       381 Hz is +22.8 dB between   0 and  30 ms (machine -14.9 dB, ours  +7.8)
+       339 Hz carries +37.9 dB between   0 and  30 ms where the machine has none (-25.3 dB, 49 dB under its own peak)
+        95 Hz decays too fast: ours -19.5 dB/100 ms against the machine's -12.6
+       240 Hz decays too fast: ours -24.6 dB/100 ms against the machine's -19.7
+       135 Hz decays too fast: ours -16.4 dB/100 ms against the machine's -13.7
+
+LC  (2 held-out settings)
+       302 Hz is +35.7 dB between   0 and  30 ms (machine -14.2 dB, ours +21.5)
+       190 Hz is -22.5 dB between   0 and  30 ms (machine +23.1 dB, ours  +0.6)
+       135 Hz is  -7.6 dB between  30 and  60 ms (machine  -5.9 dB, ours -13.5)
+       339 Hz carries +37.2 dB between   0 and  30 ms where the machine has none (-22.1 dB, 45 dB under its own peak)
+       269 Hz decays too fast: ours -47.6 dB/100 ms against the machine's -11.6
+        95 Hz decays too fast: ours -22.5 dB/100 ms against the machine's -11.3
+       240 Hz decays too fast: ours -12.5 dB/100 ms against the machine's -11.4
+
+LT  (2 held-out settings)
+       302 Hz is -33.9 dB between  90 and 120 ms (machine -14.5 dB, ours -48.4)
+       240 Hz is -25.5 dB between 120 and 150 ms (machine -15.9 dB, ours -41.4)
+       170 Hz is +24.6 dB between   0 and  30 ms (machine  -8.4 dB, ours +16.3)
+       190 Hz decays too fast: ours -48.7 dB/100 ms against the machine's  -8.2
+       538 Hz decays too fast: ours -22.4 dB/100 ms against the machine's  -8.7
+       269 Hz decays too fast: ours -21.0 dB/100 ms against the machine's  -8.4
+
+MA  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+      1522 Hz is +13.5 dB between   0 and  30 ms (machine -13.7 dB, ours  -0.2)
+      5424 Hz is -11.7 dB between   0 and  30 ms (machine +14.7 dB, ours  +3.0)
+      4833 Hz is -10.8 dB between   0 and  30 ms (machine +13.0 dB, ours  +2.2)
+     12177 Hz carries +48.3 dB between  30 and  60 ms where the machine has none (-52.2 dB, 75 dB under its own peak)
+
+MC  (2 held-out settings)
+       381 Hz is +37.3 dB between   0 and  30 ms (machine -13.0 dB, ours +24.3)
+       269 Hz is -27.0 dB between   0 and  30 ms (machine +21.9 dB, ours  -5.0)
+       240 Hz is -12.8 dB between   0 and  30 ms (machine  +4.9 dB, ours  -7.9)
+       427 Hz carries +51.7 dB between   0 and  30 ms where the machine has none (-30.8 dB, 53 dB under its own peak)
+       339 Hz decays too fast: ours -31.4 dB/100 ms against the machine's -22.9
+       190 Hz decays too fast: ours -30.2 dB/100 ms against the machine's -22.0
+       240 Hz decays too slowly: ours -17.2 dB/100 ms against the machine's -21.9
+
+MT  (2 held-out settings)
+       190 Hz is +29.2 dB between   0 and  30 ms (machine  -5.7 dB, ours +23.5)
+       240 Hz is +26.4 dB between   0 and  30 ms (machine  -8.6 dB, ours +17.8)
+       135 Hz is -20.9 dB between   0 and  30 ms (machine +24.0 dB, ours  +3.1)
+       339 Hz carries +11.0 dB between   0 and  30 ms where the machine has none (-17.0 dB, 41 dB under its own peak)
+        67 Hz decays too fast: ours -18.2 dB/100 ms against the machine's -15.2
+        95 Hz decays too fast: ours -15.8 dB/100 ms against the machine's -14.8
+       170 Hz decays too slowly: ours -15.4 dB/100 ms against the machine's -16.1
+
+OH  (2 held-out settings)
+      7671 Hz is +20.0 dB between 210 and 240 ms (machine -17.5 dB, ours  +2.5)
+      8611 Hz is +17.4 dB between 210 and 240 ms (machine -18.4 dB, ours  -1.0)
+      4305 Hz is -15.8 dB between  90 and 120 ms (machine  -1.5 dB, ours -17.4)
+        67 Hz carries +21.1 dB between   0 and  30 ms where the machine has none (-28.4 dB, 46 dB under its own peak)
+      2153 Hz decays too slowly: ours  -9.4 dB/100 ms against the machine's -23.6
+      1918 Hz decays too slowly: ours  -5.0 dB/100 ms against the machine's -16.1
+     10849 Hz decays too slowly: ours  -7.0 dB/100 ms against the machine's -14.1
+
+RS  (1 setting(s), NOT held out -- descriptive only, no knob to hold out)
+      3044 Hz is -39.7 dB between   0 and  30 ms (machine  -1.4 dB, ours -41.1)
+      2153 Hz is -34.8 dB between   0 and  30 ms (machine  -0.7 dB, ours -35.5)
+       678 Hz is -29.9 dB between   0 and  30 ms (machine  -1.1 dB, ours -30.9)
+        95 Hz carries +23.3 dB between   0 and  30 ms where the machine has none (-29.0 dB, 43 dB under its own peak)
+
+SD  (16 held-out settings)
+      1356 Hz is +12.2 dB between   0 and  30 ms (machine -11.7 dB, ours  +0.6)
+      3836 Hz is +11.1 dB between   0 and  30 ms (machine  -2.3 dB, ours  +8.8)
+      1709 Hz is +11.0 dB between  30 and  60 ms (machine -16.5 dB, ours  -5.6)
+      1076 Hz carries +12.3 dB between  30 and  60 ms where the machine has none (-24.6 dB, 44 dB under its own peak)
+        67 Hz decays too slowly: ours -10.9 dB/100 ms against the machine's -36.6
+       479 Hz decays too slowly: ours -27.8 dB/100 ms against the machine's -46.5
+      4833 Hz decays too fast: ours -33.0 dB/100 ms against the machine's -23.8
+

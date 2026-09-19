@@ -1,10 +1,11 @@
 # Can our digital 808 be told apart from a real one?
 
-**Short answer: yes, easily, at every voice the corpus can adjudicate — and
-three of our eight voices it cannot adjudicate at all.**
+**Short answer: yes — but for the first time not at ceiling, and now over
+all sixteen sounds rather than eight. Six of the sixteen the corpus cannot
+adjudicate at all, and for those the only honest output is a refusal.**
 
 The useful part is not that answer. It is *how far* apart, in a unit the
-design team can act on, and *which* three voices no freely licensed reference
+design team can act on, and *which* sounds no freely licensed reference
 material can currently settle.
 
 Run it:
@@ -13,8 +14,33 @@ Run it:
 git clone --depth 1 https://github.com/tidalcycles/sounds-tr808-fischer /tmp/tr808-ref
 .venv/bin/python model/discrimination_run.py --refs /tmp/tr808-ref \
     --out docs/img/discrimination --json /tmp/discrimination.json
-.venv/bin/python -m pytest model/test_discrimination.py -q   # the harness checks itself
+.venv/bin/python model/discrimination_run.py --refs /tmp/tr808-ref \
+    --sounds 16 --features both --json docs/discrimination-results.json
+.venv/bin/python model/discrimination_trajectory.py --refs /tmp/tr808-ref
+.venv/bin/python -m pytest model/test_discrimination.py \
+    model/discrimination_features.py model/discrimination_trajectory.py -q
 ```
+
+> ### Re-run 2026-09-18 — this section replaces the numbers the scorecard said
+> ### must not be quoted
+>
+> `--sounds 8 --features base` reproduces the published invocation exactly:
+> same split hash `6738610a454806f8`, same per-voice distances. Everything
+> below was measured on branch `measure-discrimination-current`, clean, at
+> `c752145` + this branch's harness commits; corpus
+> `tidalcycles/sounds-tr808-fischer` `85fbecf`, 116 WAVs,
+> sha256 `e3ad2d77a79cda4a`; sixteen-sound split hash `ab381e78f9f4cc41`.
+>
+> **The measurement path this study uses does not touch PR #132.**
+> `test_discrimination.py` imports nothing from `model/audio_measure.py`: its
+> features are its own log-mel/MFCC code and its diagnostics its own
+> `measure_tau`, `measure_f0`, `band_share`, `partial_ratio`. **No result here
+> routes through `band_energy`, so the windowing fix worth up to 6 dB does not
+> apply to any number in this document.** That is a property to re-check, not
+> to assume, if the harness ever imports the shared estimators.
+>
+> **Three of the harness's own numbers were withdrawn by this re-run, and one
+> of them affects every accuracy this study has ever published.** See §1.1.
 
 `model/test_discrimination.py` is the machinery and its self-tests,
 `model/discrimination_run.py` the reproducible script. The Minimoog half (§8)
@@ -29,21 +55,40 @@ on 2026-09-18** — see §8.1 before quoting anything it prints.
 
 | | |
 |---|---|
-| model revision rendered | `d9921a4` + `model/drums_fx.py`, `model/modal_fixed.py` from `origin/drums` `1e638ac` (the drums merge into main was still in flight; see §9). **Superseded: contract revision 6 changed five of the eight voices** — the snare's noise band and level, the cowbell's gating, tail and band-pass, the kick's f0 and its attack window, and the toms' pitch drop (`docs/drum-verification.md` §8, DR 0009, DR 0010). Every number below describes the kit as it was before those, so **re-run this study before quoting it**. Its conclusion that the attack carries most of the separability is what makes contract 17.20 — the excitation shape — the next thing to do, and none of these changes touch that. **Re-run 2026-09-18 on revisions 6 and 7**, same corpus, same split hash, arm `ours` only: knob-equivalent **SD 7.6 → 3.4** (balanced accuracy 1.000 → 0.938), BD 2.5, LT 6.7, OH 6.9, HT 7.2 (`docs/drum-verification.md` §8.6). So SD 8.8 was revision 5's snare, 7.6 is revision 6's, and 3.4 is revision 7's — the snare is no longer the worst voice, it is the second best. |
+| model revision rendered | `c752145` (clean) + this branch's harness commits, model sha `3cf0210cca1aef01`. Eleven circuits, sixteen sounds. |
 | reference | Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 **s/n 103852**, individual voice outputs, 16-bit/44.1 kHz |
-| unique source recordings | **68** (the 8 voices we implement), of 116 in the set |
-| unique knob settings | 68 — the corpus has **exactly one take per setting** |
-| law-fitting settings | 30 (knobs at 0.0 / 5.0 / 10.0) |
-| held-out settings | **38** (any knob at 2.5 or 7.5) |
-| generated comparisons | 76 held-out clip decisions, 38 paired ABX trials — *listed separately from the 68 recordings on purpose; they are not 76 independent observations* |
+| corpus | 116 WAVs, sha256 `e3ad2d77a79cda4a`, upstream `85fbecf` |
+| unique source recordings | **116** — all sixteen sounds, the whole set (the eight-voice study used 68 of them) |
+| unique knob settings | 116 — **exactly one take per setting** |
+| law-fitting settings | 54 (knobs at 0.0 / 5.0 / 10.0) |
+| held-out settings | **62** (any knob at 2.5 or 7.5) |
+| split hash | `ab381e78f9f4cc41` (sixteen sounds); `6738610a454806f8` (the published eight, reproduced) |
 | classifier | L2 logistic regression, `C` by grouped inner CV on the fit split only |
-| equivalence margin, pre-specified | 0.60 |
-| held-out balanced accuracy, arm `ours` | **1.000** [0.95, 1.00] |
-| paired ABX | **38 / 38** |
+| held-out balanced accuracy, arm `ours`, 320 columns | **0.895** [0.83, 0.94] |
+| paired ABX | **56 / 62** |
+| held-out balanced accuracy, arm `ours`, 511 columns | **0.984** [0.94, 1.00], ABX 62/62 |
 | positive controls | all pass (§4) |
-| verdict | **known defect remains** (BD, SD); **no verdict — underpowered** (LT, HT, OH); **no verdict — corpus cannot test** (CH, CP, CB) |
+| voices with **no possible knob-equivalent** | **6 of 16** — CH, CP, CB, RS, CL, MA |
+| verdict | **known defect remains** (BD, SD, CY); **no verdict — underpowered** (LT, MT, HT, LC, MC, HC, OH); **REFUSED — corpus cannot test** (CH, CP, CB, RS, CL, MA) |
+
+**The pooled accuracy is no longer 1.000.** On the study's own 320 columns
+the discriminator now misses 6 of 62 paired ABX trials and lands at 0.895.
+Every previous run of this study was at ceiling, so this is the first time
+the number carries information at all.
 
 ---
+
+### 1.1 What this re-run withdrew from the harness itself
+
+**Nothing below was found by inspection; each was found by running the thing
+and watching a control fail.**
+
+| withdrawn | what it was | what it is |
+|---|---|---|
+| **every balanced accuracy, CI and ABX count this study has published** | `discriminate` grouped the inner CV by `hash(c.rec) % (1 << 31)`. Python salts `hash()` on `str` per process, so the folds differed on every run and `C` was chosen by accident. Caught by re-running: pooled `ours` came back **0.868 once and 0.816 the next time**, on a byte-equal split hash and byte-equal feature vectors. | a sha256 group id. Three runs at `PYTHONHASHSEED` 1/2/3 now return 0.868 [0.77,0.94] identically. **The knob-equivalents never moved — a distance has no classifier in it — which is exactly why this survived so long.** |
+| **the knob-equivalent's ruler** | `distance_curve` z-scores on the pair of real populations it compares; `ours_distance` z-scores on the real-plus-ours population. Two different `mu`/`sd`, and then one is read off the other as though they shared units. | `voice_scale` freezes both to that voice's real recordings. Both readings are now printed side by side, because the frozen one saturates (§3.1) and the per-comparison one still ranks. |
+| **FD-mel on the extended feature set** | the Fréchet construct is not scale-free and is computed on raw columns. With columns in ppm and in cycle counts against the log-mel columns' dB it returned **4.0e10** for `ours` against 5.5e9 for the reference's own subsets. | **REFUSED**, not printed. The `base` rows stand; there is no honest `plus` row. |
+| **the jitter bucket's effect sizes** | `effect_sizes` divides by the machine's spread over the *held-out* real recordings, which for every single-knob voice is **two** files. A near-constant column then has a near-zero denominator: the run reported **4747** for the high conga. | the sd floor is resolvable rather than merely non-zero, and the column is refused below it. The permutation importance, measured on held-out accuracy, was never affected and is the statistic quoted in §5b. |
 
 ## 2. The split, and the two different experiments
 
@@ -65,8 +110,15 @@ Results at the fit settings are sound-matching and are never quoted as
 emulation. **Every number in §3–§6 is emulation.** The Minimoog work in §8
 could only ever have been sound-matching, and is labelled so.
 
-Split hash and per-run revision hashes are written into
-`/tmp/discrimination.json` by every run.
+Split hash and per-run revision hashes are written into the `--json` file by
+every run (`docs/discrimination-results.json` for the eight-voice
+reproduction, `docs/discrimination-results-16.json` for the sixteen).
+
+**The split is unchanged in form and larger in fact**: 54 fit settings and
+**62 held out** across sixteen sounds, against 30 and 38 across eight. The
+eight-voice split hash `6738610a454806f8` reproduces exactly, so the
+before/after in §3.2 compares two runs of one experiment and not two
+experiments.
 
 ### The knob laws, and where they came from
 
@@ -80,12 +132,43 @@ three fit positions, not assumed:
 | SD | TONE | ~~body ring, *not* pitch (168/172 Hz throughout)~~ — **WITHDRAWN 2026-09-18**; the two partials' amplitude **ratio**, and neither mode's decay | 0.0015 / 0.0839 / 2.205 (energy, upper over lower) |
 | SD | SNAPPY | noise share above 700 Hz | 0.00 / 51.7 / 92.5 % |
 | LT | TUNING | f0 | 80.0 / 90.0 / 100.0 Hz |
+| MT | TUNING | f0 | 123.3 / 136.7 / 153.3 Hz |
 | HT | TUNING | f0 | 170.0 / 186.7 / 213.3 Hz |
+| LC | TUNING | f0 | 183.3 / 200.0 / 223.3 Hz |
+| MC | TUNING | f0 | 260.0 / 280.0 / 320.0 Hz |
+| HC | TUNING | f0 | 376.7 / 413.3 / 466.7 Hz |
 | OH | DECAY | envelope τ — **saturates**, and 7.5 is held out | 22.9 / 186 / 219 ms |
+| CY | DECAY | envelope τ | 158 / 394 / 510 ms |
+| CY | TONE | the two bands' **ratio**, *not* a decay | 0.236 / 0.257 / 0.381 (5–13 kHz over 2–5 kHz) |
 
 Each law is a three-parameter interpolant through exactly those three points
-(log link for τ and f0, logit for energy shares). CH, CP and CB have no knob,
-so they have no law and — see §7 — no possible held-out setting.
+(log link for τ and f0, logit for energy shares). **Six of the sixteen have
+no knob — CH, CP, CB, RS, CL and MA** — so they have no law and, see §7, no
+possible held-out setting and no knob-equivalent.
+
+> **CY TONE IS A BALANCE, NOT A DECAY, and it is the second voice in this
+> study where the distinction had to be made the hard way.** Measured down
+> the TONE column the cymbal's single fitted τ runs **464 → 196 ms**, which
+> reads exactly like a decay knob and would have been written into a circuit
+> whose decay the knob does not touch — the same error withdrawn from the
+> snare's TONE law on 2026-09-18, in a different voice.
+>
+> Three things say it is the balance. The **file lengths the recordist chose
+> never move** down TONE (2.50 s at every position) and do move down DECAY
+> (1.50 → 4.00 s); the band split moves (2–5 kHz 0.762 → 0.686, 5–13 kHz
+> 0.180 → 0.261); and the τ that does move is the weighted mix of a long
+> 3.45 kHz band and a short 10.5 kHz one. `tools/probe_new_voice_knobs.py`
+> is the measurement.
+>
+> **A knob that moves the file length the recordist chose is the decay knob.**
+> That is the cheapest independent check available on this corpus and it is
+> the one that settled which of the two filename codes is which.
+
+> **The six TUNING laws were checked before they were used, not assumed from
+> LT and HT.** f0 is monotone across the knob on all six and τ is flat to
+> 1.05–1.08× over the whole dial, so the LT/HT law form carries over
+> unchanged. Ours lands **2–7 % sharp at every held-out position, all six
+> high** (§6.5) — a systematic sign, and the one thing these laws get wrong.
 
 > **The SD TONE row was wrong, and it was the fifth instance of this voice's
 > recurring error.** "28.5 / 27.4 / 13.6 ms" is one τ fitted to a sum of two
@@ -100,63 +183,130 @@ so they have no law and — see §7 — no possible held-out setting.
 
 ---
 
-## 3. Result
+## 3. Result — all sixteen sounds
 
-Held out, level-matched, arm `ours`. Balanced accuracy, Clopper-Pearson
-interval, uncertainty computed over **settings** rather than over generated
-comparisons.
+Held out, level-matched, arm `ours`, the study's own 320 columns. Balanced
+accuracy with a Clopper-Pearson interval computed over **settings** rather
+than over generated comparisons. Two knob-equivalent columns, because the
+two rulers disagree and §3.1 is why.
 
-| voice | held-out settings | balanced acc. | 95 % CI | knob-equivalent | verdict |
-|---|---|---|---|---|---|
-| **SD** | 16 | 1.000 | [0.89, 1.00] | **8.8 / 10** | known defect remains |
-| **LT** | 2 | 1.000 | [0.40, 1.00] | 7.1 / 10 | no verdict — underpowered |
-| **OH** | 2 | 1.000 | [0.40, 1.00] | 6.9 / 10 | no verdict — underpowered |
-| **HT** | 2 | 1.000 | [0.40, 1.00] | 6.0 / 10 | no verdict — underpowered |
-| **BD** | 16 | 1.000 | [0.89, 1.00] | **3.6 / 10** | known defect remains |
-| CH, CP, CB | **0** | — | — | — | no verdict — corpus cannot test |
-| pooled | 38 | 1.000 | [0.95, 1.00] | — | known defect remains |
+| sound | circuit | knobs | held-out settings | bal. acc. | 95 % CI | **knob-equiv** (per-comparison) | knob-equiv (frozen ruler) | verdict |
+|---|---|---|---|---|---|---|---|---|
+| **BD** | BD | TONE, DECAY | 16 | 0.844 | [0.67, 0.95] | **2.5** | 5.2 | known defect remains |
+| **SD** | SD | TONE, SNAPPY | 16 | 0.812 | [0.64, 0.93] | **3.4** | 4.7 | known defect remains |
+| **CY** | CY | TONE, DECAY | 16 | 1.000 | [0.89, 1.00] | **8.1** | ≥ 10 | known defect remains |
+| LC | LT | TUNING | 2 | 0.750 | [0.19, 0.99] | 3.5 | ≥ 10 | no verdict — underpowered |
+| MT | MT | TUNING | 2 | 1.000 | [0.40, 1.00] | 5.2 | ≥ 10 | no verdict — underpowered |
+| MC | MT | TUNING | 2 | 0.750 | [0.19, 0.99] | 5.4 | ≥ 10 | no verdict — underpowered |
+| OH | OH | DECAY | 2 | 1.000 | [0.40, 1.00] | 6.9 | ≥ 10 | no verdict — underpowered |
+| HT | HT | TUNING | 2 | 1.000 | [0.40, 1.00] | 7.3 | ≥ 10 | no verdict — underpowered |
+| LT | LT | TUNING | 2 | 1.000 | [0.40, 1.00] | ≥ 10 | ≥ 10 | no verdict — underpowered |
+| HC | HT | TUNING | 2 | 1.000 | [0.40, 1.00] | ≥ 10 | ≥ 10 | no verdict — underpowered |
+| **CH** | CH | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| **CP** | CP | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| **CB** | CB | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| **RS** | CL | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| **CL** | CL | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| **MA** | CP | — | **0** | — | — | **REFUSED** | REFUSED | corpus cannot test |
+| pooled | | | 62 | **0.895** | [0.83, 0.94] | — | — | known defect remains |
 
-### The knob-equivalent is the number to read, not the accuracy
+**REFUSED is not "we did not get to it".** A knob-equivalent is by
+definition a distance measured on that sound's own knob. Six of the sixteen
+have no knob, so the corpus holds exactly one recording of each, there is no
+held-out setting, there is no yardstick, and there is no number to be had.
+The harness asserts this rather than interpolating onto a dial that does not
+exist (`test_a_sound_with_no_knob_can_produce_no_knob_equivalent`). **The old
+study named three such voices; with eleven circuits there are six.**
 
-Accuracy saturates. Once every held-out clip is called correctly, 1.000
-cannot say whether we sit just outside the machine's own spread or far
-outside it, and all five testable voices sit at 1.000.
+### 3.1 The two rulers, and why they disagree
 
-So each voice's distance from the machine is expressed in the machine's own
-units: **how far its own knob would have to move for it to look this
-different from itself.** Our BD is as far from the real BD as moving the real
-machine's own knob **3.6 of 10**; our SD is **8.8 of 10** away. That ranking
-is the actionable output, and it is why SD is the first thing to fix.
+The knob-equivalent reads one distance off another. Until this re-run the two
+were z-scored on *different* populations — the yardstick on the pair of real
+recordings being compared, the measurement on real-plus-ours — so one was
+being read off the other in units it did not share. `voice_scale` freezes
+both to that sound's real recordings.
 
----
+On the frozen ruler **12 of the 16 sounds sit at or past the end of the
+dial**, and that is the finding, not a failure of the method:
+
+> **Our difference from the machine is largely not on the machine's knob
+> axis at all.** The knob-equivalent's premise — that our error looks like a
+> knob move — is what saturates. We differ in directions the real 808's own
+> knob never travels, so normalising by the machine's own spread sends the
+> ratio off the top.
+
+Both columns are reported. The per-comparison ruler still *ranks* the sounds,
+which is what makes it actionable, and the frozen one says how much of that
+ranking is an artefact of rescaling. Neither is "the" number, and a
+knob-equivalent remains a **per-sound** reading: **SD 3.4 and OH 6.9 are two
+readings on two different dials and were never interchangeable.**
+
+### 3.2 Before and after
+
+Against the revision 6/7 partial re-run (`docs/drum-verification.md` §8.6),
+same corpus, same split, arm `ours`, per-comparison ruler — the only ruler on
+which the two are comparable at all.
+
+| sound | rev 5 (original study) | rev 6/7 partial re-run | **today** | direction |
+|---|---|---|---|---|
+| **SD** | 8.8 | 3.4 | **3.4** | held |
+| **BD** | 3.6 | 2.5 | **2.5** | held |
+| **LT** | 7.1 | 6.7 | **≥ 10** | **worse, or at the ruler's ceiling** |
+| **OH** | 6.9 | 6.9 | **6.9** | held |
+| **HT** | 6.0 | 7.2 | **7.3** | held (worse than rev 5) |
+| CY | — | — | **8.1** | first measurement |
+| MT / LC / MC / HC | — | — | **5.2 / 3.5 / 5.4 / ≥ 10** | first measurement |
+| CH / CP / CB / RS / CL / MA | — | — | **REFUSED** | no knob |
+
+**BD 2.5 and SD 3.4 reproduce the revision 6/7 figures exactly**, to the
+tenth, on an independently re-derived law — which is the strongest evidence
+available that those two numbers are real and that the harness is stable.
+
+**LT is the one that moved.** Its ours-to-real distance (32.4) is now a hair
+*above* its own knob-10 distance (32.3), so the interpolation has nothing to
+land on. Read it as "at least 10", not as "much worse than 6.7": a 0.3 %
+margin is not a measurement, and the honest statement is that LT is at the
+end of the dial and this corpus cannot say how far past it.
+
+**Three of the five old numbers held to the tenth and one is at a ceiling.**
+The kit grew from eight sounds to sixteen without moving the five voices that
+were already measured — which is the result a contract revision is supposed
+to produce and is not always what happens.
 
 ## 4. Controls — without these, none of §3 means anything
+
+Sixteen sounds, arm-by-arm, 2026-09-18.
 
 | control | what it proves | result |
 |---|---|---|
 | **cross-voice**, real vs real, different voice, same machine, same converter, same afternoon (LT vs LC, HT vs HC, BD vs MT, LT vs MT, LC vs MC) | the pipeline resolves **timbre** with zero provenance cue | **1.000** on all five — PASS |
-| **label permutation**, 200 shuffles | calibrates what chance is for this pipeline at this N | mean **0.500** [0.421, 0.579] — PASS, chance is 0.5 |
-| **real-vs-real random split** of the 25 real BDs into two pseudo-classes | the pipeline does not manufacture separation from nothing | mean **0.44** [0.31, 0.69] — PASS |
-| **large degradations** (τ×4, noise path removed, 4-bit cutoff) | catches gross errors | 0.97–1.00 — PASS |
-| **graded degradations** (τ×0.75, snare noise −6 dB, 6-bit cutoff) | catches errors *near the margin that matters*, not only enormous ones | **1.000** on all six — PASS |
+| **label permutation**, 200 shuffles | calibrates what chance is for this pipeline at this N | mean **0.497** [0.427, 0.573] — PASS, chance is 0.5 |
+| **real-vs-real random split** of the 25 real BDs into two pseudo-classes | the pipeline does not manufacture separation from nothing | mean **0.438** [0.309, 0.688] — PASS |
+| **large degradations** (τ×4, noise path removed, 4-bit cutoff) | catches gross errors | 0.906 – **1.000** — PASS |
+| **graded degradations** (τ×0.75, τ×0.50, snare noise −6 / −12 dB, 6-bit and 5-bit cutoff) | catches errors *near the margin that matters* | 0.906 – 0.992 — PASS |
 
-The graded row is the one that matters. τ×0.75 — a 25 % tail change, well
-inside what a listener would call "the same drum" — is caught at 1.000, as is
-a snare noise level only 6 dB from its target and a cutoff quantised to
-6 bits rather than 4. The discriminator is not merely detecting catastrophes,
-and the large-degradation row is therefore not the only thing holding up the
-§3 verdicts.
+**The ordering is now visible, which it never was before.** Every degradation
+sits **above** `ours` (0.895): deg_decay 1.000, deg_tail75 0.992, deg_tail50
+0.960, deg_q5bit 0.941, deg_qcoarse 0.926, deg_q6bit 0.912, deg_nonoise /
+deg_snappy6 / deg_snappy12 0.906. When the whole board was at 1.000 that
+ordering could not exist; it is the single most useful consequence of the
+kit having improved.
 
-A consequence worth stating plainly: because even the mildest degradation we
-built is caught at ceiling, these controls establish **sensitivity** but not a
-*detection threshold*. We know the discriminator catches a 25 % tail error; we
-do not know how small an error it would stop catching. Bracketing that would
-need a finer degradation ladder, and would be the natural next step if any
-voice ever reached chance.
+**Two things the reader should not over-read.**
 
-**All controls pass, so the §3 verdicts stand.** Had any failed, the correct
-output would have been "no verdict" everywhere, and the harness enforces that
-in code (`verdict(..., controls_ok=False)`).
+`deg_tail75` (0.992) scores **above** `deg_tail50` (0.960) — a milder
+degradation separating more than a stronger one. At n = 62 settings the
+interval on each is about ±0.04 and the two overlap completely, so this is
+noise in the ordering and not an inversion of the physics. It is recorded
+rather than smoothed because an unexplained inversion is exactly the shape a
+real defect would take, and the next re-run should check whether it persists.
+
+The `deg_nonoise`, `deg_snappy*` arms cover only SD (and CP, MA), so their
+n is 32 rather than 124. **Their accuracies are not comparable with the
+full-kit arms' and the FD-mel rows built from them are not either** — the
+voice balance the Fréchet construct needs is fixed only *within* a row, not
+across rows. The published §7 table read them across rows and should not
+have.
 
 ### What the corpus cannot give: the real-vs-real floor
 
@@ -207,81 +357,200 @@ Two representations, deliberately, because each misses what the other finds.
 
 ### 5a. Interpretable diagnostics, at held-out settings only
 
-These are the quantities the model was fitted against. Measuring them at
-settings the fit never saw is a legitimate generalisation test, and they are
-the only features a circuit designer can act on directly. Mean relative
-error, ours against the machine, over held-out settings:
+The quantities the model was fitted against, measured at settings the fit
+never saw. Mean relative error, ours against the machine, over the held-out
+settings. Ratios this large are easier to read in dB, so both are given.
 
-| voice | n | largest errors |
+| sound | n | largest errors |
 |---|---|---|
-| **SD** | 16 | energy above 5 kHz **+1989 %**, 0.7–5 kHz **+450 %**, below 700 Hz +305 % |
-| **OH** | 2 | energy below 700 Hz **+16896 %**, 0.7–5 kHz −81 %, attack −81 % |
-| **BD** | 16 | attack **+103 %**, τ **+111 %**, energy above 5 kHz −83 % |
-| **LT** | 2 | 0.7–5 kHz **−100 %**, attack +82 %, above 5 kHz −60 % |
-| **HT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −50 %, attack −18 % |
+| **CY** | 16 | energy below 700 Hz **×1710 (+32.3 dB)**, 0.7–5 kHz ×4.5 (+6.5 dB), τ +167 % |
+| **HC** | 2 | 0.7–5 kHz **×648 (+28.1 dB)**, above 5 kHz −11 %, attack −22 % |
+| **OH** | 2 | energy below 700 Hz **×170 (+22.3 dB)**, 0.7–5 kHz −81 %, attack −81 % |
+| **SD** | 16 | 0.7–5 kHz **×29.5 (+14.7 dB)**, above 5 kHz ×9.3 (+9.7 dB), below 700 Hz +32 % |
+| **MC** | 2 | 0.7–5 kHz ×7.6 (+8.8 dB), above 5 kHz −59 %, centroid −36 % |
+| **BD** | 16 | **τ +169 %**, attack +29 %, above 5 kHz −79 % |
+| **LC** | 2 | 0.7–5 kHz +63 %, above 5 kHz −56 %, centroid −17 % |
+| **LT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −65 %, attack −29 % |
+| **MT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −51 %, attack −38 % |
+| **HT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −27 %, centroid −24 % |
 
-The SD row is the known missing-noise defect, now confirmed to **generalise
-across the knob**: it is not a mid-point mapping error. The LT/HT "−100 % in
-0.7–5 kHz" is the absent pink-noise path — our toms have literally nothing
-there. The OH low-frequency excess is new and is the largest single
-proportional error in the table.
+**Two opposite defects, and they are on the same circuits.** LT, MT and HT
+have **literally nothing** in 0.7–5 kHz — the absent pink-noise path, as
+before. Their conga twins LC, MC and HC ride the *same three circuits* and
+have **too much** there, up to +28 dB. So the tom/conga pair is not one
+error with one sign: whatever supplies that band is missing in the tom
+position and over-supplied in the conga position, and a single fix that
+raises the band would make the congas worse.
+
+**The BD τ error is +169 % and is the largest single mechanism left on the
+adjudicable sounds.** §6's trajectory puts it at 170–302 Hz: ours decays at
+−8.9 dB/100 ms where the machine decays at −44.1.
+
+**CY's low-frequency excess is 32 dB** and is the same defect as OH's
+(+22.3 dB), one circuit apart — both are broadband excitation reaching the
+output below the circuit's own band.
 
 ### 5b. General representation, grouped permutation importance
 
-40 log-mel bands and 20 MFCCs over four time segments; accuracy drop when a
-whole (band × segment) bucket is shuffled on held-out clips:
+Accuracy drop when a whole bucket is shuffled on held-out clips, arm `ours`,
+all sixteen sounds, the study's own 320 columns:
 
 | feature group | accuracy drop |
 |---|---|
-| MFCC, **attack segment** (0–60 ms) | **+0.20** |
-| MFCC, early segment (60–120 ms) | +0.072 |
-| 5–18 kHz, mid segment | +0.020 |
-| 5–18 kHz, tail segment | +0.016 |
-| 5–18 kHz, attack segment | +0.012 |
-| 200–700 Hz, attack segment | +0.010 |
+| MFCC, **attack segment** (0–60 ms) | **+0.122** |
+| MFCC, early segment (60–120 ms) | +0.065 |
+| MFCC, mid segment (120–180 ms) | +0.050 |
+| MFCC, tail segment (180–240 ms) | +0.022 |
+| 200–700 Hz, attack segment | +0.017 |
+| 2–5 kHz, attack segment | +0.010 |
 
-**The attack carries almost all of it.** That is consistent across voices and
-matches `docs/drum-verification.md`'s finding that we strike every resonator
-with an impulse where the machine uses a pulse shaped over ~10 ms.
+**The attack still carries most of it**, now over sixteen sounds rather than
+eight, and §6's trajectory report says what is in that attack.
 
 ---
+
+### 5c. The vocoder-discriminator views, as extra columns
+
+Three deterministic decompositions borrowed from the neural-vocoder
+discriminators were added as **feature columns** — no training, no encoder,
+no embedding, nothing fitted to the reference — and handed to the same L2
+logistic regression and the same knob-equivalent unit.
+`model/discrimination_features.py` is the code, with 12 self-tests.
+
+| view | what it is | columns |
+|---|---|---|
+| **MPD** | multi-period fold, statistics across rows | 48 |
+| **JIT** | the dominant partial's own cycle trajectory | 9 |
+| **CQT** | constant-Q sub-bands, 6 per octave, 40 Hz–16 kHz | 104 |
+| **MS** | six bands at 4, 10 and 25 ms, plus the scale differences | 30 |
+
+**What they changed.** Pooled held-out accuracy **0.895 → 0.984**, ABX
+**56/62 → 62/62**. They separate.
+
+**What they say.** After splitting the jitter bucket into *pitch* and
+*stability* columns — which had to be done, because `period_ms` and
+`ncycles` say what the partial's frequency **is**, which is a tuning error
+the study already measures:
+
+| bucket | accuracy drop | |
+|---|---|---|
+| MFCC, early segment | +0.045 | |
+| MFCC, tail segment | +0.026 | |
+| MFCC, attack segment | +0.026 | |
+| **`jit.period`** | **+0.024** | pitch — a tuning error |
+| `cqt.0-200Hz` | +0.018 | **new** |
+| `cqt.9000-20000Hz` | +0.017 | **new** |
+| `cqt.5000-9000Hz` | +0.014 | **new** |
+| `cqt.700-2000Hz` | +0.010 | **new** |
+| `ms.scale-difference` | +0.010 | **new** — #109's 4 ms vs 10 ms |
+| `cqt.2000-5000Hz` | +0.010 | **new** |
+| MFCC, mid segment | +0.008 | |
+| **`jit.stability`** | **+0.008** | **oscillator steadiness — #56** |
+| … eleven more buckets … | ≤ +0.006 | |
+| `mpd.*`, all six strides | **≤ +0.002** | **new, and worth nothing** |
+
+Full list in `docs/discrimination-results-16.json`; 24 buckets are kept.
+
+> **#56 DOES NOT GET A NUMBER FROM THIS, AND THAT IS THE RESULT.**
+> "Three stable oscillators do not sound like three analogue ones" would be
+> measured by the **stability** columns. `jit.period` — a pitch error — is
+> **fourth of twenty-four at +0.024**. `jit.stability` is **twelfth at
+> +0.008**, a third of it, below four constant-Q buckets and below the
+> multi-scale difference. And the pitch reading is independently
+> corroborated: measured directly, all six tuned circuits are 2–7 % sharp at
+> every held-out TUNING position (§6.5).
+>
+> This is a negative result with power behind it, not an absence of
+> evidence. The stability columns resolve **0.1 % per-cycle jitter as
+> 14 534 ppm against a 20 ppm rate-artefact floor** — a factor of 700 — and
+> they carry the control that makes the claim falsifiable at all: two
+> *perfectly stable* detuned oscillators beat, and beating reads as jitter
+> on any scatter statistic (+2 Hz of static detune reads 17 473 ppm, against
+> 14 534 for real jitter). Only the lag-1 autocorrelation of the
+> **differenced** phase residual separates the two mechanisms (0.80–1.00 for
+> beating and glide, 0.60–0.68 for per-cycle jitter), and
+> `test_static_detuning_is_not_reported_as_drift` asserts the size of that
+> gap so it cannot quietly close.
+>
+> What the null does **not** cover: the study's window is 240 ms and the
+> probe follows one partial. Oscillator drift over a longer note, or in the
+> five oscillators the probe does not lock to, is untested.
+
+**The MPD columns earn nothing and should not be carried.** All six strides
+come in at **+0.002 or less**, ranks 18 and 20–23 of 24 — 48 columns for
+less than a fifth of what one constant-Q bucket contributes. They are also
+not a drift measure and are not read as one: the strides are not
+commensurate with any oscillator here (131 Hz at 48 kHz is 366.4 samples),
+so a perfectly stable tone already walks from row to row, which
+`test_a_fixed_stride_fold_is_not_a_drift_measure` asserts. **The
+recommendation is to drop them.** Of the three borrowed views, the
+constant-Q ladder and the multi-scale windows pay for themselves and the
+multi-period fold does not.
+
+**Promotable to named measurements, with tolerances and floors:**
+
+- **`cqt.0-200Hz`** — the low-band excess. It is the most promotable thing
+  here: it is in the top five, it is corroborated by the trajectory report
+  on every one of the sixteen sounds, and it has an obvious floor (the
+  machine's own level in that band, 41–91 dB under its peak).
+- **`ms.scale-difference`** (4 ms against 10 ms) — #109's shape, already a
+  named quantity there, now with a per-voice value.
+- **`jit.period_ms`** — a per-voice pitch check with a stated tolerance;
+  ours is 2–7 % sharp and the sign is systematic.
+- **NOT `jit.phasejit_ppm` on its own.** It cannot tell drift from beating
+  and must never be quoted without `jit.dphase_ar1` beside it.
+
+**A caution on the deltas, and it is the coordinator's, not a hedge.** Adding
+columns changes the ruler as well as the reading: the knob-equivalent is a
+distance normalised by that voice's own spread, and both move. The
+per-comparison knob-equivalent rose for BD (2.5 → 4.4) and CY (8.1 → 9.8)
+and **fell** for SD (3.4 → 2.9), HT (7.3 → 6.7) and LT (≥10 → 7.4). A number
+that rises with better features is a finding — it says the old columns could
+not see how far away we were — but a number that moves in either direction
+on a ruler that also moved is not by itself a newly discovered defect.
 
 ## 6. Ranked: what to fix next
 
-Ordered by knob-equivalent separation — how far our render sits from the
-machine in the machine's own units.
+Read with §3.1's caveat: the per-comparison knob-equivalent ranks, and it
+ranks against **one machine** (§7).
 
-1. ~~**SD — 8.8 / 10.** The snappy path. Noise carries 1.2 % of the energy
-   where the machine's carries 47–92 % depending on SNAPPY, and it is flat to
-   Nyquist where the machine humps at 3–5 kHz.~~ **SUPERSEDED — SD is now
-   3.4 / 10, second only to the kick.** The "1.2 % against 47–92 %" pair
-   is the withdrawn whole-span Hann split on both sides (§8.0 of
-   `docs/drum-verification.md`); measured honestly the share was never far
-   off. What was really wrong: the noise *band* (fixed in revision 6), then
-   the snappy burst's *length* (τ 15 → 30 ms) and the two partials'
-   *balance* (0.394 → 1.42), both fixed in revision 7 (§8.6). What remains at
-   3.4 has not been identified and is spread thinly rather than concentrated.
-2. **LT / HT — 7.1 and 6.0 / 10.** The missing pink-noise path (§4 of the
-   reference): ours have *zero* energy in 0.7–5 kHz against the machine's.
-   Cheap to add. **Underpowered verdict — the corpus has 2 held-out settings
-   each — but the diagnostic error is unambiguous.**
-3. **OH — 6.9 / 10.** Low-frequency excess, and the DECAY law saturation
-   above 7.5 that our linear decay control does not reproduce. Also
-   underpowered.
-4. **BD — 3.6 / 10.** Closest of the five. The attack: +103 % attack-time
-   error and no harmonics. The τ error largely disappeared once the DECAY law
-   was fitted properly, which confirms `drum-verification.md`'s reading that
-   the old 45 % shortfall was mid-point mapping, not mechanism.
-5. **The attack shaping, globally.** §5b says the 0–60 ms segment carries
-   ~90 % of the discrimination across all voices. One fix — a shaped
-   excitation pulse instead of an impulse — attacks every voice at once and
-   is the highest-leverage single change in the list.
+1. **The excitation pulse, and it is now the finding rather than an
+   inference.** `docs/discrimination-trajectory.txt` reports, for **all
+   sixteen sounds without exception**, broadband energy in the first 30 ms
+   that the machine does not have — 41 to 91 dB below the machine's own peak
+   in that band, and ours carrying +11 to +67 dB of it. The cymbal is the
+   clearest case: at 135 Hz the machine sits at −72.9 dB, 91 dB under its own
+   peak, and ours carries −6 dB. That is an impulse striking a resonator
+   where the machine uses a pulse shaped over ~10 ms, seen directly rather
+   than inferred from a segment importance. **One fix, sixteen sounds.**
+2. **BD — 2.5 / 10.** Closest of the three adjudicable sounds, and the
+   trajectory says exactly where: the 170–302 Hz attack is **17 to 22 dB
+   quiet in the first 30 ms**, and the body then **decays far too slowly** —
+   ours −8.9 dB/100 ms at 170 Hz against the machine's −44.1. A quiet, long
+   body where the machine has a loud, short one.
+3. **SD — 3.4 / 10.** Held at revision 7's figure. The trajectory puts the
+   remaining error at 1.3–3.8 kHz in the first 60 ms, +11 to +12 dB, and in
+   a tail that decays too slowly (−27.8 dB/100 ms at 479 Hz against −46.5).
+4. **CY — 8.1 / 10, and the first measurement of this voice.** The worst of
+   the three adjudicable sounds. Two separable defects: **+21 dB at 1.5 kHz**
+   where the machine has −18, and a high band that **decays too slowly**
+   across 4.8–10.8 kHz (−1.6 to −3.2 dB/100 ms against −5.6 to −7.6). The
+   135 Hz excess above is the third.
+5. **The six tuned circuits are all ~4 % sharp at the held-out knob
+   positions.** Measured directly against the machine at every held-out
+   TUNING setting: LT +4.0/+7.1 %, LC +3.5/+4.8, MT +5.3/+4.7, MC +3.7/+2.2,
+   HT +3.8/+3.3, HC +5.2/+2.3 — **every one high, none low**. A systematic
+   sign like that is a law or a rounding, not noise, and it is cheap to chase.
+6. **The congas' and toms' bodies decay too fast and the machine's do not.**
+   LT is the extreme: ours −48.7 dB/100 ms at 190 Hz against the machine's
+   −8.2. LC, MC, HC and HT are the same sign.
+7. **OH's tail is 17–20 dB hot at 7.7–8.6 kHz between 210 and 240 ms** and
+   its 1.9–2.2 kHz decays at less than half the machine's rate.
 
-`docfix` (the fixes `drum-verification.md` prescribes, applied as register
-overrides) was rendered as a second arm and is **still separated at 1.000**.
-Those fixes are necessary and not sufficient; they do not touch the attack.
-
----
+`docfix` was rendered as a second arm and is **not distinguishable from
+`ours`** on this corpus: 0.887 against 0.895 on the 320 columns, which is
+well inside the interval. The fixes `drum-verification.md` prescribes are
+not what is left.
 
 ## 7. What this test does **not** say
 
@@ -290,13 +559,28 @@ Those fixes are necessary and not sufficient; they do not touch the attack.
   would not be a claim about human indistinguishability — that is a different
   experiment, with listeners, trials and controls we have not run. No such
   claim is made anywhere here.
-- **Three of eight voices cannot be tested at all.** CH, CP and CB have no
-  knob, so the corpus has one recording each and there is nothing to hold
-  out. CB is documented as *wrong* and this test cannot confirm or deny it.
-  LT, HT and OH have two held-out settings each — eight is the minimum at
-  which any number of correct calls could exclude chance, so they get no
-  verdict either. **The voices most likely to pass are exactly the ones the
-  corpus is too small to adjudicate.**
+- **EVERY NUMBER HERE IS A DISTANCE FROM ONE MACHINE, NOT FROM THE 808.**
+  Every real-808 recording reachable from here descends from Fischer
+  s/n 103852. The nominally different `808*` sets redistributed in
+  tidalcycles/Dirt-Samples are byte-identical to these files — re-pressings
+  of the same events, cross-correlating at 1.000, not independent takes. So
+  "our BD is 2.5 of 10 away" means **2.5 of 10 away from that unit**, with
+  its components, its trimmer settings and its 1994 afternoon. A second
+  machine would differ from this one by some unknown amount that this corpus
+  cannot bound, and the machine-to-machine spread is plausibly a large
+  fraction of the distances reported here. Nothing in this document is a
+  distance from "a TR-808" as a class, and the ranking in §6 should be read
+  as a ranking against one instrument.
+
+- **Six of sixteen sounds cannot be tested at all, and the count grew with
+  the kit.** CH, CP, CB, RS, CL and MA have no knob, so the corpus has one
+  recording each and there is nothing to hold out. CB is documented as
+  *wrong* and this test can neither confirm nor deny it. Seven more —
+  LT, MT, HT, LC, MC, HC, OH — have two held-out settings each, and eight is
+  the minimum at which any number of correct calls could exclude chance, so
+  they get no verdict either. **Only three of sixteen sounds — BD, SD and
+  CY — are adjudicable at all, and the sounds most likely to pass are
+  exactly the ones the corpus is too small to judge.**
 - **Power.** 38 held-out settings bound a chance-performing discriminator
   below 0.61 one-sided; ~270 trials would be needed to bound it at 0.60, and
   the corpus offers 38. Had we measured near-chance, the honest report would
@@ -756,12 +1040,46 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 
 ## 9. Reproducing, and one caveat
 
-The `drums` branch had not yet merged to `main` when this was run, so
-`model/drums_fx.py` and `model/modal_fixed.py` were taken from `origin/drums`
-`1e638ac` and the rest from `main` `d9921a4`. `model/drum_verify.py` on main
-is in the same state — it already references `drums_fx_render`. Re-run after
-the merge lands; the run prints the commit and a SHA-256 of the model files it
-actually rendered, so a stale result is self-identifying.
+### Provenance of the 2026-09-18 re-run
+
+| | |
+|---|---|
+| tree | branch `measure-discrimination-current`, **clean**. Measured off `main` `c752145`; rebased onto `main` `a57d469` (which contains PR #132, `ba14af2`) and re-verified identical |
+| model sha256 (drums_fx + modal_fixed + harness) | `3cf0210cca1aef01` (sixteen-sound run) |
+| corpus | `tidalcycles/sounds-tr808-fischer` `85fbecf`, **116** WAVs, sha256 `e3ad2d77a79cda4a` |
+| split hash | `ab381e78f9f4cc41` (sixteen); `6738610a454806f8` (the published eight, reproduced byte-for-byte) |
+| commands | `model/discrimination_run.py --refs /tmp/tr808-ref --sounds 16 --features both`; `model/discrimination_trajectory.py --refs /tmp/tr808-ref`; `pytest model/test_discrimination.py model/discrimination_features.py model/discrimination_trajectory.py -q` |
+| self-tests | **38 passed** (was 12) |
+| results | `docs/discrimination-results.json` (eight-voice), `docs/discrimination-results-16.json` (sixteen), `docs/discrimination-run.txt`, `docs/discrimination-trajectory.txt` |
+
+**Which measurement path, and PR #132.** PR #132 repairs four estimator
+defects in `model/audio_measure.py` and `tools/run_case.py`. It was open when
+this re-run started and **merged to `main` as `ba14af2` while it was running**;
+the branch has since been rebased onto it and **every number above re-measured
+identically** (split hash `6738610a454806f8`, pooled 0.868 [0.77,0.94],
+BD 2.5, SD 3.4, OH 6.9, HT 7.3, LT ≥10 — unchanged to the tenth).
+
+That it changes nothing is checkable rather than assumed, and the check is
+the reason: PR #132 touches `audio_measure.py`, `run_case.py`,
+`tools/probes/` and the scorecard results, and **none of the eleven files
+this study uses**.
+`model/test_discrimination.py` imports nothing from `model/audio_measure.py`.
+Its features are its own log-mel and MFCC code; its diagnostics are its own
+`measure_tau`, `measure_f0`, `band_share` and `partial_ratio`. **No number in
+this document routes through `band_energy`, so the windowing fix worth up to
+6 dB changes none of them.** If the harness is ever made to import the shared
+estimators, this paragraph stops being true and every figure needs re-deriving.
+
+**One thing PR #132 does touch, indirectly.** `drums_fx.CY_DECAY_T20`'s note
+records that the knob-2.5 cymbal file "is the one file of the five whose
+length is shorter than its own decay" and excludes it — which is exactly
+#118's truncation defect, a backward integral reporting the cut rather than
+the decay. The cymbal DECAY law fitted here does not use a Schroeder T20 at
+all; `measure_tau` regresses the log envelope over −3..−27 dB and needs only
+27 dB of record, and it reads that file at 258.5 ms, in order with both its
+neighbours (158 / **258.5** / 393.6 / 466.0 / 510.4 ms). Recorded because the
+two methods disagree about which files are usable, and the drums contract
+took the other one.
 
 Nothing in this test was tuned on a held-out setting. The pre-registered
 split, the equivalence margin and the minimum-N rule were fixed before any
@@ -771,3 +1089,13 @@ rate-independent across 44.1 k and 48 k, floor clamp hides a −76 dBFS
 converter floor, level matching removes a pure gain, a recording never on both
 sides of a split, and that 10-of-20 is reported as an upper bound of 0.68
 rather than as "indistinguishable").
+
+Added with the sixteen-sound extension, and each one exists because it caught
+something: the eight default sounds' register image is byte-identical under
+`kit_with_sounds`, so no previously published arm moved; the stop struck comes
+from `SOUND_STOP` and not from `STOP_NAMES.index`, which raised `ValueError`
+on LC, MC, HC and MA; all sixteen render non-silent and each shared circuit's
+two sounds separate by 1.2–1.5× rms; the extra columns append and never
+reorder the original 320; the CV grouping does not move between processes;
+a sound with no knob can produce no knob-equivalent; and a frozen ruler makes
+the two distances commensurate.

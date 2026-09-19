@@ -97,6 +97,7 @@ TONE or TUNING before DECAY or SNAPPY.
 from __future__ import annotations
 
 import hashlib
+import hashlib
 import math
 import os
 import sys
@@ -161,7 +162,40 @@ VOICE_REF = {
     "CB": ("cb8", "CB", 0),
 }
 KNOB_NAMES = {"BD": ("TONE", "DECAY"), "SD": ("TONE", "SNAPPY"), "LT": ("TUNING",),
-              "HT": ("TUNING",), "OH": ("DECAY",), "CH": (), "CP": (), "CB": ()}
+              "HT": ("TUNING",), "OH": ("DECAY",), "CH": (), "CP": (), "CB": (),
+              "MT": ("TUNING",), "LC": ("TUNING",), "MC": ("TUNING",), "HC": ("TUNING",),
+              "CY": ("TONE", "DECAY"), "RS": (), "CL": (), "MA": ()}
+
+# Revision 8 shipped eight stops. The kit is now ELEVEN circuits carrying
+# SIXTEEN sounds (drums_fx.SOUND_NAMES), and the Fischer set has a directory
+# for every one of them -- so the eight that used to be usable only as
+# cross-voice controls are now subjects. The table below is the same shape as
+# VOICE_REF and the two are merged into ALL_REF, which every measurement that
+# needs a knob count reads.
+#
+# KNOB COUNTS ARE MEASURED, NOT ASSUMED. `tools/probe_new_voice_knobs.py`
+# reads them off the corpus: TUNING moves f0 monotonically on all six
+# tom/conga sounds and leaves tau flat (LT 80->100, MT 123->153, HT 170->213,
+# LC 183->223, MC 260->320, HC 377->467 Hz); the cymbal's SECOND filename code
+# is DECAY (tau 158 -> 510 ms, and the recordist's own file lengths grow
+# 1.5 -> 4.0 s with it) and its FIRST is TONE, which moves the 5-13 kHz /
+# 2-5 kHz balance and NOT a decay.
+EXTRA_REF = {
+    "MT": ("mt8", "MT", 1), "LC": ("lc8", "LC", 1), "MC": ("mc8", "MC", 1),
+    "HC": ("hc8", "HC", 1), "CY": ("cy8", "CY", 2), "RS": ("rs8", "RS", 0),
+    "CL": ("cl8", "CL", 0), "MA": ("ma8", "MA", 0),
+}
+ALL_REF = {**VOICE_REF, **EXTRA_REF}
+# Six of the sixteen have no knob at all, so the corpus holds one recording of
+# each and there is nothing to hold out: CH, CP, CB (the old study's three)
+# plus RS, CL and MA. A sound with no knob cannot produce a knob-equivalent --
+# the unit is defined as a distance ON its own knob's yardstick -- and the
+# only honest output for those six is a refusal.
+NO_KNOB = tuple(v for v, (_, _, nk) in ALL_REF.items() if nk == 0)
+# The fmax each TUNING law's f0 search is allowed, one clear octave above the
+# top of that sound's measured range.
+TUNING_FMAX = {"LT": 200.0, "HT": 400.0, "MT": 400.0,
+               "LC": 500.0, "MC": 700.0, "HC": 900.0}
 
 RENDER_S = 0.40                     # enough for onset search + WINDOW_S
 RENDER_GAIN = 0.45                  # the reference drum-bus gain (DR 0005)
@@ -201,13 +235,14 @@ def knob_str(knobs) -> str:
 
 
 def ref_clips(refdir: str, voices=None, include_unmodelled: bool = False) -> list:
-    """Index the Fischer set. Filenames carry the knobs; nothing is guessed."""
+    """Index the Fischer set. Filenames carry the knobs; nothing is guessed.
+
+    `include_unmodelled` is the historical name of the flag that adds the
+    other eight directories. They are no longer unmodelled -- the kit plays
+    all sixteen -- so the flag now means "all sixteen sounds", and the name is
+    kept so that the documented eight-voice invocation still reproduces."""
     out = []
-    table = dict(VOICE_REF)
-    if include_unmodelled:
-        table.update({"MT": ("mt8", "MT", 1), "LC": ("lc8", "LC", 1), "MC": ("mc8", "MC", 1),
-                      "HC": ("hc8", "HC", 1), "CY": ("cy8", "CY", 2), "RS": ("rs8", "RS", 0),
-                      "CL": ("cl8", "CL", 0), "MA": ("ma8", "MA", 0)})
+    table = dict(ALL_REF) if include_unmodelled else dict(VOICE_REF)
     for voice, (d, prefix, nk) in table.items():
         if voices and voice not in voices:
             continue
@@ -338,9 +373,16 @@ def dct_ii(x: np.ndarray, n_out: int) -> np.ndarray:
     return (np.cos(np.pi * k * (2 * m + 1) / (2 * n)) @ x) * np.sqrt(2.0 / n)
 
 
-def features(x: np.ndarray, sr: int, floor_clamp: bool = True) -> tuple:
+def features(x: np.ndarray, sr: int, floor_clamp: bool = True, extra: bool = False) -> tuple:
     """Returns (vector, names). 40 log-mel bands x 4 segments (mean) plus
-    20 MFCCs x 4 segments (mean and std) = 320 numbers."""
+    20 MFCCs x 4 segments (mean and std) = 320 numbers.
+
+    With `extra`, 190 further columns from `model/discrimination_features.py`
+    are appended: the multi-period fold, the dominant-period probe, the
+    constant-Q sub-bands and the multi-scale windows. They are deterministic
+    transforms handed to the SAME classifier and read on the SAME
+    knob-equivalent yardstick -- not a learned judge, and the arm is reported
+    both ways so the cost of the addition is visible."""
     lm = logmel(x, sr, floor_clamp)
     mf = dct_ii(lm, N_MFCC)
     bounds = np.linspace(0, lm.shape[1], N_SEG + 1).astype(int)
@@ -356,6 +398,11 @@ def features(x: np.ndarray, sr: int, floor_clamp: bool = True) -> tuple:
             names.append(f"mfcc{c:02d}.seg{s}.mean")
             vals.append(mf[c, a:b].std())
             names.append(f"mfcc{c:02d}.seg{s}.std")
+    if extra:
+        import discrimination_features as dfx
+        ev, en = dfx.extra_features(x, sr)
+        vals = list(vals) + list(ev)
+        names = names + en
     return np.asarray(vals, dtype=float), names
 
 
@@ -442,9 +489,14 @@ def feature_groups(names) -> dict:
     """Group the 320 features into (frequency band x time segment) buckets so
     attribution comes out as something a circuit designer can act on, plus one
     bucket per segment for the MFCCs (which are not band-localised)."""
+    import discrimination_features as dfx
     groups: dict = {}
     for i, nm in enumerate(names):
         seg = nm.split(".seg")[1][0]
+        g = dfx.extra_group(nm)
+        if g is not None:
+            groups.setdefault(g, []).append(i)
+            continue
         if nm.startswith("mel"):
             hz = float(nm.split("@")[1].split("Hz")[0])
             band = next((lab for lo, hi, lab in FEATURE_BANDS if lo <= hz < hi), "5-18kHz")
@@ -542,7 +594,7 @@ def partial_ratio(x: np.ndarray, sr: int, t1: float = 0.060) -> float:
     return float(X[(f >= 260) & (f < 430)].sum() / max(X[(f >= 130) & (f < 230)].sum(), 1e-20))
 
 
-def fit_laws(refdir: str) -> dict:
+def fit_laws(refdir: str, all_sounds: bool = False) -> dict:
     """Measure the real machine at FIT_KNOBS only and return the laws.
 
     Which physical quantity each knob moves was read off the machine, not
@@ -557,7 +609,7 @@ def fit_laws(refdir: str) -> dict:
     claim about the circuit and not only about interpolation.
     """
     def ref(voice, knobs):
-        d, prefix, _ = VOICE_REF[voice]
+        d, prefix, _ = ALL_REF[voice]
         code = "".join(c for k in knobs for c, v in KNOB_CODES.items() if v == k)
         x, sr = read_wav(os.path.join(refdir, d, f"{prefix}{code}.WAV"))
         return x[onset(x):], sr
@@ -622,6 +674,42 @@ def fit_laws(refdir: str) -> dict:
         taus.append(measure_tau(x, sr))
     laws["OH.decay_tau"] = fit_quad(FIT_KNOBS, taus, "log")
     laws["_meas.OH.decay_tau"] = taus
+
+    if not all_sounds:
+        return laws
+
+    # --- the other four tuned circuits: TUNING -> f0, exactly as LT and HT --
+    for voice in ("MT", "LC", "MC", "HC"):
+        f0s = []
+        for k in FIT_KNOBS:
+            x, sr = ref(voice, (k,))
+            f0s.append(measure_f0(x, sr, TUNING_FMAX[voice]))
+        laws[f"{voice}.tuning_f0"] = fit_quad(FIT_KNOBS, f0s, "log")
+        laws[f"_meas.{voice}.tuning_f0"] = f0s
+
+    # --- CY: DECAY -> envelope tau; TONE -> the two bands' RATIO ------------
+    #
+    # TONE IS A BALANCE, NOT A DECAY, and this is the second voice in this
+    # study to make that distinction matter. Measured down the TONE column the
+    # cymbal's single fitted tau runs 464 -> 196 ms, which reads exactly like a
+    # decay knob; what is actually moving is the share of the energy sitting on
+    # the long 3.45 kHz band-pass versus the short 10.5 kHz one (2-5 kHz share
+    # 0.762 -> 0.686, 5-13 kHz 0.180 -> 0.261). Fitting a tau to it would write
+    # a decay into a circuit whose decay the knob does not touch -- which is
+    # precisely the error withdrawn from the snare's TONE law on 2026-09-18.
+    # So TONE is fitted as the band ratio and DECAY as the tau, and the tau is
+    # measured down the TONE = 5.0 column where the balance is fixed.
+    taus, ratios = [], []
+    for k in FIT_KNOBS:
+        x, sr = ref("CY", (5.0, k))
+        taus.append(measure_tau(x, sr))
+        x, sr = ref("CY", (k, 5.0))
+        ratios.append(band_share(x, sr, 5000.0, 13000.0)
+                      / max(band_share(x, sr, 2000.0, 5000.0), 1e-9))
+    laws["CY.decay_tau"] = fit_quad(FIT_KNOBS, taus, "log")
+    laws["CY.tone_ratio"] = fit_quad(FIT_KNOBS, ratios, "log")
+    laws["_meas.CY.decay_tau"] = taus
+    laws["_meas.CY.tone_ratio"] = ratios
     return laws
 
 
@@ -638,13 +726,15 @@ GRADED_CONTROL_ARMS = ("deg_tail75", "deg_tail50", "deg_snappy6", "deg_snappy12"
 # Which voices each degradation can possibly touch: rendering an arm for a
 # voice it cannot change would just duplicate `ours` and waste an hour.
 ARM_VOICES = {
-    "deg_nonoise": ("SD", "CP"),
+    "deg_nonoise": ("SD", "CP", "MA"),
     "deg_snappy6": ("SD",), "deg_snappy12": ("SD",),
-    "deg_tail75": ("BD", "SD", "LT", "HT", "CH", "OH"),
-    "deg_tail50": ("BD", "SD", "LT", "HT", "CH", "OH"),
-    "deg_qcoarse": ("SD", "CH", "OH", "CP", "CB"),
-    "deg_q6bit": ("SD", "CH", "OH", "CP", "CB"),
-    "deg_q5bit": ("SD", "CH", "OH", "CP", "CB"),
+    "deg_tail75": ("BD", "SD", "LT", "HT", "CH", "OH",
+                   "MT", "LC", "MC", "HC", "CY", "RS", "CL"),
+    "deg_tail50": ("BD", "SD", "LT", "HT", "CH", "OH",
+                   "MT", "LC", "MC", "HC", "CY", "RS", "CL"),
+    "deg_qcoarse": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
+    "deg_q6bit": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
+    "deg_q5bit": ("SD", "CH", "OH", "CP", "CB", "CY", "RS", "CL", "MA"),
 }
 
 ARM_DOC = {
@@ -679,12 +769,85 @@ def _quantise_f0(hz: float, bits: int = 4) -> float:
     return float(np.exp(g))
 
 
+def _TOM_MODE(voice: str) -> int:
+    import drums_fx as dx
+    return {"LT": dx.M_LT, "LC": dx.M_LT, "MT": dx.M_MT,
+            "MC": dx.M_MT, "HT": dx.M_HT, "HC": dx.M_HT}[voice]
+
+
+def _degrade_modes(voice: str, bd_f0: float):
+    """Which body modes a decay degradation must move for THIS voice.
+
+    The original five are listed unconditionally, exactly as they were before
+    the kit grew, because a mode only reaches the output when its own stop is
+    struck -- so listing another voice's modes is inert and every degraded arm
+    rendered before this change renders identically. The tom and conga sounds
+    are the exception and must be looked up: LC, MC and HC share their
+    circuit's mode with LT, MT and HT but sit at a different f0 and Q, and
+    re-typing the tom's 90 Hz into a conga would retune it rather than
+    lengthen it."""
+    import drums_fx as dx
+    if voice in ("MT", "LC", "MC", "HC"):
+        f0, q, _ = dx.TOM_PRESET[voice]
+        return [(_TOM_MODE(voice), f0, q)]
+    return [(dx.M_BD, bd_f0, None), (dx.M_SDLO, 173.0, None), (dx.M_SDHI, 336.0, None),
+            (dx.M_LT, 90.0, 25.0), (dx.M_HT, 185.0, 25.0)]
+
+
+def _degrade_envs(voice: str):
+    """Which envelopes a decay degradation must move. Same rule: the hats are
+    listed unconditionally and are inert elsewhere; the sounds whose whole
+    decay lives in an envelope rather than a resonator are added."""
+    import drums_fx as dx
+    base = [(dx.E_CH, dx.CH), (dx.E_OH, dx.OH)]
+    if voice == "CY":
+        return base + [(dx.E_CYS, dx.CY), (dx.E_CYD, dx.CY), (dx.E_CYL, dx.CY)]
+    if voice in ("RS", "CL"):
+        return base + [(dx.E_RSG, dx.CL)]
+    if voice == "MA":
+        return base + [(dx.E_CPBURST, dx.CP)]
+    return base
+
+
+def _cy_hi_amp(target_ratio: float) -> float:
+    """M_CYHI's amp that puts the cymbal's 5-13 kHz / 2-5 kHz energy at
+    `target_ratio`. Band power is quadratic in the amp, so one calibration
+    render fixes the law exactly -- the same closed form the snare's partial
+    balance and both envelope peaks already use, rather than a search."""
+    ratio0, amp0 = _calibrate()["cy_tone"]
+    return float(min(1.0, amp0 * math.sqrt(max(target_ratio, 1e-12) / max(ratio0, 1e-12))))
+
+
+def _cy_decay_scale(target_tau: float) -> float:
+    """The factor on E_CYD and E_CYL that puts the rendered voice's measured
+    tau at `target_tau`.
+
+    Two calibration renders, not one: the DECAY knob scales two of the three
+    cymbal envelopes and leaves the 12 ms one alone (drums_fx CY_TAU_SHORT),
+    so the whole voice is NOT a clean time-scaling of itself and a
+    single-point solve would be wrong by the short band's share. Fitting
+    log tau against log k through two points and inverting is exact to the
+    extent the relation is a power law, and is refused -- the factor is
+    clamped to the measured bracket -- outside it."""
+    (k1, t1), (k2, t2) = _calibrate()["cy_decay"]
+    if t1 <= 0 or t2 <= 0 or abs(math.log(t2 / t1)) < 1e-9:
+        return 1.0
+    a = math.log(k2 / k1) / math.log(t2 / t1)
+    k = k1 * (max(target_tau, 1e-6) / t1) ** a
+    return float(min(8.0, max(0.05, k)))
+
+
 def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
     """The reference kit with this voice's knobs applied through the fitted
     law, then the arm's modification. Returns a write list."""
     import drums_fx as dx
 
-    base = {a: v for a, v in dx.kit_808()}
+    # `kit_with_sounds` puts this sound's circuit into this sound's position.
+    # For the eight sounds the kit already loads it rewrites the same values,
+    # so the register image is identical to `kit_808()` and every arm rendered
+    # before the kit grew to sixteen still renders bit for bit the same --
+    # asserted in `test_the_eight_default_sounds_are_untouched_by_the_preset`.
+    base = dict(dx.kit_with_sounds(voice))
 
     def set_mode(m, f0, q, amp=None, num=dx.RAW):
         if amp is None:                        # keep the kit's own level
@@ -730,6 +893,22 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
         set_mode(m, f0, kit_q * f0 / kit_f0)          # tau constant => Q scales with f0
     elif voice == "OH":
         set_env(dx.E_OH, dx.OH, laws["OH.decay_tau"](knobs[0]), 1.0, choke=dx.CH)
+    elif voice in ("MT", "LC", "MC", "HC"):
+        # the same TUNING law as LT and HT: f0 from the law, Q scaled with f0
+        # so that the circuit's tau stays where the machine keeps it (measured
+        # flat across the knob on all six -- LT 91->86 ms, HC 36->33 ms).
+        f0 = laws[f"{voice}.tuning_f0"](knobs[0])
+        m = _TOM_MODE(voice)
+        kit_f0, kit_q, _ = dx.TOM_PRESET[voice]
+        set_mode(m, f0, kit_q * f0 / kit_f0)
+    elif voice == "CY":
+        tone, decay = knobs
+        set_mode(dx.M_CYHI, dx.CY_HI_HZ, dx.CY_HI_Q,
+                 _cy_hi_amp(laws["CY.tone_ratio"](tone)), num=dx.BP)
+        k = _cy_decay_scale(laws["CY.decay_tau"](decay))
+        for e in (dx.E_CYD, dx.E_CYL):
+            set_env(e, dx.CY, k * _env_tau_from_reg(base[dx.A_ENV + e * dx.ENV_STRIDE + 2]),
+                    base[dx.A_ENV + e * dx.ENV_STRIDE + 1] / dx.FULL24)
 
     # --- the arm ------------------------------------------------------------
     if arm == "docfix":
@@ -743,12 +922,11 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
             set_env(dx.E_CBA, dx.CB, 12e-3, 0.5)
             set_env(dx.E_CBB, dx.CB, 98e-3, 0.5)
     elif arm == "deg_decay":
-        for m, f0, q in ((dx.M_BD, bd_f0, None), (dx.M_SDLO, 173.0, None), (dx.M_SDHI, 336.0, None),
-                         (dx.M_LT, 90.0, 25.0), (dx.M_HT, 185.0, 25.0)):
+        for m, f0, q in _degrade_modes(voice, bd_f0):
             a1 = base[dx.A_MODE + m * dx.MODE_STRIDE]
             cur = _mode_q_from_regs(a1, base[dx.A_MODE + m * dx.MODE_STRIDE + 1], f0)
             set_mode(m, f0, cur * 4.0)
-        for e, stop in ((dx.E_CH, dx.CH), (dx.E_OH, dx.OH)):
+        for e, stop in _degrade_envs(voice):
             set_env(e, stop, 4.0 * _env_tau_from_reg(base[dx.A_ENV + e * dx.ENV_STRIDE + 2]),
                     base[dx.A_ENV + e * dx.ENV_STRIDE + 1] / dx.FULL24,
                     choke=dx.CH if e == dx.E_OH else 15)
@@ -758,12 +936,11 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
         set_env(dx.E_CPTAIL, dx.CP, 47e-3, 0.0)
     elif arm in ("deg_tail75", "deg_tail50"):
         f = 0.75 if arm == "deg_tail75" else 0.50
-        for m, f0, kq in ((dx.M_BD, bd_f0, None), (dx.M_SDLO, 173.0, None), (dx.M_SDHI, 336.0, None),
-                          (dx.M_LT, 90.0, 25.0), (dx.M_HT, 185.0, 25.0)):
+        for m, f0, kq in _degrade_modes(voice, bd_f0):
             a1 = base[dx.A_MODE + m * dx.MODE_STRIDE]
             cur = _mode_q_from_regs(a1, base[dx.A_MODE + m * dx.MODE_STRIDE + 1], f0)
             set_mode(m, f0, cur * f)
-        for e, stop in ((dx.E_CH, dx.CH), (dx.E_OH, dx.OH)):
+        for e, stop in _degrade_envs(voice):
             set_env(e, stop, f * _env_tau_from_reg(base[dx.A_ENV + e * dx.ENV_STRIDE + 2]),
                     base[dx.A_ENV + e * dx.ENV_STRIDE + 1] / dx.FULL24,
                     choke=dx.CH if e == dx.E_OH else 15)
@@ -775,7 +952,15 @@ def kit_at(voice: str, knobs: tuple, laws: dict, arm: str = "ours"):
         # that would have crashed this positive control the moment it ran.
         for m, f0, q, num in ((dx.M_HATBP, 7117.0, 6.0, dx.BP), (dx.M_OHHP, 7800.0, 2.5, dx.HP),
                               (dx.M_CHHP, 11700.0, 2.5, dx.HP), (dx.M_SDN, 2750.0, 0.7, dx.BP),
-                              (dx.M_CPBP, 1071.0, 1.6, dx.BP), (dx.M_CBBP, 1100.0, 2.8, dx.BP)):
+                              (dx.M_CPBP, 1071.0, 1.6, dx.BP), (dx.M_CBBP, 1100.0, 2.8, dx.BP),
+                              # the five circuits added with the sixteen-sound
+                              # kit. Inert for the original eight -- a mode only
+                              # sounds when its own stop is struck -- so every
+                              # number this arm produced before still stands.
+                              (dx.M_CYBP, dx.CY_LO_HZ, dx.CY_Q, dx.BP),
+                              (dx.M_CYHI, dx.CY_HI_HZ, dx.CY_HI_Q, dx.BP),
+                              (dx.M_RS1, dx.RS_LO_HZ, dx.RS_LO_Q, dx.RAW),
+                              (dx.M_RS2, dx.RS_HI_HZ, dx.RS_HI_Q, dx.RAW)):
             num = base[dx.A_MODE + m * dx.MODE_STRIDE + 3]
             set_mode(m, _quantise_f0(f0, bits), q, get_mode_amp(m), num)
 
@@ -837,6 +1022,24 @@ def _calibrate():
     lo = float((y0[:w] ** 2).sum()) * band_share(y0[:w], sr, 0.0, 300.0)
     hi = max(1e-12, float((y1[:w] ** 2).sum()) * band_share(y1[:w], sr, 300.0, 20000.0))
     _CAL["bd"] = (lo, hi, 0.06)
+    # CY TONE: the rendered 5-13 kHz / 2-5 kHz ratio at the kit's own M_CYHI
+    # amp. CY DECAY: the rendered tau at two scalings of E_CYD and E_CYL.
+    img = {a: v for a, v in dx.kit_with_sounds("CY")}
+    c0, sr = _render_raw(dx.CY, sorted(img.items()))
+    _CAL["cy_tone"] = (band_share(c0, sr, 5000.0, 13000.0)
+                       / max(band_share(c0, sr, 2000.0, 5000.0), 1e-9),
+                       img[dx.A_MODE + dx.M_CYHI * dx.MODE_STRIDE + 2] / 65536.0)
+    pts = []
+    for k in (1.0, 2.0):
+        w = dict(img)
+        for e in (dx.E_CYD, dx.E_CYL):
+            for a, v in dx.env_writes(e, dx.CY,
+                                      k * _env_tau_from_reg(img[dx.A_ENV + e * dx.ENV_STRIDE + 2]),
+                                      img[dx.A_ENV + e * dx.ENV_STRIDE + 1] / dx.FULL24):
+                w[a] = v
+        y, sy = _render_raw(dx.CY, sorted(w.items()))
+        pts.append((k, measure_tau(y, sy)))
+    _CAL["cy_decay"] = tuple(pts)
     return _CAL
 
 
@@ -882,9 +1085,12 @@ def _render_raw(stop: int, kit) -> tuple:
 
 
 def render(voice: str, knobs: tuple, laws: dict, arm: str = "ours") -> tuple:
+    """A STOP is a circuit and a SOUND is a position of it, so the stop struck
+    comes from SOUND_STOP and not from the sound's index. Striking
+    STOP_NAMES.index("CL") for the claves would fire the rimshot's circuit --
+    the same circuit, but that is luck, and LC would fire stop 3 (HT)."""
     import drums_fx as dx
-    stop = dx.STOP_NAMES.index(voice)
-    return _render_raw(stop, kit_at(voice, knobs, laws, arm))
+    return _render_raw(dx.SOUND_STOP[voice], kit_at(voice, knobs, laws, arm))
 
 
 def ours_clips(voices, arm: str, refs) -> list:
@@ -938,10 +1144,11 @@ def assert_split_disjoint(train, test):
 # ---------------------------------------------------------------------------
 # The discriminator
 # ---------------------------------------------------------------------------
-def build_matrix(clips, laws, refdir, level_match=True, floor_clamp=True, cache=None):
+def build_matrix(clips, laws, refdir, level_match=True, floor_clamp=True, cache=None,
+                 extra=False):
     X, names = [], None
     for c in clips:
-        key = (c.rec, level_match, floor_clamp)
+        key = (c.rec, level_match, floor_clamp, extra)
         if cache is not None and key in cache:
             v, names = cache[key]
         else:
@@ -951,7 +1158,7 @@ def build_matrix(clips, laws, refdir, level_match=True, floor_clamp=True, cache=
                 x, sr = read_wav(c.path)
             else:
                 x, sr = render(c.voice, c.knobs, laws, c.side)
-            v, names = features(condition(x, sr, level_match), sr, floor_clamp)
+            v, names = features(condition(x, sr, level_match), sr, floor_clamp, extra)
             if cache is not None:
                 cache[key] = (v, names)
         X.append(v)
@@ -975,6 +1182,24 @@ def zscore_per_voice(X, clips, fit_mask):
     return Z
 
 
+def stable_group_id(rec: str) -> int:
+    """A group id that does not move between processes.
+
+    THIS WAS `hash(rec) % (1 << 31)` AND THAT IS NOT REPRODUCIBLE. Python
+    salts `hash()` on str per process (PYTHONHASHSEED), so the group ids
+    handed to StratifiedGroupKFold were different on every run, the folds
+    were different, the C chosen by the inner CV was different, and the
+    published balanced accuracies moved between two runs of the identical
+    command on the identical cache. Caught 2026-09-18 by re-running the study
+    and getting pooled 0.868 once and 0.816 the next time with a byte-equal
+    split hash and byte-equal feature vectors.
+
+    Nothing about the distances moved, which is why it went unseen: a
+    knob-equivalent has no classifier in it. It is the accuracies, the CIs and
+    every ABX count that were unreproducible."""
+    return int(hashlib.sha256(rec.encode()).hexdigest()[:8], 16)
+
+
 def discriminate(clips, X, train_mask, test_mask, seed=0):
     """L2 logistic regression, C chosen by grouped inner CV on the training
     clips only (groups = the recording). Returns the held-out predictions and
@@ -986,7 +1211,7 @@ def discriminate(clips, X, train_mask, test_mask, seed=0):
     assert set(np.unique(y)) <= {0, 1}, "the task must be binary"
     tr, te = np.where(train_mask)[0], np.where(test_mask)[0]
     assert_split_disjoint([clips[i] for i in tr], [clips[i] for i in te])
-    groups = np.array([hash(c.rec) % (1 << 31) for c in clips])
+    groups = np.array([stable_group_id(c.rec) for c in clips])
     # STRATIFIED and grouped. Grouping alone lets a fold hold only one class
     # -- sklearn then fails that fit, scores it nan, and C is chosen by
     # accident rather than by cross-validation. Stratifying keeps both classes
@@ -1073,8 +1298,15 @@ def effect_sizes(X, clips, names, voice, mask):
                   if c.voice == voice and c.side != "real" and mask[i]])
     if len(r) < 2 or len(o) < 1:
         return {}
+    # THE DENOMINATOR IS THE MACHINE'S SPREAD OVER len(r) RECORDINGS, and for
+    # the single-knob voices len(r) is 2. A column that happens to be nearly
+    # constant across two recordings then has a near-zero sd and produces an
+    # effect size in the thousands -- the sixteen-sound run reported 4747 for
+    # the high conga's jitter bucket on exactly this. Refuse the column rather
+    # than report it: the spread must be resolvable, not merely non-zero.
     sd = X[r].std(0)
-    sd = np.where(sd < 1e-9, np.nan, sd)
+    floor = 0.05 if len(r) >= 4 else 0.20
+    sd = np.where(sd < floor, np.nan, sd)
     d = (X[o].mean(0) - X[r].mean(0)) / sd
     out = {}
     for g, cols in feature_groups(names).items():
@@ -1082,6 +1314,7 @@ def effect_sizes(X, clips, names, voice, mask):
         vals = vals[np.isfinite(vals)]
         if len(vals):
             out[g] = float(np.mean(np.abs(vals)))
+    out["_n_real"] = float(len(r))
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
@@ -1107,7 +1340,8 @@ def permutation_null(clips, X, train_mask, test_mask, n_iter=200, seed=0):
                 p95=float(np.percentile(accs, 95)), n_iter=n_iter)
 
 
-def cross_voice_control(refdir, cache, level_match=True, floor_clamp=True, seed=0):
+def cross_voice_control(refdir, cache, level_match=True, floor_clamp=True, seed=0,
+                        extra=False):
     """POSITIVE CONTROL with no provenance cue at all: real against real,
     different voices, same machine, same converter, same afternoon. If the
     pipeline cannot separate a real low tom from a real low conga it has no
@@ -1124,7 +1358,7 @@ def cross_voice_control(refdir, cache, level_match=True, floor_clamp=True, seed=
             continue
         clips = [Clip(c.voice, c.knobs, "real", c.path, rec=f"A:{c.rec}") for c in ca] + \
                 [Clip(c.voice, c.knobs, "realB", c.path, rec=f"B:{c.rec}") for c in cb]
-        X, names = build_matrix(clips, None, refdir, level_match, floor_clamp, cache)
+        X, names = build_matrix(clips, None, refdir, level_match, floor_clamp, cache, extra)
         fit = np.array([not c.is_test for c in clips])
         X = zscore_per_voice(X, [Clip("X", c.knobs, c.side) for c in clips], fit)
         tm, sm = fit, ~fit
@@ -1137,7 +1371,7 @@ def cross_voice_control(refdir, cache, level_match=True, floor_clamp=True, seed=
 
 
 def separation_curve(refdir, cache, voices=("BD", "SD"), level_match=True,
-                     floor_clamp=True, seed=0):
+                     floor_clamp=True, seed=0, extra=False):
     """Real against real at a known knob separation. This is what converts an
     accuracy into something interpretable.
 
@@ -1157,7 +1391,7 @@ def separation_curve(refdir, cache, voices=("BD", "SD"), level_match=True,
                 7.5: [(0.0, 7.5), (2.5, 10.0)], 10.0: [(0.0, 10.0)]}
     out = {}
     for voice in voices:
-        d, prefix, nk = VOICE_REF[voice]
+        d, prefix, nk = ALL_REF[voice]
         if nk != 2:
             continue
         for axis in (0, 1):
@@ -1180,7 +1414,7 @@ def separation_curve(refdir, cache, voices=("BD", "SD"), level_match=True,
                 fit = np.array([v not in TEST_KNOBS for v in split_val])
                 if fit.sum() < 4 or (~fit).sum() < 4:
                     continue
-                X, names = build_matrix(clips, None, refdir, level_match, floor_clamp, cache)
+                X, names = build_matrix(clips, None, refdir, level_match, floor_clamp, cache, extra)
                 X = zscore_per_voice(X, [Clip("X", c.knobs, c.side) for c in clips],
                                      np.ones(len(clips), bool))
                 r = discriminate(clips, X, fit, ~fit, seed)
@@ -1190,15 +1424,44 @@ def separation_curve(refdir, cache, voices=("BD", "SD"), level_match=True,
     return out
 
 
-def _zspace(clips, cache_matrix):
-    """Z-score a feature matrix on the clips themselves. Distances below are
-    measured in this space so they are commensurate across voices."""
-    mu, sd = cache_matrix.mean(0), cache_matrix.std(0)
+def _zspace(clips, cache_matrix, scale=None):
+    """Z-score a feature matrix. With `scale` = (mu, sd) the scaling is FROZEN
+    and supplied by the caller; without it, it is computed from the matrix
+    itself -- which is what the published study did and is the behaviour kept
+    so that published numbers reproduce.
+
+    THE PUBLISHED KNOB-EQUIVALENT MEASURES TWO DISTANCES IN DIFFERENT UNITS.
+    `distance_curve` scales on the pair of real populations it is comparing;
+    `ours_distance` scales on the real-plus-ours population. Two different
+    mu/sd, and then one is read off the other as though they shared a ruler.
+    `voice_scale` gives both the same one."""
+    if scale is not None:
+        mu, sd = scale
+    else:
+        mu, sd = cache_matrix.mean(0), cache_matrix.std(0)
     sd = np.where(sd < 1e-9, 1.0, sd)
     return (cache_matrix - mu) / sd
 
 
-def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clamp=True):
+def voice_scale(refs, voice, matrix_fn):
+    """The frozen ruler for one voice: mean and sd over every REAL recording
+    of that voice, and nothing else.
+
+    It is independent of which arm is being measured and identical for the
+    yardstick and for the thing read off it, which is the whole point. It is
+    still a PER-VOICE ruler -- a knob-equivalent is by construction a distance
+    on that voice's own knob -- so SD 3.4 and LT 6.7 are two readings on two
+    dials and are NOT interchangeable numbers. That was true before this
+    function and stays true after it."""
+    use = [c for c in refs if c.voice == voice]
+    if not use:
+        return None
+    M = matrix_fn(use)
+    return M.mean(0), M.std(0)
+
+
+def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clamp=True,
+                   scale=None):
     """The non-saturating version of the separation curve, and the one the
     knob-equivalent is read off.
 
@@ -1210,7 +1473,7 @@ def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clam
     distance between a real clip and ours AT THE SAME SETTING, and read it off
     the yardstick.
     """
-    d, prefix, nk = VOICE_REF[voice]
+    d, prefix, nk = ALL_REF[voice]
     steps = sorted(KNOB_CODES.values())
     out = {}
     if nk == 0:
@@ -1235,14 +1498,14 @@ def distance_curve(refdir, cache, voice, matrix_fn, level_match=True, floor_clam
                 continue
             A = matrix_fn([Clip(voice, a, "real") for a, _ in pairs])
             B = matrix_fn([Clip(voice, b, "real") for _, b in pairs])
-            Z = _zspace(None, np.vstack([A, B]))
+            Z = _zspace(None, np.vstack([A, B]), scale)
             n = len(A)
             dist = np.linalg.norm(Z[:n] - Z[n:], axis=1)
             out[(kname, delta)] = float(np.median(dist))
     return out
 
 
-def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True) -> float:
+def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True, scale=None) -> float:
     """Median feature-space distance between the real machine and our render
     at the SAME knob setting, over the held-out settings."""
     use = [c for c in refs if c.voice == voice and (c.is_test or not test_only)]
@@ -1252,7 +1515,7 @@ def ours_distance(refs, cache, voice, arm, matrix_fn, test_only=True) -> float:
         return float("nan")
     A = matrix_fn(use)
     B = matrix_fn([Clip(c.voice, c.knobs, arm) for c in use])
-    Z = _zspace(None, np.vstack([A, B]))
+    Z = _zspace(None, np.vstack([A, B]), scale)
     n = len(A)
     return float(np.median(np.linalg.norm(Z[:n] - Z[n:], axis=1)))
 
@@ -1276,7 +1539,7 @@ def knob_equivalent_distance(dist: float, curve: dict, knob: str | None = None) 
 
 
 def real_vs_real_random(refdir, cache, voice="BD", n_iter=40, level_match=True,
-                        floor_clamp=True, seed=0):
+                        floor_clamp=True, seed=0, extra=False):
     """NEGATIVE CONTROL on real structure: split one voice's real clips into
     two arbitrary pseudo-classes and classify. Must sit at chance. If it does
     not, the pipeline is manufacturing separation out of nothing."""
@@ -1287,7 +1550,7 @@ def real_vs_real_random(refdir, cache, voice="BD", n_iter=40, level_match=True,
         p = rng.permutation(len(base))
         clips = [Clip(c.voice, c.knobs, "real" if p[i] < len(base) // 2 else "realB",
                       c.path, rec=f"r{i}") for i, c in enumerate(base)]
-        X, _ = build_matrix(clips, None, refdir, level_match, floor_clamp, cache)
+        X, _ = build_matrix(clips, None, refdir, level_match, floor_clamp, cache, extra)
         fit = np.array([not c.is_test for c in clips])
         if fit.sum() < 4 or (~fit).sum() < 2:
             continue
@@ -1571,3 +1834,151 @@ def test_group_importance_names_are_actionable():
     g = feature_groups(names)
     assert len(g) == (len(FEATURE_BANDS) + 1) * N_SEG
     assert sum(len(v) for v in g.values()) == len(names)
+
+
+# ---------------------------------------------------------------------------
+# The sixteen-sound extension. Added 2026-09-18 with the re-run the scorecard
+# asks for; these are the checks that stop the extension from quietly
+# changing what the eight-voice study measured.
+# ---------------------------------------------------------------------------
+def test_the_eight_default_sounds_are_untouched_by_the_preset():
+    """`kit_at` now builds from `kit_with_sounds(voice)` instead of
+    `kit_808()`. For the eight sounds the kit already loads that must be the
+    SAME register image, or every arm this study has ever published would
+    have silently moved under the extension."""
+    import drums_fx as dx
+    base = {a: v for a, v in dx.kit_808()}
+    for v in ("BD", "SD", "LT", "HT", "CH", "OH", "CP", "CB"):
+        img = dict(dx.kit_with_sounds(v))
+        diff = {a: (base.get(a), img[a]) for a in img if base.get(a) != img[a]}
+        assert not diff, f"{v}: preset changed {len(diff)} registers: {list(diff)[:4]}"
+        assert set(img) == set(base), v
+
+
+def test_the_stop_struck_is_the_sounds_own_circuit():
+    """A STOP is a circuit and a SOUND is a position of it. The old `render`
+    did `STOP_NAMES.index(voice)`, which for the eight it knew about happened
+    to be right and for the eight it did not know about is wrong in two
+    different ways: "CL" would index stop 10 (the CL circuit, right by luck)
+    but "LC" would index nothing and "MA" would raise. Each of the five
+    shared circuits must give two AUDIBLY different renders."""
+    import drums_fx as dx
+    laws = {}
+    for a, b in dx.PAIRS:
+        xa, _ = render(a, (), laws) if not KNOB_NAMES[a] else render(a, (5.0,) * len(KNOB_NAMES[a]), _tom_laws(a))
+        xb, _ = render(b, (), laws) if not KNOB_NAMES[b] else render(b, (5.0,) * len(KNOB_NAMES[b]), _tom_laws(b))
+        n = min(len(xa), len(xb))
+        assert n > 100 and float(np.abs(xa[:n]).max()) > 1e-4, a
+        d = float(np.sqrt(((xa[:n] - xb[:n]) ** 2).mean()))
+        r = float(np.sqrt((xa[:n] ** 2).mean()))
+        assert d > 0.1 * r, f"{a} and {b} render the same signal (rms diff {d:.2e} vs {r:.2e})"
+
+
+def _tom_laws(voice):
+    """A stand-in law set for the render tests: the identity at knob 5.0, so
+    these tests need no corpus."""
+    import drums_fx as dx
+    if voice == "CY":
+        return {"CY.tone_ratio": fit_quad(FIT_KNOBS, [0.2, 0.3, 0.45], "log"),
+                "CY.decay_tau": fit_quad(FIT_KNOBS, [0.16, 0.39, 0.51], "log")}
+    if voice in TUNING_FMAX:
+        f0 = dx.TOM_PRESET[voice][0]
+        return {f"{voice}.tuning_f0": fit_quad(FIT_KNOBS, [f0 * 0.9, f0, f0 * 1.1], "log")}
+    if voice == "BD":
+        return {"BD.decay_tau": fit_quad(FIT_KNOBS, [0.018, 0.24, 0.54], "log"),
+                "BD.tone_click": fit_quad(FIT_KNOBS, [0.013, 0.017, 0.019], "logit")}
+    if voice == "SD":
+        return {"SD.tone_ratio": fit_quad(FIT_KNOBS, [0.0015, 0.084, 2.2], "log"),
+                "SD.snappy_share": fit_quad(FIT_KNOBS, [1e-4, 0.52, 0.93], "logit")}
+    if voice == "OH":
+        return {"OH.decay_tau": fit_quad(FIT_KNOBS, [0.023, 0.19, 0.22], "log")}
+    return {}
+
+
+def test_every_one_of_the_sixteen_sounds_renders_and_is_not_silent():
+    """A silent render is the failure this repository has shipped most often
+    (`verify_voice` on a stub, the all-X ladder). A voice that renders
+    silence would be reported as maximally separable from the machine, which
+    is a defect wearing a result's clothes."""
+    import drums_fx as dx
+    for v in dx.SOUND_NAMES:
+        knobs = (5.0,) * len(KNOB_NAMES[v])
+        x, sr = render(v, knobs, _tom_laws(v))
+        pk = float(np.abs(x).max())
+        assert np.all(np.isfinite(x)), v
+        assert pk > 1e-4, f"{v} rendered silence (peak {pk:.2e})"
+
+
+def test_a_sound_with_no_knob_can_produce_no_knob_equivalent():
+    """REFUSE rather than report. The knob-equivalent is a distance read off
+    the machine's OWN knob; six of the sixteen have no knob, so the corpus
+    holds one recording of each, there is no held-out setting, there is no
+    yardstick, and the only honest output is a refusal -- never an
+    interpolation onto a yardstick that does not exist."""
+    assert set(NO_KNOB) == {"CH", "CP", "CB", "RS", "CL", "MA"}, NO_KNOB
+    for v in NO_KNOB:
+        assert KNOB_NAMES[v] == (), v
+        assert not Clip(v, (), "real").is_test
+        assert math.isnan(knob_equivalent_distance(1.0, {}))
+
+
+def test_the_sixteen_sound_split_holds_out_the_same_settings_as_the_eight():
+    """The eight-voice study's split must survive inside the sixteen-voice
+    one: same voices, same held-out settings, or the before/after table
+    compares two different experiments."""
+    import drums_fx as dx
+    assert set(ALL_REF) == set(dx.SOUND_NAMES)
+    for v, (d, pre, nk) in VOICE_REF.items():
+        assert ALL_REF[v] == (d, pre, nk), v
+    n_knobbed = sum(1 for v in ALL_REF if ALL_REF[v][2] > 0)
+    assert n_knobbed == 10, n_knobbed
+
+
+def test_the_extra_columns_append_and_never_reorder_the_original_320():
+    """The extra feature set is an APPENDIX. If it ever inserted a column the
+    published importance attributions would silently point at the wrong
+    feature."""
+    x = np.zeros(int(WINDOW_S * 44100))
+    v0, n0 = features(x, 44100)
+    v1, n1 = features(x, 44100, extra=True)
+    assert n1[:len(n0)] == n0 and len(n1) > len(n0)
+    assert np.allclose(v1[:len(v0)], v0)
+    g = feature_groups(n1)
+    assert sum(len(ix) for ix in g.values()) == len(n1)
+    assert any(k.startswith("mpd.") for k in g) and any(k.startswith("cqt.") for k in g)
+    assert "jit.stability" in g and "jit.period" in g and "ms.scale-difference" in g
+
+
+def test_the_cross_validation_grouping_does_not_move_between_processes():
+    """The defect that made this study's accuracies unreproducible: `hash()`
+    on a str is salted per process, so the grouped inner CV saw different
+    folds every run and chose a different C. The group id must be a function
+    of the recording name and nothing else.
+
+    The red form of this test is to put `hash(rec) % (1 << 31)` back and run
+    pytest twice with different PYTHONHASHSEED; the two ids differ (961059919
+    / 524828002 / 1741712856 for one recording at seeds 1/2/3)."""
+    known = {"real:BD:(0.0, 0.0)": stable_group_id("real:BD:(0.0, 0.0)"),
+             "ours:SD:(2.5, 7.5)": stable_group_id("ours:SD:(2.5, 7.5)")}
+    assert known["real:BD:(0.0, 0.0)"] == 0x01ffdc7c, hex(known["real:BD:(0.0, 0.0)"])
+    assert known["ours:SD:(2.5, 7.5)"] == stable_group_id("ours:SD:(2.5, 7.5)")
+    assert len({stable_group_id(f"r{i}") for i in range(500)}) == 500
+
+
+def test_the_frozen_ruler_makes_the_two_distances_commensurate():
+    """The knob-equivalent reads one distance off another. Unfrozen, the two
+    are z-scored on different populations, so the reading is a ratio of two
+    different units. This checks that a frozen scale is applied to both and
+    that a pure rescaling of the feature space then leaves the
+    knob-equivalent unchanged -- which is what "a ruler" means."""
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal((12, 6))
+    mu, sd = base.mean(0), base.std(0)
+    a, b = base[:6], base[6:]
+    z1 = _zspace(None, np.vstack([a, b]), (mu, sd))
+    z2 = _zspace(None, np.vstack([a * 7.0, b * 7.0]), (mu * 7.0, sd * 7.0))
+    assert np.allclose(z1, z2)
+    # and without a frozen scale the same rescaling is invisible, which is the
+    # property that hides the mismatch rather than the property we want
+    assert np.allclose(_zspace(None, np.vstack([a, b])),
+                       _zspace(None, np.vstack([a * 7.0, b * 7.0])))

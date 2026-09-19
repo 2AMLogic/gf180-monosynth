@@ -1,0 +1,113 @@
+revision node/D-drums-bitexact-57-gc752145 (c752145adcca), model sha e05bf2d972b6c9ce
+
+corpus level check: 38/116 files within 1 % of the ceiling, total range 6.0 dB -> PEAK-LIMITED
+reference clips: 68 over 8 voices; fit 30, held out 38
+split hash 6738610a454806f8
+
+fitting the control law on FIT_KNOBS = (0.0, 5.0, 10.0) only
+  measured BD.decay_tau           k=0.0:0.01753  k=5.0:0.2412  k=10.0:0.5408
+  measured BD.tone_click          k=0.0:0.01288  k=5.0:0.01673  k=10.0:0.01927
+  measured HT.tuning_f0           k=0.0:170  k=5.0:186.7  k=10.0:213.3
+  measured LT.tuning_f0           k=0.0:80  k=5.0:90  k=10.0:100
+  measured OH.decay_tau           k=0.0:0.02286  k=5.0:0.1864  k=10.0:0.2194
+  measured SD.snappy_share        k=0.0:4.014e-05  k=5.0:0.5165  k=10.0:0.9254
+  measured SD.tone_ratio          k=0.0:0.001506  k=5.0:0.08386  k=10.0:2.205
+  measured SD.tone_tau            k=0.0:0.02851  k=5.0:0.02739  k=10.0:0.0136
+
+rendering 11 arms on 9 workers...
+    rendered 50/511
+    rendered 100/511
+    rendered 150/511
+    rendered 200/511
+    rendered 250/511
+    rendered 300/511
+    rendered 350/511
+    rendered 400/511
+    rendered 450/511
+    rendered 500/511
+
+== controls ==
+  cross-voice (real vs real, different voice) LT vs LC     1.000 [0.40,1.00] n=4
+  cross-voice (real vs real, different voice) HT vs HC     1.000 [0.40,1.00] n=4
+  cross-voice (real vs real, different voice) BD vs MT     1.000 [0.81,1.00] n=18
+  cross-voice (real vs real, different voice) LT vs MT     1.000 [0.40,1.00] n=4
+  cross-voice (real vs real, different voice) LC vs MC     1.000 [0.40,1.00] n=4
+  label-permutation null      mean 0.503 [0.408,0.606] over 200 shuffles
+  real-vs-real random split   mean 0.438 [0.309,0.688] over 20 draws
+  real-vs-real separation     BD DECAY   delta  2.5  1.000 [0.63,1.00] n=8
+  real-vs-real separation     BD DECAY   delta  5.0  1.000 [0.63,1.00] n=8
+  real-vs-real separation     BD DECAY   delta  7.5  1.000 [0.63,1.00] n=8
+  real-vs-real separation     BD DECAY   delta 10.0  1.000 [0.40,1.00] n=4
+  real-vs-real separation     BD TONE    delta  2.5  0.500 [0.16,0.84] n=8
+  real-vs-real separation     BD TONE    delta  5.0  0.500 [0.16,0.84] n=8
+  real-vs-real separation     BD TONE    delta  7.5  0.750 [0.35,0.97] n=8
+  real-vs-real separation     BD TONE    delta 10.0  0.750 [0.19,0.99] n=4
+  real-vs-real separation     SD SNAPPY  delta  2.5  1.000 [0.63,1.00] n=8
+  real-vs-real separation     SD SNAPPY  delta  5.0  1.000 [0.63,1.00] n=8
+  real-vs-real separation     SD SNAPPY  delta  7.5  1.000 [0.63,1.00] n=8
+  real-vs-real separation     SD SNAPPY  delta 10.0  1.000 [0.40,1.00] n=4
+  real-vs-real separation     SD TONE    delta  2.5  0.500 [0.16,0.84] n=8
+  real-vs-real separation     SD TONE    delta  5.0  0.500 [0.16,0.84] n=8
+  real-vs-real separation     SD TONE    delta  7.5  0.750 [0.35,0.97] n=8
+  real-vs-real separation     SD TONE    delta 10.0  0.750 [0.19,0.99] n=4
+  -> cross-voice control PASS; null calibration PASS
+
+== arms: held-out (emulation) balanced accuracy, level-matched ==
+  ours           0.868 [0.77,0.94] n=76 settings=38 recordings=136 ABX 36/38
+  docfix         0.934 [0.85,0.98] n=76 settings=38 recordings=136 ABX 38/38
+  deg_decay      1.000 [0.95,1.00] n=76 settings=38 recordings=136 ABX 38/38
+  deg_nonoise    0.906 [0.75,0.98] n=32 settings=16 recordings=52 ABX 16/16
+  deg_qcoarse    0.917 [0.78,0.98] n=36 settings=18 recordings=66 ABX 18/18
+  deg_tail75     0.934 [0.85,0.98] n=76 settings=38 recordings=132 ABX 38/38
+  deg_tail50     0.987 [0.93,1.00] n=76 settings=38 recordings=132 ABX 38/38
+  deg_snappy6    0.938 [0.79,0.99] n=32 settings=16 recordings=50 ABX 16/16
+  deg_snappy12   0.906 [0.75,0.98] n=32 settings=16 recordings=50 ABX 16/16
+  deg_q6bit      0.917 [0.78,0.98] n=36 settings=18 recordings=66 ABX 18/18
+  deg_q5bit      0.917 [0.78,0.98] n=36 settings=18 recordings=66 ABX 18/18
+  -> large-degradation control PASS; OVERALL usable
+
+== ablations (arm 'ours') ==
+  level-matched + floor clamp  0.868 [0.77,0.94] n=76
+  UNMATCHED level              0.974 [0.91,1.00] n=76
+  no floor clamp               0.987 [0.93,1.00] n=76
+  NOTE: the reference pack is peak-limited, so the unmatched pass carries no information about the machine's accent behaviour. Void, not a result.
+
+== FD-mel (comparative; not FAD, not an absolute score) ==
+  reference vs deg_snappy6                       6.353
+  reference vs deg_snappy12                      6.707
+  reference vs ours                             51.457
+  reference vs docfix                           57.823
+  reference vs deg_q6bit                        90.602
+  reference vs deg_q5bit                        91.962
+  reference vs deg_qcoarse                     101.378
+  reference vs deg_tail75                      103.118
+  reference vs deg_nonoise                     142.475
+  reference vs deg_decay                       170.288
+  reference vs reference subsets               211.007
+  reference vs deg_tail50                      269.621
+  (voice-balanced, 5 per voice, 25 clips per side)
+
+== interpretable diagnostics, HELD-OUT settings only (generalisation) ==
+  BD  n=16  tau_ms +169%  attack_ms +29%  share_hi -79%
+  HT  n=2  share_mid -100%  share_hi -27%  centroid_Hz -24%
+  LT  n=2  share_mid -100%  share_hi -65%  attack_ms -29%
+  OH  n=2  share_lo +16896%  share_mid -81%  attack_ms -81%
+  SD  n=16  share_mid +2854%  share_hi +831%  share_lo +32%
+
+== per-voice verdicts (arm 'ours', emulation, level-matched) ==
+  BD  0.844 [0.67,0.95] n=32 settings=16  dist  17.2 vs knob-10  34.9  knob-equiv 2.5  -> known defect remains
+  HT  1.000 [0.40,1.00] n=4 settings=2  dist  32.2 vs knob-10  32.4  knob-equiv 7.3  -> no verdict (underpowered: 4 held-out recordings; 8 is the minimum that can exclude chance)
+  LT  1.000 [0.40,1.00] n=4 settings=2  dist  32.4 vs knob-10  32.3  knob-equiv >10 (off the dial)  -> no verdict (underpowered: 4 held-out recordings; 8 is the minimum that can exclude chance)
+  OH  1.000 [0.40,1.00] n=4 settings=2  dist  28.8 vs knob-10  29.2  knob-equiv 6.9  -> no verdict (underpowered: 4 held-out recordings; 8 is the minimum that can exclude chance)
+  SD  0.844 [0.67,0.95] n=32 settings=16  dist  18.4 vs knob-10  27.7  knob-equiv 3.4  -> known defect remains
+
+== what carries the discrimination (arm 'ours', held out) ==
+  mfcc.seg1              accuracy drop +0.143 when shuffled
+  mfcc.seg0              accuracy drop +0.132 when shuffled
+  mfcc.seg3              accuracy drop +0.113 when shuffled
+  mfcc.seg2              accuracy drop +0.010 when shuffled
+  5-18kHz.seg3           accuracy drop +0.008 when shuffled
+  200-700Hz.seg2         accuracy drop +0.004 when shuffled
+
+wrote 82 playable reference/candidate pairs to /private/tmp/claude-501/-Users-joseph-dev-2amlogic/b50207d1-0443-45b1-85ae-6193fbb61d1b/scratchpad/disc/img8/pairs
+wrote /private/tmp/claude-501/-Users-joseph-dev-2amlogic/b50207d1-0443-45b1-85ae-6193fbb61d1b/scratchpad/disc/disc8.json
