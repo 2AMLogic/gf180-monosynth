@@ -1431,6 +1431,22 @@ def plateau_db(freqs, gain_db, band) -> float:
 #: of them.
 MAX_PLATEAU_EXTRAPOLATION_DB = 6.0
 
+#: How high up the filter's own skirt the band may reach, as a fraction of the
+#: cutoff being measured, before `g(f) = g(0) + a*f^2` is outside its domain.
+#: MEASURED on ideal 2-, 4- and 6-pole responses on the board's grid -- this is
+#: the domain limit #150 says nobody had measured, so it is a table and not a
+#: judgement:
+#:
+#:     band top / cutoff   1.00    0.80    0.625   0.50    0.40    0.25
+#:     worst |bias|       18.5 %   9.4 %   4.0 %   1.5 %   0.71 %  0.69 %
+#:
+#: 0.4 is where the bias stops being distinguishable from the log grid's own
+#: 0.7 % interpolation systematic. On `reference_compare.FREQS` and
+#: `run_case._ref_band` this admits every commanded cutoff at or above 250 Hz,
+#: which is the whole Filters family, and REFUSES below it -- where the band's
+#: top edge is pinned at 100 Hz by the grid and reaches the corner itself.
+MAX_PLATEAU_BAND_TOP_RATIO = 0.4
+
 
 def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     """The passband level a corner is measured against, EXTRAPOLATED TO DC
@@ -1470,7 +1486,9 @@ def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     (`plateau_db`'s median is the more stable of the three at 0.016 and is
     biased by 15 %, which is the trade this function exists to refuse.)
 
-    REFUSES when the band holds fewer than three points, when the extrapolation
+    REFUSES when the band reaches more than `MAX_PLATEAU_BAND_TOP_RATIO` of the
+    cutoff -- the domain limit #150 asked for and nobody had measured -- when
+    the band holds fewer than three points, when the extrapolation
     lands more than `MAX_PLATEAU_EXTRAPOLATION_DB` from the highest point it
     was fitted to, or when the fit misses any point it was fitted to by more
     than that -- each of which means the measured band is not in the filter's
@@ -1482,6 +1500,15 @@ def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     Ground truth: test_dc_plateau_db_recovers_the_dc_gain_of_an_ideal_filter,
     test_run_case.py::test_filt_corner_ratio_is_constant_across_the_range."""
     f, g = _as_float(freqs), _as_float(gain_db)
+    top_ratio = float(band[1]) / float(scale_hz)
+    if top_ratio > MAX_PLATEAU_BAND_TOP_RATIO:
+        return _fail(
+            f"dc_plateau_db: the reference band reaches {top_ratio:.2f} of the "
+            f"cutoff, past the {MAX_PLATEAU_BAND_TOP_RATIO:.2f} this expansion is "
+            f"validated to -- at 1.0 it reaches the corner itself and reads 18.5 % "
+            f"high on an ideal 6-pole. There is no passband inside the measured "
+            f"range at this cutoff", band_hz=[float(b) for b in band],
+            band_top_over_cutoff=top_ratio, scale_hz=float(scale_hz))
     sel = (f >= band[0]) & (f <= band[1]) & np.isfinite(g)
     n = int(sel.sum())
     if n < 3:
@@ -1493,6 +1520,7 @@ def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     top = float(g[sel].max())
     detail = dict(band_hz=[round(float(x), 2) for x in band], n=n,
                   band_median_db=float(np.median(g[sel])),
+                  band_top_over_cutoff=top_ratio,
                   fit_residual_db=float(np.abs(g[sel] - (a * u + b)).max()),
                   extrapolation_db=float(b - top),
                   slope_db_per_u=float(a), scale_hz=float(scale_hz))

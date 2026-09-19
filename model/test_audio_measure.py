@@ -1295,19 +1295,21 @@ def test_dc_plateau_db_is_offset_equivariant():
 
 
 def test_dc_plateau_db_refuses_a_band_that_is_not_a_passband():
-    """The precondition, asserted at the point of use. Ask for the DC level of
-    a curve whose measured band is already far down its own skirt and there is
-    nothing to extrapolate FROM: the answer would be an extrapolation dressed
-    as a measurement, so it REFUSES."""
+    """The precondition, asserted at the point of use. `gain_db` must be
+    flat-plus-f^2 over the band for the intercept to mean anything; a band with
+    a notch in it is not a passband, and the answer would be an extrapolation
+    dressed as a measurement. So it REFUSES rather than reporting."""
     f = np.geomspace(40.0, 12000.0, 32)
-    g = _allpole_db(f, 8.0, 6)              # corner two octaves below the grid
-    e = am.dc_plateau_db(f, g, (40.0, 250.0), scale_hz=8.0)
+    g = _allpole_db(f, 4000.0, 4)                        # band top at 0.25 fc
+    g = g - 25.0 * np.exp(-((np.log2(f / 200.0)) ** 2) / 0.05)   # a notch inside it
+    e = am.dc_plateau_db(f, g, (40.0, 1000.0), scale_hz=4000.0)
     assert not e.ok
     assert "not the passband" in e.reason
-    # Both halves of the guard fire here, and the extrapolation points the
-    # WRONG WAY -- 16 dB BELOW the band, which a low-pass's DC gain cannot be.
-    assert e.detail["extrapolation_db"] < -am.MAX_PLATEAU_EXTRAPOLATION_DB
     assert e.detail["fit_residual_db"] > am.MAX_PLATEAU_EXTRAPOLATION_DB
+    # And the same curve without the notch is measured, so the refusal is the
+    # notch and not the band.
+    ok = am.dc_plateau_db(f, _allpole_db(f, 4000.0, 4), (40.0, 1000.0), scale_hz=4000.0)
+    assert ok.ok and abs(ok.value) < 0.05, ok
 
 
 def test_dc_plateau_db_refuses_a_band_with_too_few_points():
@@ -1329,3 +1331,21 @@ def test_corner_from_curve_ref_db_overrides_the_band_median():
     assert fixed.value == pytest.approx(107.80, rel=0.005)
     assert abs(fixed.value / (250.0 * math.sqrt(10 ** 0.075 - 1)) - 1) < 0.01
     assert fixed.detail["band_median_db"] == pytest.approx(-0.904, abs=0.01)
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+def test_dc_plateau_db_refuses_a_band_that_reaches_the_corner(poles):
+    """The domain limit #150 asked for, asserted at the point of use rather
+    than described. On this project's grid `_ref_band`'s top edge is pinned at
+    100 Hz, so at a commanded 100 Hz the "passband" band reaches the cutoff
+    itself and the f^2 expansion reads 7 to 19 % high depending on pole count.
+    That is a REFUSAL, not a number with a caveat."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    e = am.dc_plateau_db(f, _allpole_db(f, 100.0, poles), (40.0, 100.0), scale_hz=100.0)
+    assert not e.ok and "past the" in e.reason
+    assert e.detail["band_top_over_cutoff"] == pytest.approx(1.0)
+    # And the boundary itself is admitted, because the Filters family lives on
+    # it: a commanded 250 Hz puts the band top at 0.4 of the cutoff.
+    ok = am.dc_plateau_db(f, _allpole_db(f, 250.0, poles), (40.0, 100.0), scale_hz=250.0)
+    assert ok.ok, ok.reason
+    assert ok.detail["band_top_over_cutoff"] == pytest.approx(0.4)
