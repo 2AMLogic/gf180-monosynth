@@ -1171,6 +1171,37 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 | self-tests | **38 passed** (was 12) |
 | results | `docs/discrimination-results.json` (eight-voice), `docs/discrimination-results-16.json` (sixteen), `docs/discrimination-run.txt`, `docs/discrimination-trajectory.txt` |
 
+### Provenance of the #161 conditioning re-derivation (§3.3)
+
+| | |
+|---|---|
+| tree | branch `fix-condition-boundary`, **clean** (`dirty=false`, recorded by the tool itself) |
+| commit | `9c1e69fe83d7`, `node/D-drums-bitexact-75-g9c1e69f` |
+| model sha256 (drums_fx + modal_fixed + harness) | `c8d273a057a9966f` |
+| corpus | `tidalcycles/sounds-tr808-fischer` `85fbecf`, **116** WAVs, sha256 `6e6af82198eb5b46` (sorted relative path then bytes, so the digest does not depend on walk order — a different definition from the `e3ad2d77a79cda4a` above, not a different corpus) |
+| split hash | `ab381e78f9f4cc41` — **#148's, unchanged** |
+| command | `model/condition_boundary.py --refs /tmp/tr808-ref --json docs/condition-boundary-results.json` |
+| self-tests | `pytest model/test_discrimination.py -q` — **23 passed** (was 20; the four new conditioning controls, one of which replaced none) |
+| results | `docs/condition-boundary-results.json` |
+
+Both columns come from **one render per setting**, conditioned twice, so
+nothing but the boundary condition differs between them. Run twice; identical
+to the printed precision.
+
+**Wrong-then-right, this correction: 0 of 4.** All four controls were written
+before the repair and all four were red against HEAD
+(`test_conditioning_does_not_answer_an_impulse_with_a_pedestal`,
+`test_a_measurement_does_not_depend_on_where_the_record_begins`,
+`test_the_two_sides_arrive_differently_prepared_and_it_is_recorded`, and
+`test_the_published_boundary_is_still_reachable_and_still_wrong`, which keeps
+`legacy=True` reproducing the defect so the delta stays a measurement rather
+than an assertion). No published figure was tuned; three of the repaired
+knob-equivalents are **worse** than the ones they replace.
+
+**Not re-derived by that command:** the trajectory in
+`docs/discrimination-trajectory.txt` also runs through `condition()` and is
+therefore also affected. It is #152/#160's subject and is not touched here.
+
 **Which measurement path, and PR #132.** PR #132 repairs four estimator
 defects in `model/audio_measure.py` and `tools/run_case.py`. It was open when
 this re-run started and **merged to `main` as `ba14af2` while it was running**;
