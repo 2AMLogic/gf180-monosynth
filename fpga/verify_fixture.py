@@ -60,11 +60,13 @@ cannot drag the model along with it.
 Exit status, as verify_ladder.py: 0 identical, 1 differed, 2 did not run --
 which includes REFUSED.
 
-ONE KNOWN-WRONG VALUE IS SENT ON PURPOSE. The toms' pitch drop ships at x1.7
-(`drums_fx.TOM_DROP_RATIO`); measurement against 99 hardware files puts it at
-x1.06 / x1.14 / x1.24 by accent (#110, merged), and #99 blocks the correction.
-The host sends whatever the current model specifies. What is verified here is
-the PATH, not the value, and a host that "fixed" it would verify neither.
+THE HOST DECIDES NO VALUE. It sends whatever the current model specifies, and
+what is verified here is the PATH, not the value -- a host that "fixed" a
+coefficient would verify neither. The toms' pitch drop was the standing example:
+it shipped at an inferred x1.7 while 99 hardware files measured x1.06 / x1.14 /
+x1.24 by accent (#110), and this fixture sent x1.7. The correction has landed in
+`drums_fx` and the fixture now sends the measured law, unchanged in either
+case.
 """
 from __future__ import annotations
 
