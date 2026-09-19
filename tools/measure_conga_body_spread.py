@@ -500,7 +500,29 @@ def provenance(refdir: pathlib.Path) -> dict:
     )
 
 
-def main() -> int:
+def validation_status(report: dict) -> int:
+    """0 validated, 1 wrong known answer, 2 missing measurement.
+
+    The recovered --check printed its controls and returned zero regardless
+    of their results. A report is usable only after both controls pass.
+    """
+    known = report["known_answer"]
+    reproduction = report["reproduction"]
+    if any(r.get("error_db") is not None and
+           (not math.isfinite(r["error_db"]) or abs(r["error_db"]) > 0.1)
+           for r in known):
+        return 1
+    if (len(known) != 8 or len(reproduction) != len(PUBLISHED) or
+            any(r.get("error_db") is None for r in known) or
+            any(r.get("delta_db") is None for r in reproduction)):
+        return 2
+    if any(not math.isfinite(r["delta_db"]) or abs(r["delta_db"]) > 0.001
+           for r in reproduction):
+        return 1
+    return 0
+
+
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--refs", default="/tmp/tr808-ref", type=pathlib.Path)
     ap.add_argument("--json", type=pathlib.Path)
@@ -509,7 +531,7 @@ def main() -> int:
                          "descent from the Fischer set")
     ap.add_argument("--check", action="store_true",
                     help="validation only: known-answer signals and reproduction")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     refdir = args.refs
     if not refdir.exists():
@@ -524,6 +546,13 @@ def main() -> int:
 
     report["known_answer"] = validate_known_answer()
     report["reproduction"] = validate_reproduction(refdir)
+    report["outcome_code"] = validation_status(report)
+    if report["outcome_code"]:
+        if args.json:
+            args.json.write_text(json.dumps(report, indent=2))
+        print("REFUSED: known-answer or historical-reproduction control did not pass",
+              file=sys.stderr)
+        return report["outcome_code"]
 
     print("== estimator against signals with a known answer "
           "(two sines, no model of ours involved) ==")

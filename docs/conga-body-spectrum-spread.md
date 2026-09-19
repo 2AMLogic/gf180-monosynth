@@ -1,5 +1,12 @@
 # The conga body spectrum: what 1.04 and 1.05 actually measure
 
+**Historical study, 2026-09-18, recovered on 2026-09-19.** The figures and
+available-corpus inventory below describe the versions named in section 1,
+before later estimator and tom-law corrections. They are not today's board
+or reference inventory. The recovered probe retains that analysis definition;
+its `--check` now refuses missing evidence and fails a changed known answer
+or historical reference value before producing a new study.
+
 **One deliverable: the spread of the real TR-808's conga body spectrum across
 multiple recordings, and therefore whether D04A's 1.04 and D08A's 1.05 are a
 genuine disagreement or inside the machine's own variation.**
