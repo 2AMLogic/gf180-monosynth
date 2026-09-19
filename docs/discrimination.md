@@ -237,31 +237,38 @@ to produce and is not always what happens.
 
 ## 4. Controls — without these, none of §3 means anything
 
+Sixteen sounds, arm-by-arm, 2026-09-18.
+
 | control | what it proves | result |
 |---|---|---|
 | **cross-voice**, real vs real, different voice, same machine, same converter, same afternoon (LT vs LC, HT vs HC, BD vs MT, LT vs MT, LC vs MC) | the pipeline resolves **timbre** with zero provenance cue | **1.000** on all five — PASS |
-| **label permutation**, 200 shuffles | calibrates what chance is for this pipeline at this N | mean **0.500** [0.421, 0.579] — PASS, chance is 0.5 |
-| **real-vs-real random split** of the 25 real BDs into two pseudo-classes | the pipeline does not manufacture separation from nothing | mean **0.44** [0.31, 0.69] — PASS |
-| **large degradations** (τ×4, noise path removed, 4-bit cutoff) | catches gross errors | 0.97–1.00 — PASS |
-| **graded degradations** (τ×0.75, snare noise −6 dB, 6-bit cutoff) | catches errors *near the margin that matters*, not only enormous ones | **1.000** on all six — PASS |
+| **label permutation**, 200 shuffles | calibrates what chance is for this pipeline at this N | mean **0.497** [0.427, 0.573] — PASS, chance is 0.5 |
+| **real-vs-real random split** of the 25 real BDs into two pseudo-classes | the pipeline does not manufacture separation from nothing | mean **0.438** [0.309, 0.688] — PASS |
+| **large degradations** (τ×4, noise path removed, 4-bit cutoff) | catches gross errors | 0.906 – **1.000** — PASS |
+| **graded degradations** (τ×0.75, τ×0.50, snare noise −6 / −12 dB, 6-bit and 5-bit cutoff) | catches errors *near the margin that matters* | 0.906 – 0.992 — PASS |
 
-The graded row is the one that matters. τ×0.75 — a 25 % tail change, well
-inside what a listener would call "the same drum" — is caught at 1.000, as is
-a snare noise level only 6 dB from its target and a cutoff quantised to
-6 bits rather than 4. The discriminator is not merely detecting catastrophes,
-and the large-degradation row is therefore not the only thing holding up the
-§3 verdicts.
+**The ordering is now visible, which it never was before.** Every degradation
+sits **above** `ours` (0.895): deg_decay 1.000, deg_tail75 0.992, deg_tail50
+0.960, deg_q5bit 0.941, deg_qcoarse 0.926, deg_q6bit 0.912, deg_nonoise /
+deg_snappy6 / deg_snappy12 0.906. When the whole board was at 1.000 that
+ordering could not exist; it is the single most useful consequence of the
+kit having improved.
 
-A consequence worth stating plainly: because even the mildest degradation we
-built is caught at ceiling, these controls establish **sensitivity** but not a
-*detection threshold*. We know the discriminator catches a 25 % tail error; we
-do not know how small an error it would stop catching. Bracketing that would
-need a finer degradation ladder, and would be the natural next step if any
-voice ever reached chance.
+**Two things the reader should not over-read.**
 
-**All controls pass, so the §3 verdicts stand.** Had any failed, the correct
-output would have been "no verdict" everywhere, and the harness enforces that
-in code (`verdict(..., controls_ok=False)`).
+`deg_tail75` (0.992) scores **above** `deg_tail50` (0.960) — a milder
+degradation separating more than a stronger one. At n = 62 settings the
+interval on each is about ±0.04 and the two overlap completely, so this is
+noise in the ordering and not an inversion of the physics. It is recorded
+rather than smoothed because an unexplained inversion is exactly the shape a
+real defect would take, and the next re-run should check whether it persists.
+
+The `deg_nonoise`, `deg_snappy*` arms cover only SD (and CP, MA), so their
+n is 32 rather than 124. **Their accuracies are not comparable with the
+full-kit arms' and the FD-mel rows built from them are not either** — the
+voice balance the Fréchet construct needs is fixed only *within* a row, not
+across rows. The published §7 table read them across rows and should not
+have.
 
 ### What the corpus cannot give: the real-vs-real floor
 
@@ -312,24 +319,38 @@ Two representations, deliberately, because each misses what the other finds.
 
 ### 5a. Interpretable diagnostics, at held-out settings only
 
-These are the quantities the model was fitted against. Measuring them at
-settings the fit never saw is a legitimate generalisation test, and they are
-the only features a circuit designer can act on directly. Mean relative
-error, ours against the machine, over held-out settings:
+The quantities the model was fitted against, measured at settings the fit
+never saw. Mean relative error, ours against the machine, over the held-out
+settings. Ratios this large are easier to read in dB, so both are given.
 
-| voice | n | largest errors |
+| sound | n | largest errors |
 |---|---|---|
-| **SD** | 16 | energy above 5 kHz **+1989 %**, 0.7–5 kHz **+450 %**, below 700 Hz +305 % |
-| **OH** | 2 | energy below 700 Hz **+16896 %**, 0.7–5 kHz −81 %, attack −81 % |
-| **BD** | 16 | attack **+103 %**, τ **+111 %**, energy above 5 kHz −83 % |
-| **LT** | 2 | 0.7–5 kHz **−100 %**, attack +82 %, above 5 kHz −60 % |
-| **HT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −50 %, attack −18 % |
+| **CY** | 16 | energy below 700 Hz **×1710 (+32.3 dB)**, 0.7–5 kHz ×4.5 (+6.5 dB), τ +167 % |
+| **HC** | 2 | 0.7–5 kHz **×648 (+28.1 dB)**, above 5 kHz −11 %, attack −22 % |
+| **OH** | 2 | energy below 700 Hz **×170 (+22.3 dB)**, 0.7–5 kHz −81 %, attack −81 % |
+| **SD** | 16 | 0.7–5 kHz **×29.5 (+14.7 dB)**, above 5 kHz ×9.3 (+9.7 dB), below 700 Hz +32 % |
+| **MC** | 2 | 0.7–5 kHz ×7.6 (+8.8 dB), above 5 kHz −59 %, centroid −36 % |
+| **BD** | 16 | **τ +169 %**, attack +29 %, above 5 kHz −79 % |
+| **LC** | 2 | 0.7–5 kHz +63 %, above 5 kHz −56 %, centroid −17 % |
+| **LT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −65 %, attack −29 % |
+| **MT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −51 %, attack −38 % |
+| **HT** | 2 | 0.7–5 kHz **−100 %**, above 5 kHz −27 %, centroid −24 % |
 
-The SD row is the known missing-noise defect, now confirmed to **generalise
-across the knob**: it is not a mid-point mapping error. The LT/HT "−100 % in
-0.7–5 kHz" is the absent pink-noise path — our toms have literally nothing
-there. The OH low-frequency excess is new and is the largest single
-proportional error in the table.
+**Two opposite defects, and they are on the same circuits.** LT, MT and HT
+have **literally nothing** in 0.7–5 kHz — the absent pink-noise path, as
+before. Their conga twins LC, MC and HC ride the *same three circuits* and
+have **too much** there, up to +28 dB. So the tom/conga pair is not one
+error with one sign: whatever supplies that band is missing in the tom
+position and over-supplied in the conga position, and a single fix that
+raises the band would make the congas worse.
+
+**The BD τ error is +169 % and is the largest single mechanism left on the
+adjudicable sounds.** §6's trajectory puts it at 170–302 Hz: ours decays at
+−8.9 dB/100 ms where the machine decays at −44.1.
+
+**CY's low-frequency excess is 32 dB** and is the same defect as OH's
+(+22.3 dB), one circuit apart — both are broadband excitation reaching the
+output below the circuit's own band.
 
 ### 5b. General representation, grouped permutation importance
 
@@ -373,23 +394,33 @@ logistic regression and the same knob-equivalent unit.
 `ncycles` say what the partial's frequency **is**, which is a tuning error
 the study already measures:
 
-| bucket | accuracy drop |
-|---|---|
-| MFCC, early segment | +0.045 |
-| MFCC, tail segment | +0.026 |
-| MFCC, attack segment | +0.026 |
-| **`jit.period`** | **+0.024** |
-| `cqt.0-200Hz` | +0.018 |
-| `cqt.9000-20000Hz` | +0.017 |
-| `cqt.5000-9000Hz` | +0.014 |
-| `cqt.700-2000Hz` | +0.010 |
+| bucket | accuracy drop | |
+|---|---|---|
+| MFCC, early segment | +0.045 | |
+| MFCC, tail segment | +0.026 | |
+| MFCC, attack segment | +0.026 | |
+| **`jit.period`** | **+0.024** | pitch — a tuning error |
+| `cqt.0-200Hz` | +0.018 | **new** |
+| `cqt.9000-20000Hz` | +0.017 | **new** |
+| `cqt.5000-9000Hz` | +0.014 | **new** |
+| `cqt.700-2000Hz` | +0.010 | **new** |
+| `ms.scale-difference` | +0.010 | **new** — #109's 4 ms vs 10 ms |
+| `cqt.2000-5000Hz` | +0.010 | **new** |
+| MFCC, mid segment | +0.008 | |
+| **`jit.stability`** | **+0.008** | **oscillator steadiness — #56** |
+| … eleven more buckets … | ≤ +0.006 | |
+| `mpd.*`, all six strides | **≤ +0.002** | **new, and worth nothing** |
+
+Full list in `docs/discrimination-results-16.json`; 24 buckets are kept.
 
 > **#56 DOES NOT GET A NUMBER FROM THIS, AND THAT IS THE RESULT.**
 > "Three stable oscillators do not sound like three analogue ones" would be
 > measured by the **stability** columns. `jit.period` — a pitch error — is
-> in the top four. **`jit.stability` is not, and the pitch reading is
-> independently corroborated**: measured directly, all six tuned circuits
-> are 2–7 % sharp at every held-out TUNING position (§6.5).
+> **fourth of twenty-four at +0.024**. `jit.stability` is **twelfth at
+> +0.008**, a third of it, below four constant-Q buckets and below the
+> multi-scale difference. And the pitch reading is independently
+> corroborated: measured directly, all six tuned circuits are 2–7 % sharp at
+> every held-out TUNING position (§6.5).
 >
 > This is a negative result with power behind it, not an absence of
 > evidence. The stability columns resolve **0.1 % per-cycle jitter as
@@ -407,12 +438,16 @@ the study already measures:
 > probe follows one partial. Oscillator drift over a longer note, or in the
 > five oscillators the probe does not lock to, is untested.
 
-**The MPD columns are not a drift measure and are not read as one.** The
-strides are not commensurate with any oscillator here — 131 Hz at 48 kHz is
-366.4 samples — so a perfectly stable tone already walks from row to row.
-They are a non-stationarity view, asserted as such in
-`test_a_fixed_stride_fold_is_not_a_drift_measure`. They do not reach the top
-eight.
+**The MPD columns earn nothing and should not be carried.** All six strides
+come in at **+0.002 or less**, ranks 18 and 20–23 of 24 — 48 columns for
+less than a fifth of what one constant-Q bucket contributes. They are also
+not a drift measure and are not read as one: the strides are not
+commensurate with any oscillator here (131 Hz at 48 kHz is 366.4 samples),
+so a perfectly stable tone already walks from row to row, which
+`test_a_fixed_stride_fold_is_not_a_drift_measure` asserts. **The
+recommendation is to drop them.** Of the three borrowed views, the
+constant-Q ladder and the multi-scale windows pay for themselves and the
+multi-period fold does not.
 
 **Promotable to named measurements, with tolerances and floors:**
 
