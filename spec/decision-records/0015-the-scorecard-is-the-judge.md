@@ -1,72 +1,150 @@
-# DR 0015 — The scorecard is the judge
+# DR 0015 — The scorecard is the acoustic acceptance authority
 
-**Status: PROPOSED. Not ratified.**
+**Status: PROPOSED. Not ratified.** Revised after review; the first draft
+contained the error it was written to prevent.
 
-Answers #99, which has blocked every coefficient change since it was filed.
+Answers #99.
 
 ## Decision
 
-**`docs/scorecard/` is the judge. One judge, and it is per-property and
-per-case.** A change ships when it improves its case's `worst` without
-regressing others, measured on the same qualified reference.
+**The versioned per-property scorecard is the acoustic acceptance authority.**
 
-Three things are explicitly **not** the judge:
+A change is accepted when it
 
-- **Spectral distances** — measured, not argued: on our real tom defect, *all
-  four* multi-scale spectral distances rank the rungs **backwards**, and two put
-  ×1.00, the largest possible error, **closer** than ×1.14. A 2.74 % f0 error
-  reads 0.307 against 0.747 for a full octave (#144).
-- **Knob-equivalents** — the unit does not survive a shared ruler. Frozen on
-  one, **12 of 16 voices saturate**: our error is largely not on the machine's
-  knob axis at all (#143, #148). They remain useful *within* a voice over time.
-- **Any learned or aggregate score.** An embedding distance of 0.3 does not say
-  whether the decay or the pitch is wrong, and a design loop needs a metric that
-  says what to fix.
+- produces a **meaningful improvement in at least one required property**,
+- introduces **no property regression beyond its predefined allowance or the
+  measurement's own uncertainty**,
+- and **preserves required measurement coverage**.
 
-## Independence comes from held-out data, not a different formula
+Baseline and candidate are evaluated on the **same qualified measurement
+basis**. `worst` summarises a case's bottleneck; **it does not replace
+property-level checks.** A required measurement that is invalid or missing
+yields **no verdict**.
 
-**Fit and score with the same metric.** This corrects #100, which said the
-opposite and was wrong.
+### Why the first draft was wrong
 
-If a smooth surrogate is needed for optimisation, it must be a surrogate for
-**that metric** — a soft-max over the same normalised per-metric errors — never
-a different quantity. Optimising sum-of-squares while scoring a max is precisely
-the two-judges failure #99 was filed about, reintroduced as its own remedy.
+It made `worst` authoritative — and `worst` **is an aggregate**, which this
+document rejects everywhere else. Two failures follow directly:
 
-Independence comes from **settings and recordings the fit never saw.** Where no
-sealed hold-out exists, say so; a fit against a reference it was derived from is
-not evidence. The tom correction (#154) is the pattern: the law came from one
-corpus and was scored against a different machine's recordings, which were an
-**unarranged hold-out**, plus four deliberately unseen splits.
+| property | before | after |
+|---|--:|--:|
+| pitch | 2.0 | 1.5 |
+| decay | 0.2 | **0.9** |
+| `worst` | 2.0 | **1.5** |
 
-## What the guard is, and is not
+`worst` improves while decay degrades 4.5×. And the reverse: decay 0.9 → 0.2
+with pitch stuck at 2.0 is **real progress that the first wording forbade**,
+because `worst` did not move.
 
-`mel_dac` enters as a **blind-spot detector**: no tolerance, not included in any
-case's `worst`, and firing means *go write an estimator*, never *adjust a
-coefficient*. It earned that role — a 12 kHz tone, 6-bit requantisation and tail
-noise **pass every per-property bass-drum metric** with an order of magnitude to
-spare, while it flags them at 71×, 238× and 356× its floor (#144).
+**The property vector is authoritative. `worst` is its bottleneck summary.**
+Where a trade-off is deliberate, record it explicitly rather than let an
+improved maximum hide it.
 
-**It must be shown not to fire on a legitimate correction before it gates
-anything.** A guard that penalises fixing the toms is worse than no guard.
+## The measurement basis is versioned, and both sides use the same one
 
-## Two standing limits on the judge itself
+"Same qualified reference" is necessary and not sufficient. Both sides need the
+same **reference recordings and settings, estimator implementation and
+parameters, analysis windows and preprocessing, tolerances, and required
+property set.**
 
-1. **Do not compare `worst` across cases using different estimators.** `D10A`
-   and `D13A` share a name and a tolerance and nothing else — different
-   estimator, window and arithmetic (#109).
-2. **A board number is only as good as its instruments**, and three are known
-   defective right now (#139, #150, and the four decay no-verdicts that rest on
-   #139). A case's verdict is provisional while its estimator is under repair,
-   and the board says `no verdict` rather than guessing.
+**When an estimator is repaired, re-measure the baseline too.** Comparing an old
+instrument's old measurement against a new instrument's corrected measurement
+confounds two changes, and we have three estimator repairs in flight right now
+(#139, #150, #156).
 
-## Why this can be decided now
+**Removing a broken metric must never improve an authoritative `worst`.** An
+incomplete case shows **no verdict**. A clearly-labelled partial maximum may be
+displayed for diagnosis; it is not a verdict, and a passing verdict is never
+computed over whatever metrics happen to remain.
 
-Because the alternatives were measured rather than debated. #144 ranked the
-spectral distances against a defect whose true magnitude we know from 99
-hardware files. #143 and #148 showed the knob-equivalent's ruler does not hold
-across voices. #154 demonstrated the scorecard doing the thing a judge must do:
-**it got worse when a real defect was exposed**, rather than flattering a change
-that had genuinely fixed the pitch.
+**A failing hold-out is evidence of a mismatch. A broken estimator is missing
+evidence.** That distinction is the one this board exists to keep.
+
+## Two independent questions, two kinds of evidence
+
+| question | evidence |
+|---|---|
+| does the estimator measure the claimed property? | synthetic ground truth, adversarial inputs, independent calculation |
+| does the correction work beyond what developed it? | held-out settings, recordings and machines |
+
+**Running a defective estimator on unseen recordings does not make its
+measurements trustworthy.** Estimator qualification and hold-out validation are
+separate obligations and neither substitutes for the other.
+
+A fit measured against the reference it was derived from **is** evidence — of
+in-sample matching, which is a real development signal. It is not evidence of
+generalisation, and the DR's earlier phrasing ("not evidence") overstated it.
+
+**On our own tom correction (#154):** the second machine is external validation
+only because neither its data nor its results shaped the law. **Once it is
+repeatedly used to guide changes it is no longer held out**, and we should say so
+the first time it is consulted for that purpose.
+
+## A surrogate proposes; the exact rule accepts
+
+**Every candidate is evaluated by the exact acceptance rule, whatever the
+optimiser's loss.**
+
+That is the whole safeguard, and it is stronger than the first draft's
+"same metric" requirement — which was also *wrong*: a soft-max over the same
+errors can improve while the true maximum worsens, so choosing an aligned
+surrogate guarantees nothing.
+
+Optimising sum-of-squares is **not** a second judge if it only proposes
+candidates and cannot approve them. Aligned surrogates are preferred because
+they waste fewer proposals, not because they make the acceptance check
+redundant. This supersedes both #100 and the first draft's correction of it.
+
+## The blind spots are demonstrated, so they become requirements
+
+A 12 kHz tone, 6-bit requantisation and tail noise **pass every per-property
+bass-drum metric** (#144). They are no longer hypothetical, and a judge that
+knows about them and accepts them anyway is not defensible.
+
+**Each becomes an analyzer fixture and an explicit artifact-detection
+requirement**, with bounds defined from reference behaviour.
+
+`mel_dac` remains a **diagnostic**, not a tolerance: it identifies a question the
+interpretable properties have not answered, and firing means *write an
+estimator*. Two conditions on it:
+
+- **"Fires" needs a defined decision rule**, and reported ratios must carry
+  **their absolute values and the floor's definition.** 71× / 238× / 356× against
+  a floor is not interpretable without the denominator — a small one manufactures
+  large multipliers.
+- **One successful correction does not establish a false-positive rate.** Before
+  it gates anything it must be shown not to fire across phase variation,
+  stochastic variation and the other differences a legitimate reference is
+  allowed to have.
+
+## Scope: acoustic acceptance only
+
+This authority is **acoustic**. It does not replace, and is not replaced by:
+
+- bit-exact model-to-RTL verification
+- register-map and timing correctness
+- frame-deadline and link-budget checks
+- physical implementation constraints
+
+Those are feasibility and implementation requirements. Keeping them separate also
+lets experimental changes be committed and measured **without pretending they are
+release-qualified.**
+
+## What is rejected as an acoustic judge, and why
+
+- **Spectral distances.** On our real tom defect *all four* multi-scale
+  distances rank the rungs **backwards**, and two put ×1.00 — the largest
+  possible error — closer than ×1.14. A 2.74 % f0 error reads 0.307 against
+  0.747 for a full octave (#144).
+- **Knob-equivalents across voices.** On a shared ruler **12 of 16 saturate**
+  (#143, #148). They remain useful *within* a voice over time.
+- **Any learned or aggregate score**, for the reason this DR had to be revised:
+  an aggregate hides the thing you need to see.
+
+## Why decidable now
+
+The alternatives were measured rather than argued. And #154 showed the board
+doing what a judge must: **it got worse when a real defect was exposed**, rather
+than flattering a change that had genuinely fixed the pitch.
 
 A judge that only ever improves is not measuring anything.
