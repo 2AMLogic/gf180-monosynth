@@ -1,0 +1,46 @@
+commit 55f09998389a DIRTY  corpus /tmp/tr808-ref 116 files sha256 0731ddfa7bbc6d18  argv --floors --refs /tmp/tr808-ref
+
+=== F1  the conditioning's own edge transient ===
+  44100 Hz: sosfiltfilt(impulse at 0) sums to   -342.34 over the first 30 ms (causal sosfilt: +0.0231); its second sample is -0.99716
+  48000 Hz: sosfiltfilt(impulse at 0) sums to   -372.65 over the first 30 ms (causal sosfilt: +0.0231); its second sample is -0.99739
+  A high-pass that answers a unit impulse with a full-scale negative pedestal is
+  not measuring the signal's low frequencies in window 0. REFUSE window 0 of any
+  row produced with `td.condition`.
+
+=== F3  bands that cannot hold a reading at 30 ms ===
+  44100 Hz: analysis bin 33.33 Hz; 10 of 52 bands hold NO bin -> pinned to -75 dB on both sides:
+    42, 48, 53, 60, 76, 85, 107, 120, 151, 214 Hz
+    10 bands hold exactly ONE bin; their band-width attribution bias is -1.7 to +6.3 dB (67, 95, 135, 170, 190, 240, 269, 302, 339, 427 Hz)
+  48000 Hz: analysis bin 33.33 Hz; 10 of 52 bands hold NO bin -> pinned to -75 dB on both sides:
+    42, 48, 53, 60, 76, 85, 107, 120, 151, 214 Hz
+    10 bands hold exactly ONE bin; their band-width attribution bias is -1.7 to +6.3 dB (67, 95, 135, 170, 190, 240, 269, 302, 339, 427 Hz)
+
+=== F2  the two sides do not enter the conditioning the same way ===
+  `_render_raw` returns out[onset(out):]; `read_wav` does not trim. Sub-120 Hz of
+  window 0 under the STUDY's conditioning, machine side, with and without the
+  pre-trim our side always gets:
+    voice    as read  pre-trimmed    move
+    BD          27.9         27.9    -0.1
+    CB         -32.8         -3.3   +29.5
+    CH          -9.9         10.1   +20.0
+    CL         -11.4         20.8   +32.2
+    CP         -14.3         15.5   +29.8
+    CY         -14.6        -11.4    +3.2
+    HC         -10.6          9.3   +19.9
+    HT           0.9         10.6    +9.7
+    LC          -5.0          5.2   +10.2
+    LT          25.3         25.4    +0.0
+    MA         -27.4         -4.9   +22.5
+    MC          -9.6         10.3   +19.9
+    MT          21.2         21.4    +0.2
+    OH          -4.1          1.9    +6.0
+    RS           2.6         13.7   +11.1
+    SD          12.4         13.8    +1.4
+  worst move +32.2 dB, from a choice of array bounds. REFUSE any window-0 row
+  whose value moves by more than the difference it is being used to claim.
+
+=== F4  the reference's 16-bit quantisation floor ===
+    BD   peak  -6.33 dBFS -> quantisation floor -88.5 to -71.3 dB across the live bands
+    CB   peak  -3.05 dBFS -> quantisation floor -88.6 to -71.4 dB across the live bands
+    CH   peak  -5.04 dBFS -> quantisation floor -80.3 to -63.1 dB across the live bands
+    CL   peak  -4.54 dBFS -> quantisation floor -86.1 to -68.9 dB across the live bands

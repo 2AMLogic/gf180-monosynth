@@ -6,7 +6,7 @@ whether #152's excess and #154's deficit are one mechanism or two.**
 This is an investigation. `model/drums_fx.py` is unchanged; no coefficient was
 fitted and nothing was tuned. The instrument is
 [`tools/probes/excitation_energy.py`](../tools/probes/excitation_energy.py),
-eighteen self-tests, two of them injected-bug controls.
+nineteen self-tests, two of them injected-bug controls.
 
 ---
 
@@ -14,7 +14,7 @@ eighteen self-tests, two of them injected-bug controls.
 
 **Two mechanisms, on disjoint voice sets, and #152's "sixteen" is not sixteen.**
 
-1. **The excess is real on five voices strongly and three weakly, and it is not
+1. **The excess is real on five voices and marginal on two, and it is not
    broadband.** It is a **low-frequency step** — a single 33 Hz-wide bin below
    200 Hz, which is to say near DC — emitted by two named things in the
    excitation path: `SRC_PULSE`, whose mean equals its mean magnitude *exactly*,
@@ -46,7 +46,8 @@ were filtered under different boundary conditions, and nothing said so"**. That
 defect is back, in the conditioning the whole discrimination study runs on, and
 it is larger there.
 
-Run `.venv/bin/python tools/probes/excitation_energy.py --floors`.
+Run `.venv/bin/python tools/probes/excitation_energy.py --floors`; the report is
+[`excitation-energy-floors.txt`](excitation-energy-floors.txt).
 
 ### F1 — the conditioning manufactures the thing it is used to measure
 
@@ -256,6 +257,8 @@ and OH — are the two the conditioning was inflating most. **Every one of the
 eight failures is one of the two instrument faults, and none of them is a
 change to the model's sound.**
 
+---
+
 ## 3. Attributing the excess
 
 `--attribute` mutes **one register path at a time** and re-renders, and
@@ -369,13 +372,15 @@ HEAD. 0.7–5 kHz share of the 240 ms window, rectangular-FFT Parseval:
 not needing one.** A mechanism that explains "short in the toms, over-supplied
 in the congas" would be explaining an artefact that has already been removed.
 
+---
+
 ## 5. One mechanism or two
 
 **Two**, and the sets are disjoint.
 
 | | A: the onset step | B: the 0.7–5 kHz deficit |
 |---|---|---|
-| **voices** | CY RS MA CL CP, weakly CB MC HC | LT MT HT LC MC HC |
+| **voices** | CY RS MA CL CP; marginally MC HC | LT MT HT LC MC HC |
 | **time** | window 0 on RS/CL/CP; the whole clip on CY, whose envelope is 500 ms | every window |
 | **band** | below ~200 Hz — one bin wide, i.e. near DC | 0.7–5 kHz |
 | **sign** | excess, +24 to +51 dB | deficit, 6 to 22 dB |
@@ -396,11 +401,14 @@ below the band the toms are short in.
 It is:
 
 - **one fix for mechanism A** — a DC block. That is one high-pass on the output
-  path and it would address five voices strongly and three weakly, at once;
+  path and it would address five voices at once, and two more marginally;
 - **a separate and unrelated question for mechanism B**, which is about what
   supplies 0.7–5 kHz on a bridged-T body and is not an excitation question;
-- **and four voices in #152 that need no fix at all** — CH, OH, BD and SD have
-  no low-frequency onset excess once the conditioning is causal.
+- **and four voices that need no fix at all** — CH, OH, BD and LT have no
+  low-frequency onset excess once the conditioning is causal, and the first two
+  had a large one before it was.
+
+---
 
 ## 6. What is not settled here
 
