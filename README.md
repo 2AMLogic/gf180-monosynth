@@ -29,7 +29,7 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 ### The board
 
 <!-- BOARD:BEGIN -->
-**18 of 100 acceptance cases have a valid measurement.** 7 pass · 11 fail · 4 no verdict · 78 not run.
+**18 of 100 acceptance cases have a valid measurement.** 6 pass · 12 fail · 4 no verdict · 78 not run.
 
 > **No case has been measured on the integrated RTL yet**, so these describe a model rather than the instrument.
 
@@ -37,7 +37,7 @@ section 10 for where the chip sits against the wafer.space quarter slot.
 |---|---:|---:|---:|---:|---:|---:|
 | Drums | 32 | 12 | 3 | 9 | 4 | 16 |
 | Mono | 32 | 0 | 0 | 0 | 0 | 32 |
-| Filters | 24 | 3 | 1 | 2 | 0 | 21 |
+| Filters | 24 | 3 | 0 | 3 | 0 | 21 |
 | Ensemble | 12 | 3 | 3 | 0 | 0 | 9 |
 
 Every case is in [`docs/scorecard/BOARD.md`](docs/scorecard/BOARD.md). **Coverage is reported separately from agreement on purpose** — a case without a verdict is missing verification, not evidence the instrument is wrong, and it must not be able to flatter a percentage.
@@ -46,14 +46,14 @@ Every case is in [`docs/scorecard/BOARD.md`](docs/scorecard/BOARD.md). **Coverag
 ### Rate, measured from git
 
 <!-- HISTORY:BEGIN -->
-Measured from git, not remembered. **110 commits over 27 hours.**
+Measured from git, not remembered. **113 commits over 27 hours.**
 
 | | now | per hour |
 |---|---:|---:|
-| tests | 613 | 23.0 |
-| injected controls | 82 | 3.1 |
+| tests | 617 | 22.7 |
+| injected controls | 82 | 3.0 |
 | bit-exact verifiers | 7 | — |
-| lines of RTL | 4,960 | 186 |
+| lines of RTL | 4,960 | 183 |
 
 **Cycle time, which is the measure that matters.** 46 merged pull requests, **median 14 minutes** from open to merged, and PR size barely moves it — large changes (>1000 lines) median 16 minutes against 14 for small. That is because the work happens in the agent *before* the PR opens, so the real cost is agent wall-clock: **4–25 minutes** for a brief with one deliverable, **2–3.5 hours** for one containing "and" several times over.
 
@@ -132,14 +132,14 @@ graph LR
 |---|---|---|---|
 | `F1` | Ladder bit-exact | **STALE** | rtl-sketch/ladder_dp.v changed since node/F1-ladder was cut |
 | `F2` | Modal bank bit-exact | **STAMPED** | node/F2-modal (not re-run; verifier is slow) |
-| `F3` | Measurement ground truth | **GREEN** | 133 passed in 2.94s |
+| `F3` | Measurement ground truth | **GREEN** | 133 passed in 3.11s |
 | `M1` | One Moog voice bit-exact | **STALE** | rtl-sketch/voice_dp.v changed since node/M1-voice was cut |
 | `M2` | Matches our own spec | **STAMPED** | node/M2-minimoog |
 | `M3` | Matches software references **fidelity** | **GREEN** | docs/reference-compare-results.json EXISTS ONLY -- no verdict declared |
 | `M4` | Matches real hardware **fidelity** | **BLOCKED** | 0 of 222 Legowelt recordings qualify -- needs one documented self-oscillation clip |
 | `M5` | Noise, osc-3 modulation, full waveform set | **TODO** | issue #48 |
 | `D1` | Drum kit bit-exact | **STALE** | rtl-sketch/drum_kit.v changed since node/D-drums-bitexact was cut |
-| `D2` | Is an 808, per the reference **fidelity** | **RED** | 1 failed, 32 passed in 48.20s |
+| `D2` | Is an 808, per the reference **fidelity** | **RED** | 1 failed, 32 passed in 43.71s |
 | `D3` | Per-voice measured against targets **fidelity** | **RED** | model/sound_report.py exit 1 |
 | `D4` | Complete 808 -- all 16 sounds | **TODO** | issue #22 |
 | `I1` | Control link carries every write | **TODO** | never run -- `tools/compile_dag.py --run` |
