@@ -1,0 +1,22 @@
+commit b9b47d878323  corpus /tmp/tr808-ref 116 files sha256 0731ddfa7bbc6d18  argv --reconcile --refs /tmp/tr808-ref
+
+14 'carries N dB where the machine has none' rows in /private/tmp/wt-excite/docs/discrimination-trajectory.txt
+re-measured in the SAME band and window, at HEAD, causal conditioning.
+
+    voice     band    window  #152 said  HEAD+causal   machine     ours   16-bit   need  verdict
+    CB         67     0-  30 ms       35.4          8.7     -38.3    -29.6    -88.6   11.1  GONE (inside the floor)
+    CH         95     0-  30 ms       33.4         -6.3     -67.8    -74.1    -80.3   11.1  GONE (inside the floor)
+    CL         67     0-  30 ms       29.9         36.1     -66.2    -30.1    -86.1   11.1  STANDS
+    CP        170     0-  30 ms       22.9         24.1     -23.9      0.2    -87.7   11.1  STANDS
+    CY        135    30-  60 ms       67.0         67.5     -72.8     -5.4    -90.9    6.0  STANDS
+    HC        678     0-  30 ms       53.2         -3.8     -35.0    -38.8    -90.2    6.0  GONE (inside the floor)
+    HT        339     0-  30 ms       37.9          2.8     -24.9    -22.1    -94.5    7.9  GONE (inside the floor)
+    LC        339     0-  30 ms       37.2         -0.9     -22.0    -22.9    -96.1    7.9  GONE (inside the floor)
+    MA      12177    30-  60 ms       48.3         47.6     -52.2     -4.6    -69.7    6.0  STANDS
+    MC        427     0-  30 ms       51.7          0.4     -30.8    -30.4    -90.4    7.9  GONE (inside the floor)
+    MT        339     0-  30 ms       11.0        -15.4     -17.2    -32.6    -94.4    7.9  SIGN FLIPPED
+    OH         67     0-  30 ms       21.1        -10.2     -64.8    -75.0    -93.4    7.9  SIGN FLIPPED
+    RS         95     0-  30 ms       23.3         44.6     -49.6     -5.0    -83.4   11.1  STANDS
+    SD       1076    30-  60 ms       12.3         12.3     -24.6    -12.3    -81.4    6.0  STANDS
+
+  6 of 14 stand.

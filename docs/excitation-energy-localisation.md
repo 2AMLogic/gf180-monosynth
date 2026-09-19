@@ -29,10 +29,12 @@ eighteen self-tests, two of them injected-bug controls.
    "+28 dB too much" on the congas was the ×1.7 sweep #154 removed — it moved
    a 400 Hz conga's fundamental across the 700 Hz split and a 90 Hz tom's
    nowhere near it.
-4. **Several of #152's sixteen rows are the measuring instrument.** CH, OH and
-   BD have no low-frequency onset excess at all once the conditioning is
-   causal, and on CL, CP and RS most of the reported magnitude was
-   `test_discrimination.condition()`'s zero-phase high-pass.
+4. **Several of #152's rows are the measuring instrument, and "all sixteen" is
+   fourteen.** The file the claim is made from carries such a row for 14 of the
+   16 voices; BD and LT have none, and three of the fourteen are at 30–60 ms
+   rather than in the first 30. Of what remains, **CH and OH lose 33.9 and
+   28.4 dB the moment the conditioning's high-pass is made causal**, which
+   takes them to nothing.
 
 ---
 
@@ -219,6 +221,41 @@ one blunt over-broad excitation produced both, they would move together.
   −15 dB at 3–4 kHz mid-clip. It decays too slowly at the top and too fast in
   the middle.
 
+### #152's own fourteen rows, re-measured one at a time
+
+`--reconcile` parses `docs/discrimination-trajectory.txt` — never retypes it —
+and re-measures each *"carries N dB where the machine has none"* row in **the
+same band and the same window**, at HEAD, with a causal conditioning. Full
+report: [`excitation-energy-reconcile.txt`](excitation-energy-reconcile.txt).
+
+| voice | band | window | #152 said | HEAD + causal | verdict |
+|---|--:|---|--:|--:|---|
+| CY | 135 Hz | 30–60 ms | +67.0 | **+67.5** | STANDS |
+| MA | 12177 Hz | 30–60 ms | +48.3 | **+47.6** | STANDS |
+| RS | 95 Hz | 0–30 ms | +23.3 | **+44.6** | STANDS |
+| CL | 67 Hz | 0–30 ms | +29.9 | **+36.1** | STANDS |
+| CP | 170 Hz | 0–30 ms | +22.9 | **+24.1** | STANDS |
+| SD | 1076 Hz | 30–60 ms | +12.3 | **+12.3** | STANDS |
+| CB | 67 Hz | 0–30 ms | +35.4 | +8.7 | gone — inside the 11.1 dB one-bin floor |
+| HT | 339 Hz | 0–30 ms | +37.9 | +2.8 | gone |
+| MC | 427 Hz | 0–30 ms | +51.7 | +0.4 | gone |
+| LC | 339 Hz | 0–30 ms | +37.2 | −0.9 | gone |
+| HC | 678 Hz | 0–30 ms | +53.2 | −3.8 | gone |
+| CH | 95 Hz | 0–30 ms | +33.4 | −6.3 | gone |
+| OH | 67 Hz | 0–30 ms | +21.1 | **−10.2** | SIGN FLIPPED |
+| MT | 339 Hz | 0–30 ms | +11.0 | **−15.4** | SIGN FLIPPED |
+
+**Six of fourteen stand.** Two more voices, BD and LT, never had such a row —
+so #152's *"all sixteen voices"* is **six**, and two of those six (MA at
+12 kHz, SD at 1076 Hz) are not low-frequency at all and are not the same thing
+as the other four.
+
+The four that fall furthest — HC, MC, LC and HT, dropping 37 to 51 dB — are
+the four that were rendered with the ×1.7 sweep. The two that fall next — CH
+and OH — are the two the conditioning was inflating most. **Every one of the
+eight failures is one of the two instrument faults, and none of them is a
+change to the model's sound.**
+
 ## 3. Attributing the excess
 
 `--attribute` mutes **one register path at a time** and re-renders, and
@@ -389,25 +426,60 @@ It is:
 `model/discrimination_trajectory.py` and `model/test_discrimination.py` — that
 is the whole of #148 and everything quoted from it.
 
+### The artefact, sized per voice
+
+`--map` and `--map --study-conditioning` are the same probe, the same commit
+and the same corpus, differing only in `sosfilt` versus `sosfiltfilt`. With the
+acausal filter restored the probe **reproduces #152's numbers to the decimal**
+(CB +35.4 against #152's +35.4, CH +33.4 against +33.4, CP +22.9 against +22.9,
+RS +23.3 against +23.3), which is what makes the difference between the two
+files attributable to the filter alone.
+
+Largest window-0 excess under 200 Hz, dB:
+
+| | CH | OH | CB | HT | CL | HC | MC | CP | MA | CY | MT | LT | LC | SD | BD | RS |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| study | 33.4 | 22.0 | 35.4 | 7.2 | 42.6 | 10.9 | 5.7 | 22.9 | 41.8 | 50.5 | 6.3 | 1.6 | 0.8 | −0.0 | −1.0 | 23.3 |
+| causal | −0.5 | −6.4 | 8.7 | 0.6 | 36.1 | 8.4 | 8.8 | 24.1 | 43.2 | 50.7 | 6.4 | 1.6 | 0.8 | −0.1 | −0.9 | 44.6 |
+| **the filter** | **−33.9** | **−28.4** | **−26.7** | −6.6 | −6.5 | −2.5 | +3.1 | +1.2 | +1.4 | +0.2 | +0.1 | 0.0 | 0.0 | 0.0 | 0.0 | **+21.3** |
+
+**The artefact is not one-signed and it does not cancel.** It removes 34 dB
+from CH and adds 21 dB to RS, because it depends on the shape of each clip's
+first sample and on which side was pre-trimmed. "Applied identically to both
+sides" is not the same property as "cancels between them".
+
+### What is and is not invalidated
+
 **The classifier results are not invalidated by F1.** The artefact is applied
-to both sides, and it amplifies a real onset difference rather than inventing
-one where the two sides are identical; a discriminator that scores on an
-amplified real difference is still scoring on a real difference. What is
-invalidated is **attribution**: any statement of the form "the difference is at
-*this* frequency in *this* window" that rests on window 0 of a conditioned clip.
+to both sides and it amplifies a real onset difference rather than inventing
+one where the two sides are identical; a discriminator scoring on an amplified
+real difference is still scoring on a real difference. What is invalidated is
+**attribution**: any statement of the form "the difference is at *this*
+frequency in *this* window" that rests on window 0 of a conditioned clip.
 
-Specifically:
+Concretely:
 
-- **`docs/discrimination-trajectory.txt` window-0 rows should be re-derived.**
-  The file also predates #154, so every LT/MT/HT/LC/MC/HC row in it was
+- **`docs/discrimination-trajectory.txt`'s window-0 rows should be
+  re-derived.** [`excitation-energy-reconcile.txt`](excitation-energy-reconcile.txt)
+  re-measures every one of its fourteen excess rows in its own band and window.
+- **The file also predates #154**, so every LT/MT/HT/LC/MC/HC row in it was
   rendered with the ×1.7 sweep.
 - **`docs/discrimination.md` §5a's tom/conga table predates #154** and its
-  "+28.1 dB" on HC no longer reproduces.
-- **#152's headline — "all sixteen voices" — does not survive.** The count of
-  voices with a real, floor-clearing low-frequency onset excess is **eight**,
-  and on five of the remainder the row was the instrument.
+  "+28.1 dB" on HC does not reproduce: HEAD measures **−6.1 dB**, and
+  re-rendering with the old law recovers **+16.6**.
+- **#152's headline does not survive.** It is not sixteen voices, the energy is
+  not broadband, and it is not one mechanism.
 
----
+### The recurrence worth filing
+
+This is **#101 and #103 again**, in a different file. Those issues are on
+record here as *"the two sides of every drum comparison were filtered under
+different boundary conditions, and nothing said so"*, and
+`audio_measure.band_energy`'s docstring already carries the rule that came out
+of them — *a transient segment must arrive with a true pre-onset lead*.
+`condition()` was written afterwards, filters a transient that starts at index
+0, and gives neither side a lead. The rule existed; it lived in one function's
+docstring rather than anywhere a new estimator would meet it.
 
 ## 8. Wrong-then-right, on this branch
 
