@@ -686,8 +686,18 @@ class AdsrFx:
 # cutoff normalised to the BASE rate, and Surge XT's `LP Vintage Ladder`
 # Type 2 applies it (sst-filters `VintageLadders.h`, namespace Huov, constants
 # m18730 / m04955 / mneg06490 / m09988; original implementation Victor
-# Lazzarini for Csound 5). We did not, and the self-oscillation frequency drifted
-# 9.84 percentage points over 100 Hz .. 10 kHz against Surge Type 2's 0.62.
+# Lazzarini for Csound 5).
+#
+# WE APPLY IT TOO, AND HAVE SINCE DR 0011. `fcr()` below is the polynomial and
+# `model/fixed.py`'s `cut_to_coeff` is `c * CUT_TRIM * fcr(c)`, so the shipped
+# coefficient ROM carries it. The sentence that used to stand here -- "we did
+# not" -- described the state BEFORE DR 0011 and was read in the present tense
+# by a later reader, who concluded from it that a measured corner discrepancy
+# was explained by our not applying the polynomial. It is not: we do.
+#
+# What "we did not" referred to: before DR 0011 the self-oscillation frequency
+# drifted 9.84 percentage points over 100 Hz .. 10 kHz against Surge Type 2's
+# 0.62. That is the defect the polynomial fixed, not an open one.
 #
 # NOTE ON THE CONSTANT. Both `docs/discrimination.md` section 8.3 and
 # `model/reference_rigs.py` print the quadratic term as 0.4995. The source they
