@@ -122,8 +122,23 @@ def evaluate(case: dict, res: dict | None) -> dict:
                 "why": "no valid metrics", "engine": engine}
     return {"state": PASS if worst <= 1.0 else FAIL, "worst": worst,
             "properties": props,
+            # carried so compare() can see the basis -- it could not before
+            "provenance": prov, "analysis_run": res.get("analysis_run"),
+            "measurement_policy": {
+                "required": sorted(required),
+                "metrics": {name: {key: metric.get(key)
+                                   for key in ("units", "tolerance", "tolerance_basis")}
+                            for name, metric in metrics.items()},
+            },
             "why": "" if worst <= 1.0 else f"worst: {worst_name}", "engine": engine}
 
+
+# The measuring apparatus, by path. NOT the device under test: model/drums_fx.py
+# and model/voice_fx.py are what we are comparing, so they must stay out or every
+# model change reads as INCOMPARABLE.
+APPARATUS = ("model/audio_measure.py", "tools/run_case.py",
+             "model/reference_rigs.py", "tools/refprofile.py",
+             "refprofile/profile.json")
 
 ACCEPT, REJECT, INCOMPARABLE = "accept", "reject", "incomparable"
 
@@ -137,17 +152,33 @@ DEFAULT_ALLOWANCE = 0.05
 def measurement_basis(res: dict) -> dict:
     """What a result was measured WITH, as opposed to what it measured.
 
-    Two results are comparable only on the same basis: same reference, same
-    estimator build, same windows, same tolerances, same required set. When an
-    estimator is repaired the baseline must be RE-MEASURED, because comparing an
-    old instrument's old number against a new instrument's corrected one
-    confounds two changes (DR 0015).
+    THE FIRST VERSION OF THIS WAS INERT ON REAL RECORDS and its twelve tests
+    passed anyway, because the fixture was a shape nothing in the system
+    produces. It looked for `provenance.analysis_run`, `rubric_version` and
+    `inputs.refs`; `run_case.py` writes `analysis_run` at TOP LEVEL, has no
+    `rubric_version`, and keys `inputs` by PATH. Every field came back None on
+    both sides, compared equal, and the guard never fired -- so a repaired
+    estimator's artefact was reported as the device regressing, which is the
+    confound DR 0015 exists to prevent.
+
+    THE APPARATUS IS NOT THE DEVICE. `provenance.inputs` hashes both, and only
+    the apparatus belongs here: put `model/drums_fx.py` in the basis and every
+    model change becomes INCOMPARABLE, which blocks exactly the comparisons
+    this guard exists to enable.
     """
     prov = res.get("provenance") or {}
-    return {"engine": res.get("engine"),
-            "rubric": res.get("rubric_version"),
-            "analysis": prov.get("analysis_run"),
-            "inputs": (prov.get("inputs") or {}).get("refs")}
+    inputs = prov.get("inputs") or {}
+    return {"engine": res.get("engine") or prov.get("engine"),
+            # content hashes of what MEASURES -- these change when an estimator
+            # is repaired, which is the case the guard is for.
+            "apparatus": {k: v for k, v in inputs.items() if k in APPARATUS},
+            "references": {k: v for k, v in inputs.items()
+                           if k.startswith(("reference:", "frozen:"))},
+            # A cache path and a run timestamp are not reference identities.
+            # Content hashes identify the recordings across machines/reruns.
+            "config": {k: v for k, v in (prov.get("config") or {}).items()
+                       if k != "refs"},
+            "policy": res.get("measurement_policy")}
 
 
 def compare(base: dict, cand: dict, *, required: list[str] | None = None,
@@ -173,6 +204,13 @@ def compare(base: dict, cand: dict, *, required: list[str] | None = None,
     # Comparability first. A verdict across two measurement bases is not a
     # verdict about the instrument.
     bb, cb = measurement_basis(base), measurement_basis(cand)
+    for who, basis in (("baseline", bb), ("candidate", cb)):
+        missing = [key for key in ("model/audio_measure.py", "tools/run_case.py")
+                   if not basis["apparatus"].get(key)]
+        if missing:
+            return {"verdict": INCOMPARABLE, "reasons":
+                    [f"{who} has no apparatus identity for {', '.join(missing)} -- "
+                     "re-measure the baseline before comparing"]}
     differs = [k for k in bb if bb[k] != cb[k]]
     if differs:
         return {"verdict": INCOMPARABLE, "reasons":

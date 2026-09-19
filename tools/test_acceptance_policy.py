@@ -9,14 +9,24 @@ file exists.
 Each test is a rule someone can otherwise re-introduce by accident.
 """
 from __future__ import annotations
-import pathlib, sys
+import json, pathlib, sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scorecard as sc                                              # noqa: E402
 
-BASIS = {"engine": "fixed-model", "rubric_version": "v0",
-         "provenance": {"analysis_run": "run@abc", "inputs": {"refs": "/refs"}}}
+# THE SHAPE run_case.py ACTUALLY WRITES. The first version of this fixture was
+# a hybrid nothing in the system produces -- `rubric_version` does not exist,
+# `analysis_run` is top level, and `inputs` is keyed by PATH. Twelve tests
+# passed against it while the guard was inert on every real record.
+BASIS = {"engine": "fixed-model",
+         "analysis_run": "run_case@aaaa + audio_measure@bbbb at 2026-01-01T00:00:00Z",
+         "provenance": {"command": "tools/run_case.py X",
+                        "worktree": {"commit": "abc", "dirty": False},
+                        "config": {"refs": "/refs"},
+                        "inputs": {"model/audio_measure.py": "sha256:AAAA",
+                                   "tools/run_case.py": "sha256:BBBB",
+                                   "model/drums_fx.py": "sha256:DEVICE"}}}
 
 
 def result(props: dict, state=None, **over):
@@ -77,7 +87,8 @@ def test_a_repaired_estimator_forces_the_baseline_to_be_re_measured():
     (#139, #150, #156), so this is live, not hypothetical."""
     base = result({"decay": 2.0})
     cand = result({"decay": 0.4})
-    cand["provenance"] = {"analysis_run": "run@REPAIRED", "inputs": {"refs": "/refs"}}
+    cand["provenance"] = json.loads(json.dumps(BASIS["provenance"]))
+    cand["provenance"]["inputs"]["model/audio_measure.py"] = "sha256:REPAIRED"
     out = sc.compare(base, cand)
     assert out["verdict"] == sc.INCOMPARABLE
     assert any("re-measure the baseline" in r for r in out["reasons"]), out
