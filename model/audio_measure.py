@@ -135,11 +135,14 @@ def is_silent(x, floor: float = 1e-9) -> bool:
 
 
 #: Below this fraction of a record's OWN peak, a trailing sample is not
-#: record. It is `is_silent`'s floor read as a ratio -- -180 dBFS on a
-#: full-scale record -- which is two orders of magnitude under a 24-bit LSB
-#: and nine under a 16-bit one, so nothing a converter or a renderer produces
-#: can fall inside it. The measured margin on the Fischer TR-808 corpus, whose
-#: quietest sounding tail sits at -89.9 dBFS, is 90 dB.
+#: record. It is `is_silent`'s floor read as a ratio -- -180 dB relative to the
+#: record's peak -- which is 36 dB under a 24-bit LSB and 84 dB under a 16-bit
+#: one, so nothing a converter or a renderer produces can fall inside it.
+#: MEASURED margin: over the 116 Fischer TR-808 references, the last 10 ms of
+#: each record's sounding extent ranges from -53.3 dB (`bd8/BD0010.WAV`) to
+#: -82.1 dB (`oh8/OH10.WAV`), so the quietest genuine tail in the corpus clears
+#: this floor by 98 dB. 23 of the 116 have any trailing sample stripped at all,
+#: and in every case it is the one or two the editor left at exact zero.
 SOUNDING_FLOOR = 1e-9
 
 
@@ -1258,9 +1261,9 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     `tail_residual_db` and refuses nothing.
     `tools/probes/estimator_defects.py` section 5 is that measurement.
 
-    A genuine quiet tail is not affected in either direction: 16-bit
-    quantisation puts a real decay's tail 90 dB above this floor, and the
-    corpus's quietest sounding tail is -89.9 dBFS.
+    A genuine quiet tail is not affected in either direction: the quietest
+    sounding tail in the Fischer TR-808 corpus is -82.1 dB of its own peak,
+    which clears the floor by 98 dB.
 
     **`min_tail_t20=0.0` disables the guard, and is for one situation only:** a
     caller that has bounded this record's truncation bias BY ITS OWN

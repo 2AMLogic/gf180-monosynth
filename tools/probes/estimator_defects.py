@@ -416,6 +416,37 @@ def defect_5():
         y = y / max(float(np.abs(y).max()), 1e-30)
         print(f"   {'REAL ' + label:<28}{_step_outlier(y, sr):16.2f}"
               f"{_tail_residual(y, sr):20.2f}   pass")
+    print("\n   THE FLOOR, MEASURED AGAINST THE CORPUS IT HAS TO CLEAR. `SOUNDING_")
+    print("   FLOOR` is -180 dB of a record's own peak. What a REAL tail sits at:")
+    import itertools
+    from scipy.io import wavfile
+    rows = []
+    for path in itertools.chain.from_iterable(
+            sorted(d.glob("*.WAV")) for d in sorted(REFS.iterdir()) if d.is_dir()):
+        sr2, y = wavfile.read(str(path))
+        y = np.asarray(y, float)
+        y = y.mean(1) if y.ndim > 1 else y
+        pk = float(np.abs(y).max())
+        if pk <= 0:
+            continue
+        y = y / pk
+        k = am.sounding_extent(y)
+        if k < 10:
+            continue
+        w = max(int(0.010 * sr2), 64)
+        r = float(np.sqrt(np.mean(y[max(0, k - w):k] ** 2)))
+        rows.append((20 * math.log10(max(r, 1e-300)),
+                     path.parent.name + "/" + path.name, k, len(y)))
+    rows.sort()
+    stripped = sum(1 for r in rows if r[2] < r[3])
+    print(f"      {len(rows)} references, last 10 ms of each SOUNDING extent:")
+    print(f"      quietest {rows[0][0]:6.1f} dB  {rows[0][1]}")
+    print(f"      loudest  {rows[-1][0]:6.1f} dB  {rows[-1][1]}")
+    print(f"      {stripped} of {len(rows)} have any trailing sample stripped at all.")
+    check(rows[0][0] - 20 * math.log10(am.SOUNDING_FLOOR) > 60.0,
+          f"the quietest genuine tail in the corpus clears the floor by "
+          f"{rows[0][0] - 20*math.log10(am.SOUNDING_FLOOR):.0f} dB")
+
     print("\n   (b) does not separate the two populations in EITHER direction: the zero")
     print("   pad reads 0.04 and a genuine -80 dBFS noise floor reads 4.18. It is")
     print("   measuring the carrier's slew against its own envelope, which is a")
