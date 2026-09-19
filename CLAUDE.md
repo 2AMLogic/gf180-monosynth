@@ -46,6 +46,40 @@ the host's block rate.
 
 This file is about how to work, not what to build.
 
+## Why this block exists: it is a canary for the tools
+
+**The instrument is the payload. Exercising the toolchain is the point.**
+
+This is a 2AM Logic canary block, and what it is a canary *for* is
+**`2AMLogic/klayout-tools`** ("tools for AI agents to work with IC layout") and
+the open-source EDA flow underneath it. A deliberately awkward design -- a
+time-shared datapath, a modal bank, sixteen drum voices, an SPI link -- finds
+tool defects that a two-transistor test case never will.
+
+**So when a tool fails, needs a workaround, or silently does the wrong thing,
+FILING IT UPSTREAM IS A DELIVERABLE, not a distraction.** It is arguably the
+more valuable half: the instrument helps one project, a fixed tool helps every
+project that follows.
+
+What we have already found and had NOT filed until someone asked:
+
+- **`klt synthesize` emits netlists its own place-and-route cannot consume** --
+  three separate patches were needed to route `ladder_dp`, each surfacing as an
+  opaque error from a *different* tool (`STA-0171`, `DRT-0305`) with nothing
+  pointing back at the netlist klt produced. Now klayout-tools#2085.
+- **Without a power block, klt places no tapcells, no PDN and no fillers, and
+  does not say so.** The flow completes and yields a plausible-looking layout
+  with no power delivery. Now klayout-tools#2086.
+
+Both sat in `pnr/klt/ladder_dp/run-klt.sh` as comments for weeks. The work of
+discovering them was done; only the filing was missing.
+
+**The rule.** If you work around a tool rather than a bug in our design, the
+workaround is evidence and it goes upstream -- `2AMLogic/klayout-tools` for
+layout and flow, `rjwalters/loom` for agent orchestration. Record the exact
+version, the exact error, and the patch you applied. A workaround that lives
+only in a shell script is a finding nobody else can use.
+
 ## Write Python, not bash
 
 **Anything with logic goes in Python.** Bash is for a single command with no
