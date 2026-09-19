@@ -41,8 +41,14 @@ claim about them needs a second machine, not a second run.
 
 THREE OUTCOMES, the same three `tools/refprofile.py` uses
 --------------------------------------------------------
-    exit 0  OK       every run agreed, clip for clip, byte for byte
-    exit 1  FAIL     two runs of the same rig disagreed about a clip
+    exit 0  OK       every run agreed with EVERY OTHER RUN *and* with the
+                     committed profile
+    exit 1  FAIL     either two runs of the same rig disagreed about a clip
+                     (not reproducible), or the runs agreed with each other and
+                     DIFFERED FROM THE COMMITTED PROFILE (drift). These are two
+                     different questions and they used to share one verdict:
+                     exit 0 meant only "the rig agrees with itself", so a host
+                     reproducibly rendering something else passed.
     exit 2  REFUSED  a render could not be attempted at all (no dawdreamer, no
                      plugin bundle) -- nothing was measured, so nothing is said
 """
@@ -142,6 +148,8 @@ def main(argv=None) -> int:
     ap.add_argument("--accept", action="store_true",
                     help="install the last run as refprofile/profile.json, but "
                          "ONLY if every run agreed")
+    ap.add_argument("--allow-drift", action="store_true",
+                    help="accept clips that differ from the committed profile; records that it did")
     ap.add_argument("--workdir", default=None,
                     help="where the per-run profiles and logs go (default: a temp dir)")
     ap.add_argument("--report", default=None,
@@ -221,6 +229,29 @@ def main(argv=None) -> int:
         print(f"\nFAIL     {len(moved)} clip(s) did not reproduce. They are NOT frozen "
               f"and must not be installed: " + ", ".join(moved))
         return FAIL
+
+    # REPRODUCIBILITY AND CONTINUITY ARE TWO QUESTIONS AND USED TO SHARE ONE
+    # VERDICT. "every run agreed, clip for clip" says the rig renders the same
+    # thing twice; it says NOTHING about whether that thing is what the
+    # committed profile describes. A host that reproducibly renders something
+    # DIFFERENT from the frozen reference exited 0, because the drift was
+    # printed above and never reached the exit code.
+    #
+    # Drift is a mismatch, so it is exit 1 under this repo's convention
+    # (0 match / 1 mismatch / 2 did not run). `--allow-drift` is the deliberate
+    # override for the case where the profile is MEANT to move -- and it says so
+    # in the output, the way run_case.py's --allow-stale records itself.
+    drifted = changed + sorted(c for c, v in old_v.items() if v == "DROPPED")
+    if drifted and not a.allow_drift:
+        print(f"\nFAIL     the runs agree with EACH OTHER but not with the committed "
+              f"profile: {len(drifted)} clip(s) changed or dropped -- "
+              + ", ".join(drifted))
+        print("         reproducible is not the same as unchanged. Pass --allow-drift "
+              "if the reference is meant to move, and say why in the commit.")
+        return FAIL
+    if drifted and a.allow_drift:
+        print(f"\nNOTE     --allow-drift: accepting {len(drifted)} clip(s) that differ "
+              f"from the committed profile. This IS a reference change.")
     if a.accept:
         PROFILE_JSON.write_text((work / f"profile.run{a.runs}.json").read_text(encoding="utf-8"),
                                 encoding="utf-8")
