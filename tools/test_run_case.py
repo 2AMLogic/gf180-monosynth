@@ -651,6 +651,80 @@ def test_filt_corner_recovers_a_known_ratio_between_two_corners():
     assert b.value / a.value == pytest.approx(1.25, rel=0.05)
 
 
+# ---------------------------------------------------------------------------
+# #150 -- the test whose ABSENCE let a frequency-dependent bias through.
+#
+# `test_filt_corner_recovers_a_known_ratio_between_two_corners` pins a ratio
+# between two corners AT THE SAME cut_hz. That is common mode within one
+# comparison and says nothing about whether the bias is the same at 250 Hz and
+# at 4 kHz -- which is exactly what a claim about a TREND across the range
+# needs. An ideal 4-pole's corner/cutoff ratio is 0.4342 by construction,
+# independent of the cutoff, so the estimator's ratio must be constant too.
+# ---------------------------------------------------------------------------
+#: The commanded cutoffs the Filters family states (`refprofile.CUT_HZ` and
+#: `CUT_REGIONS_HZ`), plus four in between so the trend is sampled rather than
+#: sampled at its endpoints.
+CORNER_SWEEP_HZ = (250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0)
+
+#: How far the estimator's corner/cutoff ratio may move across that sweep, on
+#: a response whose true ratio is constant. This is the instrument's own
+#: frequency-dependent systematic and everything read off a trend across
+#: cutoffs is limited by it.
+CORNER_RATIO_SPREAD_MAX = 0.015
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+def test_filt_corner_ratio_is_constant_across_the_range(poles):
+    """An all-pole low-pass `|H| = (1+(f/fc)^2)^(-n/2)` has its -3 dB point at
+    `fc*sqrt(10^(3/(10n)) - 1)` -- **a constant multiple of fc, whatever fc
+    is.** So the estimator's reported ratio must be constant across the range
+    too, to within its own stated systematic.
+
+    It was not. On the profile's own grid it read 0.4998 / 0.4446 / 0.4342 at
+    250 / 1000 / 4000 Hz: **15 % of apparent droop contributed by the
+    instrument**, concentrated at the bottom of the range, where a claim about
+    the filter's cutoff mapping was being read.
+
+    Run over three pole counts because the repair must not be a curve fit to
+    the 4-pole case."""
+    f = probe_freqs()
+    true_ratio = math.sqrt(10 ** (3.0 / (10.0 * poles)) - 1.0)
+    ratios = {}
+    for fc in CORNER_SWEEP_HZ:
+        g = -(10.0 * poles) * np.log10(1.0 + (f / fc) ** 2)
+        e = rc.filt_corner(fc)(f, g)
+        assert e.ok, (fc, e.reason)
+        ratios[fc] = e.value / fc
+    spread = max(ratios.values()) / min(ratios.values()) - 1.0
+    assert spread < CORNER_RATIO_SPREAD_MAX, (
+        f"{poles}-pole: corner/cutoff ratio moves {100*spread:.2f} % across "
+        f"{CORNER_SWEEP_HZ[0]:.0f}-{CORNER_SWEEP_HZ[-1]:.0f} Hz on a response "
+        f"whose true ratio is {true_ratio:.4f} everywhere: "
+        + " ".join(f"{k:.0f}Hz={v:.4f}" for k, v in ratios.items()))
+
+
+def test_filt_corner_reads_a_constant_tuning_error_as_constant():
+    """The consequence, stated the way the board reads it. A synthesiser whose
+    cutoff is a **constant 16 % low** at every setting must read as 16 % low at
+    every setting. Through the uncalibrated estimator it read -11.9 / -15.3 /
+    -15.7 % at 250 / 1000 / 4000 Hz -- a 3.8-point trend manufactured out of a
+    constant error, in the same direction as the trend #146 attributed to the
+    filter."""
+    f = probe_freqs()
+    err = 0.16
+    read = {}
+    for fc in (250.0, 1000.0, 4000.0):
+        ref = rc.filt_corner(fc)(f, ideal_4pole_db(f, fc))
+        got = rc.filt_corner(fc)(f, ideal_4pole_db(f, fc * (1.0 - err)))
+        assert ref.ok and got.ok
+        read[fc] = got.value / ref.value - 1.0
+    for fc, v in read.items():
+        assert abs(v + err) < 0.010, \
+            f"a constant -16 % read as {100*v:.2f} % at {fc:.0f} Hz: " + str(read)
+    spread = max(read.values()) - min(read.values())
+    assert spread < 0.010, f"a constant error read with a {100*spread:.2f}-point trend: {read}"
+
+
 def test_filt_corner_refuses_a_curve_with_no_corner_in_it():
     """A flat response has no -3 dB point. An estimator that returned its last
     frequency instead would put 12 kHz on the board as a cutoff."""

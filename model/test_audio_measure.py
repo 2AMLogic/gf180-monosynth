@@ -1074,6 +1074,81 @@ def test_schroeder_t20_accepts_a_record_that_does_contain_its_decay():
     assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.01, e.value
 
 
+# ---------------------------------------------------------------------------
+# #139 -- a LENGTH guard is satisfied by silence
+#
+# #118 replaced a level criterion with a length one, and length counts SAMPLES
+# IN THE RECORD rather than SIGNAL IN THE TAIL. Appending zeros adds no
+# information and cannot change what the decay was, but it converts a correct
+# refusal into an accepted wrong answer. These tests are the counterexample
+# from the issue, both of its directions, and the #103-style invariance whose
+# absence let it through.
+# ---------------------------------------------------------------------------
+def test_appending_silence_cannot_rescue_a_refused_decay():
+    """#139's verified counterexample, exactly. A 2.0 s record of a tau 200 ms
+    decay reads its closed-form T20. Cut to 0.30 s it is refused, correctly.
+    Cut to 0.30 s and padded back to 2.0 s with DIGITAL SILENCE it was
+    accepted at **-48 %**.
+
+    Zeros carry no information about a decay that was already cut off. A guard
+    that a `np.zeros` call can satisfy is not a guard."""
+    x = _exp_decay(0.200, 2.000)
+    exact = am.t20_from_tau(0.200)
+    full = am.schroeder_t20(x, SR)
+    assert full.ok and abs(full.value / exact - 1) < 0.01, full
+
+    cut = x[:int(0.300 * SR)]
+    assert not am.schroeder_t20(cut, SR).ok, "the cut record must still be refused"
+
+    padded = np.concatenate([cut, np.zeros(int(1.700 * SR))])
+    e = am.schroeder_t20(padded, SR)
+    assert not e.ok, (
+        "1.7 s of np.zeros turned a refusal into an accepted answer of "
+        f"{(e.value or 0)*1e3:.1f} ms against an exact {exact*1e3:.1f} ms "
+        f"({100*((e.value or 0)/exact - 1):+.1f} %)")
+    assert e.detail["tail_in_t20s"] >= am.MIN_TAIL_T20, (
+        "the LENGTH criterion is comfortably satisfied by the pad -- which is "
+        "why the criterion has to be about signal, not about record")
+
+
+@pytest.mark.parametrize("pad_s", [0.2, 1.7, 5.0])
+def test_appending_silence_cannot_change_an_accepted_decay_either(pad_s):
+    """The invariance, stated as an invariance (#103): appending digital
+    silence to a record that already contains its decay must not move the
+    measurement. The refusal above and this are the same property read in its
+    two directions, and neither alone is the test."""
+    x = _exp_decay(0.040, 0.500)
+    base = am.schroeder_t20(x, SR).require("unpadded")
+    got = am.schroeder_t20(np.concatenate([x, np.zeros(int(pad_s * SR))]), SR)
+    assert got.ok, got.reason
+    assert abs(got.value / base - 1) < 0.01, \
+        f"{pad_s} s of trailing silence moved T20 from {base*1e3:.2f} to {got.value*1e3:.2f} ms"
+
+
+def test_a_genuinely_quiet_tail_is_not_refused_for_being_quiet():
+    """The direction that makes the criterion hard, and the one a naive
+    "the tail must have energy" rule gets wrong: **a real decay's tail IS
+    low-energy.** 16-bit quantisation puts this record's tail at about
+    -96 dBFS, three orders of magnitude under its own peak, and it must be
+    measured, not refused."""
+    x = _exp_decay(0.040, 0.600)
+    q = np.round(x * 32767.0) / 32767.0          # a real 16-bit record's floor
+    e = am.schroeder_t20(q, SR)
+    assert e.ok, f"refused a genuine quiet tail: {e.reason}"
+    assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.02, e.value
+
+
+def test_a_decay_that_ends_in_its_own_noise_floor_is_not_refused():
+    """The same direction again with a noise floor rather than quantisation:
+    a decay recorded onto a -80 dBFS floor still contains its decay, and the
+    criterion must read the tail's signal rather than demand a level."""
+    rng = np.random.default_rng(139)
+    x = _exp_decay(0.040, 0.600) + rng.normal(0.0, 1e-4, int(0.600 * SR))
+    e = am.schroeder_t20(x, SR)
+    assert e.ok, f"refused a decay sitting on its own noise floor: {e.reason}"
+    assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.05, e.value
+
+
 @pytest.mark.parametrize("pad_ms", [0.0, 2.0, 100.0])
 def test_schroeder_t20_is_unchanged_by_leading_silence(pad_ms):
     """Invariance (#103): prepending digital silence cannot change how long a
