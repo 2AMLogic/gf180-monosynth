@@ -1,0 +1,32 @@
+{
+  "status": "VALID",
+  "case": "M5A-component",
+  "scope": "M5A bright high lead: MIDI-84 saw oscillator segment only",
+  "reference_identity": "Surge XT Type 2 / Classic oscillator, qualified parameter readbacks; software reference, not a physical Model D",
+  "stimulus": {
+    "midi_note": 84,
+    "waveform": "saw",
+    "seconds": 0.7,
+    "sample_rate": 48000,
+    "f0_command_hz": 1046.5022612023945
+  },
+  "reference": {
+    "f0_hz": 1046.502396,
+    "f0_cents": 0.000223,
+    "inharmonic_db": -47.226482
+  },
+  "dut": {
+    "f0_hz": 1046.502113,
+    "f0_cents": -0.000245,
+    "inharmonic_db": -31.068475
+  },
+  "difference": {
+    "f0_cents_dut_minus_reference": -0.000468,
+    "inharmonic_db_dut_minus_reference": 16.158007
+  },
+  "audio_sha256": {
+    "reference_surge_wav": "54aac8994eefec18167cd4b620cd299637fff8aea555caec1dcae40912641655",
+    "dut_polyblep_wav": "382d69c271b702afd392b180684ae22d55b8c3ece2022d7d2fdba2f713eceb3d"
+  },
+  "diagnosis": "The DUT carries more inharmonic energy than the qualified Surge reference. The next sound improvement is the high-note oscillator alias/foldback path; this result does not qualify the full envelope/filter patch."
+}
