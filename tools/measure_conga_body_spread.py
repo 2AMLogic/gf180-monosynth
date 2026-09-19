@@ -2,6 +2,10 @@
 """How far does the real TR-808's conga BODY SPECTRUM move, and is the
 scorecard's 1.04 inside that?
 
+This preserves the historical measurement definition and published anchors.
+The device side renders the checked-out model, so a new run need not reproduce
+the old device values and is not a report of the current scorecard policy.
+
 THE DEFINITION, copied from the case runner that produced D04A/D08A
 (`tools/run_case.py` @ d0c1d59ee990, `model/audio_measure.py` @ 7386f4a9297f)
 and re-implemented here so this tool does not depend on another agent's
@@ -644,7 +648,7 @@ def main(argv=None) -> int:
             d = r[k]
             print(f"  {r['voice']}  {k:14s} ref {d['ref_db']:8.3f}  "
                   f"ours {d['ours_db']:8.3f}  worst {d['worst']:.3f}"
-                  + ("   <- what the board shows" if k == "as_shipped" else ""))
+                  + ("   <- historical window definition" if k == "as_shipped" else ""))
 
     print("\n== the scorecard distance, recomputed ==")
     for voice, p in PUBLISHED.items():
