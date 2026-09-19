@@ -184,6 +184,23 @@ Per event, counted from the reference hosts' own write lists: note on 5 writes
 (the compensation lookup), BD decay knob 2. Boot is 182 writes = 4.43 ms of
 link time, once.
 
+### Live control (issue #142)
+
+`LiveMusicHost` is the causal adapter for a MIDI or UI bridge. `submit(frame,
+kind, payload)` accepts `key`, `hit`, and `knob` events at the frame where the
+bridge receives them. Unlike the offline `MusicHost` schedule, it never moves
+setup writes earlier than that frame. If the link is busy, every event remains
+in the queue and its musical instant moves later by the measured service time;
+`latency(placed)` reports that delay after excluding the one-time boot image.
+
+Events at one timestamp are ordered by their timestamp and payload, rather
+than Python API call order. A simultaneous BD and snare therefore becomes one
+deterministic stop-bit write, repeated key cycles remain separate, and timed
+restore writes cannot exchange places with a new strike because a caller
+reordered its method calls. The acceptance workload (boot plus three
+simultaneous events) is bounded at 512 frames (10.67 ms); an unbounded input
+stream is intentionally not presented as having a finite latency.
+
 ### The host decides no value
 
 It sends whatever the current model specifies, because what is verified here is
