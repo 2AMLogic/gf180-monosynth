@@ -308,8 +308,40 @@ def lay_out(writes: list, link: LinkTiming) -> list:
     the queue. Measured, not argued: without `w.anchor` in the sort key, a key
     down landing on a bass-drum beat moved 10 frames (208 us); with it, 2
     frames (42 us), which is one transaction, which is the floor."""
-    ws = sorted(writes, key=lambda w: (w.frame, w.anchor))
+    ws = sorted(writes, key=_write_order_key)
     return feasible(spread(ws, link), link)
+
+
+def _write_order_key(w: Write) -> tuple:
+    """Stable musical ordering for writes with the same event time.
+
+    ``list.sort`` used to preserve API call order here.  That made a BD and a
+    tom at the same timestamp produce different wire schedules depending on
+    which ``hits`` call happened first.  The tag order keeps voice operations
+    (pitch, track, then gate/trigger) meaningful while the remaining fields
+    make drum and image writes independent of arrival order.
+    """
+    tag_order = {
+        "inc": 10, "track": 20, "glide": 30, "mwheel": 40,
+        "accent": 50, "kit": 55, "knob-cutoff": 60, "knob-res": 61,
+        "knob-decay": 62, "knob-volume": 63,
+        "bd-attack-hot": 70, "tom-bend": 71,
+        "stops-on": 80, "gate": 81, "trig": 82, "stops-off": 90,
+    }
+    return (w.frame, bool(w.anchor), tag_order.get(w.tag, 100),
+            w.flag, w.sec, w.addr, w.data & 0xFFFFFFFF)
+
+
+def causal_lay_out(writes: list, link: LinkTiming) -> list:
+    """Lay out a live stream without sending any write before its event.
+
+    Offline ``lay_out`` deliberately backs setup writes into the future
+    musical instant.  A live caller cannot know that future, so it submits
+    writes at the event frame and accepts serial-link latency.  ``feasible``
+    then serialises collisions while preserving the causal lower bound.
+    """
+    ws = sorted(writes, key=_write_order_key)
+    return feasible(ws, link)
 
 
 def place(writes: list, link: LinkTiming) -> list:
@@ -361,6 +393,19 @@ def check(placed: list) -> dict:
                 * FRAME_PS / 1e6,
                 worst_move_frames=max((abs(p.moved) for p in moved), default=0),
                 worst_slip_frames=max((abs(p.slip) for p in slipped), default=0))
+
+
+def live_latency(placed: list, first_event_frame: int) -> dict:
+    """Latency for writes belonging to a live event, excluding boot image.
+
+    ``check`` intentionally reports movement for every transaction.  A live
+    acceptance result also needs the musical queue bound without counting the
+    one-time patch load, which may legitimately occupy the link before play.
+    """
+    event = [p for p in placed if p.w.nominal >= int(first_event_frame)]
+    frames = max((p.land - p.w.nominal for p in event), default=0)
+    return {"writes": len(event), "max_frames": frames,
+            "max_us": frames * FRAME_PS / 1e6}
 
 
 def cmd_lines(placed: list) -> list:
@@ -557,6 +602,87 @@ class MusicHost:
         the wire. Returns `Placed` -- what to send, and the frame the host
         PREDICTS each one lands in."""
         return place(lay_out(self.w, link), link)
+
+
+class LiveMusicHost(MusicHost):
+    """Causal event adapter for a playable host.
+
+    ``submit`` is the boundary used by a MIDI/UI bridge.  The first argument
+    is the frame at which the bridge receives the event; writes are never
+    scheduled before it.  Events sharing a frame are canonicalised by type
+    and payload, so API call order cannot change the coefficients.  The wire
+    still has one transaction per roughly 1.55 frames on the bench link;
+    queueing therefore adds latency, reported by :func:`check`, rather than
+    moving a setup write into the past.
+
+    Policy for a busy queue: preserve every event, serialize writes in the
+    link's order, and let the musical instant move later by the measured link
+    service time.  ``MAX_LIVE_LATENCY_FRAMES`` is the bounded workload used by
+    the acceptance tests (boot plus three simultaneous events), not a claim
+    that an unbounded input stream has finite latency.
+    """
+    MAX_LIVE_LATENCY_FRAMES = 512
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._live_base_w: list[Write] = []
+        self._live_events: list[tuple[int, str, tuple]] = []
+        self._live_materialized = False
+
+    def load(self, *args, **kwargs) -> "LiveMusicHost":
+        super().load(*args, **kwargs)
+        self._live_base_w = list(self.w)
+        return self
+
+    def submit(self, frame: int, kind: str, payload: tuple) -> "LiveMusicHost":
+        frame = int(frame)
+        if frame < 0:
+            raise ValueError("live event frame must be non-negative")
+        if kind not in {"key", "hit", "knob"}:
+            raise ValueError(f"unknown live event kind {kind!r}")
+        if not isinstance(payload, tuple):
+            payload = tuple(payload)
+        self._live_events.append((frame, kind, payload))
+        self._live_materialized = False
+        return self
+
+    @staticmethod
+    def _event_key(event: tuple) -> tuple:
+        frame, kind, payload = event
+        rank = {"knob": 0, "key": 1, "hit": 2}[kind]
+        return frame, rank, tuple(str(x) for x in payload)
+
+    def _materialize(self):
+        if self._live_materialized:
+            return
+        self.w = list(self._live_base_w)
+        # KeyHost is stateful across the phrase, so hand it one canonical
+        # stream.  Drum image changes are applied bucket by bucket below.
+        keys = sorted((e[0], e[1], *e[2]) for e in self._live_events
+                      if e[1] == "key")
+        if keys:
+            self.keys([(f, op, note) for f, _, op, note in keys])
+        for frame in sorted({e[0] for e in self._live_events}):
+            bucket = [e for e in self._live_events if e[0] == frame]
+            for _, _, payload in sorted((e for e in bucket if e[1] == "knob"),
+                                        key=self._event_key):
+                self.knob(frame, payload[0], payload[1])
+            hits = [(frame, payload[0], payload[1])
+                    for _, _, payload in sorted((e for e in bucket if e[1] == "hit"),
+                                                key=self._event_key)]
+            if hits:
+                self.hits(hits)
+        self._live_materialized = True
+
+    def schedule(self, link: LinkTiming = BENCH) -> list:
+        self._materialize()
+        return place(causal_lay_out(self.w, link), link)
+
+    def latency(self, placed: list) -> dict:
+        """Return measured queue latency after the one-time boot image."""
+        if not self._live_events:
+            return {"writes": 0, "max_frames": 0, "max_us": 0.0}
+        return live_latency(placed, min(e[0] for e in self._live_events))
 
 
 def knob_cost() -> dict:

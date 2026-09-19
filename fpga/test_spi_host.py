@@ -256,3 +256,57 @@ def test_every_fixture_schedules_without_a_late_musical_instant(name):
 def test_demo_mode_needs_no_keyboard_and_still_plays_notes_and_knobs():
     host, n, cover = fixtures.demo(bars=1)
     assert cover["gates"] >= 8 and cover["knobs"] >= 8 and cover["strikes"] >= 8
+
+
+# ---- live delivery (#142) --------------------------------------------------
+def test_same_timestamped_events_are_independent_of_submission_order():
+    """The API call order is not part of a musical event's meaning.
+
+    This is the audit's red control: the old offline host interleaves the BD
+    attack and tom bend according to the order in which ``hits`` was called.
+    Their coefficient writes then land in different frames.
+    """
+    a = sh.MusicHost().load(0)
+    a.hits([(1000, dx.BD, 1.0), (1000, dx.LT, .7), (1200, dx.CP, 1.0)])
+    b = sh.MusicHost().load(0)
+    b.hits([(1000, dx.LT, .7), (1000, dx.BD, 1.0), (1200, dx.CP, 1.0)])
+    assert sh.model_writes(a.schedule(BENCH)) == sh.model_writes(b.schedule(BENCH))
+
+
+def test_live_queue_is_causal_and_reports_bounded_latency():
+    live = sh.LiveMusicHost().load(0)
+    live.submit(1000, "hit", (dx.BD, 1.0))
+    live.submit(1000, "key", ("on", 45))
+    live.submit(1000, "hit", (dx.LT, .8))
+    placed = live.schedule(BENCH)
+    report = sh.check(placed)
+    assert report["conflicts"] == []
+    assert all(p.land >= p.w.frame for p in placed)
+    latency = live.latency(placed)
+    assert latency["max_frames"] <= live.MAX_LIVE_LATENCY_FRAMES
+    assert latency["max_us"] == pytest.approx(latency["max_frames"] * 1e6 / 48000)
+
+
+def test_live_queue_preserves_repeated_and_simultaneous_events():
+    live = sh.LiveMusicHost().load(0)
+    for f, op in ((1000, "on"), (1050, "off"),
+                  (1100, "on"), (1150, "off")):
+        live.submit(f, "key", (op, 45))
+    live.submit(1000, "hit", (dx.BD, 1.0))
+    live.submit(1000, "hit", (dx.SD, 1.0))
+    placed = live.schedule(BENCH)
+    stops = [p for p in placed if p.w.tag == "stops-on"]
+    assert len(stops) == 1 and stops[0].w.data == (1 << dx.BD) | (1 << dx.SD)
+    assert len([p for p in placed if p.w.tag == "gate"]) == 4
+    assert all(b.start_ps >= a.start_ps + BENCH.tx_period_ps
+               for a, b in zip(placed, placed[1:]))
+
+
+def test_live_queue_can_accept_more_events_after_a_drain():
+    live = sh.LiveMusicHost().load(0)
+    live.submit(1000, "key", ("on", 45))
+    first = live.schedule(BENCH)
+    live.submit(1200, "key", ("off", 45))
+    second = live.schedule(BENCH)
+    assert len(second) > len(first)
+    assert len([p for p in second if p.w.tag == "gate"]) == 2
