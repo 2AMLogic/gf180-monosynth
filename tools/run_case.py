@@ -1209,26 +1209,70 @@ def _ref_band(freqs, cut_hz):
 def filt_corner(cut_hz: float):
     """The -3 dB corner READ OFF the measured response, never the commanded
     cutoff. The cases say "verified by measurement" and mean it: Surge is
-    commanded at 250 Hz and its four cascaded poles put the -3 dB point at
-    128 Hz, which is a property of a 4-pole low-pass and not a tuning error.
+    commanded at 250 Hz and its four cascaded poles put the -3 dB point well
+    below it, which is a property of a 4-pole low-pass and not a tuning error.
 
-    **What this number is, exactly**, because it is not the textbook -3 dB
-    corner and reporting it as one would be wrong. It is the -3 dB point
-    relative to that curve's OWN passband plateau (the median over 40-62.5 Hz),
-    linearly interpolated in dB between the two measured points that straddle
-    it on a log grid whose points are 20.2 % apart. Both departures are
-    measured: on a closed-form ideal 4-pole with a 250 Hz pole, whose true
-    -3 dB corner is 108.54 Hz, this reads 124.96 Hz -- 15 % high.
+    THE BIAS THAT WAS NOT COMMON MODE (#150)
+    ----------------------------------------
+    This measured -3 dB relative to the MEDIAN of `_ref_band`, a band that
+    moves with the commanded cutoff. The docstring said the resulting bias was
+    "COMMON MODE" and that only the absolute value was affected. **It is not
+    common mode across cutoffs**, which is the axis every Filters conclusion is
+    read along. On an ideal 4-pole, whose corner/cutoff ratio is 0.4342 at
+    every cutoff by construction, this read
 
-    That bias is COMMON MODE. Both sides of every comparison are measured by
-    this function, on the same grid, so a difference between two corners is a
-    real difference; the absolute value is not a textbook corner and is
-    labelled as this estimator's. Pinned in
-    test_run_case.py::test_filt_corner_recovers_a_known_ratio_between_two_corners.
+        commanded    250 Hz    1000 Hz    4000 Hz
+        ratio        0.4998     0.4446     0.4342      (grid 40 Hz-12 kHz, 32 pts)
+        bias        +15.1 %     +2.4 %     +0.0 %
 
-    Ground truth: audio_measure.corner_from_curve's own tests."""
+    -- 15 points of droop manufactured by the instrument, concentrated exactly
+    where #146 read a trend and attributed it to our cutoff mapping. A
+    CONSTANT 16 % tuning error read back as -11.9 / -15.3 / -15.7 %, a
+    3.8-point trend out of no trend at all.
+
+    The reference is now `audio_measure.dc_plateau_db`: the same band, fitted
+    against `(f/cut)^2` and extrapolated to DC, which is shape-agnostic for any
+    real filter and does not depend on where the band sits relative to the
+    cutoff. Measured on ideal 2-, 4- and 6-pole responses over 250 Hz-4 kHz the
+    ratio's spread falls from 8.92 / 15.10 / 20.93 % to 0.43 / 0.73 / 0.80 %,
+    and a constant 16 % error reads back as -15.59 / -15.91 / -15.98 %, a
+    0.39-point trend where there was a 3.84-point one.
+
+    WHAT IS LEFT, AND IT IS NOT ZERO. Up to 0.80 % of residual spread, from the
+    log grid's own 20.2 % spacing and the linear-in-dB interpolation across it
+    -- the same systematic `filt_rolloff` documents, and it is now the whole of
+    this estimator's frequency dependence. **A trend smaller than about 1 %
+    across the range is this instrument and not a filter's**, which is the
+    number a reader of F1A/F1B/F1C needs and did not have.
+
+    THE GRID IS PART OF THE INSTRUMENT. #150 records two different readings of
+    this control, 0.500/0.445/0.434 and 0.460/0.439/0.432. Both are right: the
+    first is `reference_compare.FREQS`, `geomspace(40, 12000, 32)`, which is
+    the grid the board is actually measured on; the second is
+    `geomspace(20, 18000, 32)`, which reproduces to 0.4597/0.4390/0.4317 and
+    -14.66/-15.97/-15.96. A 20 Hz floor puts the plateau band lower relative to
+    the cutoff, so it catches less droop and the bias is smaller. The number to
+    correct against is the FIRST, because `probe_freqs()` is the profile's own
+    grid. Pinned in test_run_case.py::test_filt_corner_grid_dependence_is_the
+    _reconciliation_of_150s_two_readings.
+
+    Ground truth: test_filt_corner_ratio_is_constant_across_the_range,
+    test_filt_corner_reads_a_constant_tuning_error_as_constant,
+    test_filt_corner_recovers_a_known_ratio_between_two_corners,
+    audio_measure.dc_plateau_db's own tests."""
     def f(freqs, g):
-        return am.corner_from_curve(freqs, g, ref_band=_ref_band(freqs, cut_hz))
+        band = _ref_band(freqs, cut_hz)
+        ref = am.dc_plateau_db(freqs, g, band, scale_hz=(cut_hz or 400.0))
+        if not ref.ok:
+            return am.Estimate(None, False,
+                               "no passband reference to measure a corner against: "
+                               + ref.reason, ref.detail)
+        e = am.corner_from_curve(freqs, g, ref_band=band, ref_db=ref.value)
+        if e.ok:
+            e.detail.update({k: ref.detail[k] for k in
+                             ("fit_residual_db", "extrapolation_db", "n")})
+            e.detail["plateau_basis"] = "dc-extrapolated (#150)"
+        return e
     return f
 
 

@@ -1074,6 +1074,90 @@ def test_schroeder_t20_accepts_a_record_that_does_contain_its_decay():
     assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.01, e.value
 
 
+# ---------------------------------------------------------------------------
+# #139 -- a LENGTH guard is satisfied by silence
+#
+# #118 replaced a level criterion with a length one, and length counts SAMPLES
+# IN THE RECORD rather than SIGNAL IN THE TAIL. Appending zeros adds no
+# information and cannot change what the decay was, but it converts a correct
+# refusal into an accepted wrong answer. These tests are the counterexample
+# from the issue, both of its directions, and the #103-style invariance whose
+# absence let it through.
+# ---------------------------------------------------------------------------
+def test_appending_silence_cannot_rescue_a_refused_decay():
+    """#139's verified counterexample, exactly. A 2.0 s record of a tau 200 ms
+    decay reads its closed-form T20. Cut to 0.30 s it is refused, correctly.
+    Cut to 0.30 s and padded back to 2.0 s with DIGITAL SILENCE it was
+    accepted at **-48 %**.
+
+    Zeros carry no information about a decay that was already cut off. A guard
+    that a `np.zeros` call can satisfy is not a guard."""
+    x = _exp_decay(0.200, 2.000)
+    exact = am.t20_from_tau(0.200)
+    full = am.schroeder_t20(x, SR)
+    assert full.ok and abs(full.value / exact - 1) < 0.01, full
+
+    cut = x[:int(0.300 * SR)]
+    assert not am.schroeder_t20(cut, SR).ok, "the cut record must still be refused"
+
+    padded = np.concatenate([cut, np.zeros(int(1.700 * SR))])
+    e = am.schroeder_t20(padded, SR)
+    assert not e.ok, (
+        "1.7 s of np.zeros turned a refusal into an accepted answer of "
+        f"{(e.value or 0)*1e3:.1f} ms against an exact {exact*1e3:.1f} ms "
+        f"({100*((e.value or 0)/exact - 1):+.1f} %)")
+    # And the point of the test, stated the way #118's test states its own:
+    # the criterion the pad DEFEATED is still comfortably satisfied by it. If
+    # anyone reinstates the array's length as the truncation test, this record
+    # goes green again and this assertion goes red.
+    d = e.detail
+    array_tail_t20s = (len(padded) - d["sounding_samples"] + d["after_hi_ms"] * 1e-3 * SR) \
+        / (d["t20_ms"] * 1e-3 * SR)
+    assert array_tail_t20s >= am.MIN_TAIL_T20, \
+        f"the ARRAY holds {array_tail_t20s:.2f} T20s after the -25 dB point"
+    assert d["tail_in_t20s"] < am.MIN_TAIL_T20, \
+        f"the SOUNDING record holds only {d['tail_in_t20s']:.3f}"
+    assert d["trailing_silence_ms"] == pytest.approx(1700.0, abs=1.0), d
+
+
+@pytest.mark.parametrize("pad_s", [0.2, 1.7, 5.0])
+def test_appending_silence_cannot_change_an_accepted_decay_either(pad_s):
+    """The invariance, stated as an invariance (#103): appending digital
+    silence to a record that already contains its decay must not move the
+    measurement. The refusal above and this are the same property read in its
+    two directions, and neither alone is the test."""
+    x = _exp_decay(0.040, 0.500)
+    base = am.schroeder_t20(x, SR).require("unpadded")
+    got = am.schroeder_t20(np.concatenate([x, np.zeros(int(pad_s * SR))]), SR)
+    assert got.ok, got.reason
+    assert abs(got.value / base - 1) < 0.01, \
+        f"{pad_s} s of trailing silence moved T20 from {base*1e3:.2f} to {got.value*1e3:.2f} ms"
+
+
+def test_a_genuinely_quiet_tail_is_not_refused_for_being_quiet():
+    """The direction that makes the criterion hard, and the one a naive
+    "the tail must have energy" rule gets wrong: **a real decay's tail IS
+    low-energy.** 16-bit quantisation puts this record's tail at about
+    -96 dBFS, three orders of magnitude under its own peak, and it must be
+    measured, not refused."""
+    x = _exp_decay(0.040, 0.600)
+    q = np.round(x * 32767.0) / 32767.0          # a real 16-bit record's floor
+    e = am.schroeder_t20(q, SR)
+    assert e.ok, f"refused a genuine quiet tail: {e.reason}"
+    assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.02, e.value
+
+
+def test_a_decay_that_ends_in_its_own_noise_floor_is_not_refused():
+    """The same direction again with a noise floor rather than quantisation:
+    a decay recorded onto a -80 dBFS floor still contains its decay, and the
+    criterion must read the tail's signal rather than demand a level."""
+    rng = np.random.default_rng(139)
+    x = _exp_decay(0.040, 0.600) + rng.normal(0.0, 1e-4, int(0.600 * SR))
+    e = am.schroeder_t20(x, SR)
+    assert e.ok, f"refused a decay sitting on its own noise floor: {e.reason}"
+    assert abs(e.value / am.t20_from_tau(0.040) - 1) < 0.05, e.value
+
+
 @pytest.mark.parametrize("pad_ms", [0.0, 2.0, 100.0])
 def test_schroeder_t20_is_unchanged_by_leading_silence(pad_ms):
     """Invariance (#103): prepending digital silence cannot change how long a
@@ -1168,3 +1252,100 @@ def test_inharmonic_fraction_db_is_unchanged_by_scaling():
     a = am.inharmonic_fraction_db(x, 441.0, SR).require()
     b = am.inharmonic_fraction_db(x * 1e-3, 441.0, SR).require()
     assert abs(a - b) < 1e-9, f"{a:.6f} vs {b:.6f} dB"
+
+
+# ---------------------------------------------------------------------------
+# #150 -- the passband reference a corner is measured against
+#
+# `plateau_db` takes the median of a band that MOVES WITH THE COMMANDED
+# CUTOFF, so it catches a different amount of the filter's own droop at each
+# cutoff and biases the corner by a different amount at each cutoff.
+# `dc_plateau_db` extrapolates to DC instead, which is shape-agnostic for any
+# real filter because |H(f)|^2 is even in f.
+# ---------------------------------------------------------------------------
+def _allpole_db(freqs, fc, poles):
+    return -(10.0 * poles) * np.log10(1.0 + (np.asarray(freqs, float) / fc) ** 2)
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+@pytest.mark.parametrize("fc", [250.0, 1000.0, 4000.0])
+def test_dc_plateau_db_recovers_the_dc_gain_of_an_ideal_filter(poles, fc):
+    """The closed form: every one of these curves is 0 dB at DC by
+    construction, at every cutoff and every pole count. The median of the same
+    band is not, and by a different amount each time -- which is the defect."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    band = (f[0], max(f[0] * 2.5, fc * 0.25))
+    g = _allpole_db(f, fc, poles)
+    e = am.dc_plateau_db(f, g, band, scale_hz=fc)
+    assert e.ok, e.reason
+    assert abs(e.value) < 0.05, f"DC level read {e.value:+.3f} dB, closed form 0.000"
+    assert abs(e.detail["band_median_db"]) >= abs(e.value), \
+        "the median must be the more biased of the two, or this repair is pointless"
+
+
+def test_dc_plateau_db_is_offset_equivariant():
+    """A gain applied to the whole curve must move the reference by exactly
+    that gain and nothing else -- it is a LEVEL, and a level estimator that is
+    not equivariant under a level change is not measuring one."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 1000.0, 4)
+    a = am.dc_plateau_db(f, g, (40.0, 250.0), scale_hz=1000.0).require()
+    b = am.dc_plateau_db(f, g - 7.5, (40.0, 250.0), scale_hz=1000.0).require()
+    assert abs((a - b) - 7.5) < 1e-9, f"{a:.9f} vs {b:.9f}"
+
+
+def test_dc_plateau_db_refuses_a_band_that_is_not_a_passband():
+    """The precondition, asserted at the point of use. `gain_db` must be
+    flat-plus-f^2 over the band for the intercept to mean anything; a band with
+    a notch in it is not a passband, and the answer would be an extrapolation
+    dressed as a measurement. So it REFUSES rather than reporting."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 4000.0, 4)                        # band top at 0.25 fc
+    g = g - 25.0 * np.exp(-((np.log2(f / 200.0)) ** 2) / 0.05)   # a notch inside it
+    e = am.dc_plateau_db(f, g, (40.0, 1000.0), scale_hz=4000.0)
+    assert not e.ok
+    assert "not the passband" in e.reason
+    assert e.detail["fit_residual_db"] > am.MAX_PLATEAU_EXTRAPOLATION_DB
+    # And the same curve without the notch is measured, so the refusal is the
+    # notch and not the band.
+    ok = am.dc_plateau_db(f, _allpole_db(f, 4000.0, 4), (40.0, 1000.0), scale_hz=4000.0)
+    assert ok.ok and abs(ok.value) < 0.05, ok
+
+
+def test_dc_plateau_db_refuses_a_band_with_too_few_points():
+    f = np.asarray([40.0, 48.1, 57.8, 69.5])
+    e = am.dc_plateau_db(f, _allpole_db(f, 1000.0, 4), (40.0, 45.0), scale_hz=1000.0)
+    assert not e.ok and "three measured points" in e.reason
+
+
+def test_corner_from_curve_ref_db_overrides_the_band_median():
+    """The kwarg #150 needs, and the guarantee every existing caller relies on:
+    without `ref_db` nothing about this function moves."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 250.0, 4)
+    band = (40.0, 100.0)
+    base = am.corner_from_curve(f, g, ref_band=band)
+    assert base.ok and base.value == pytest.approx(124.96, rel=0.005)
+    assert base.detail["plateau_db"] == base.detail["band_median_db"]
+    fixed = am.corner_from_curve(f, g, ref_band=band, ref_db=0.0)
+    assert fixed.value == pytest.approx(107.80, rel=0.005)
+    assert abs(fixed.value / (250.0 * math.sqrt(10 ** 0.075 - 1)) - 1) < 0.01
+    assert fixed.detail["band_median_db"] == pytest.approx(-0.904, abs=0.01)
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+def test_dc_plateau_db_refuses_a_band_that_reaches_the_corner(poles):
+    """The domain limit #150 asked for, asserted at the point of use rather
+    than described. On this project's grid `_ref_band`'s top edge is pinned at
+    100 Hz, so at a commanded 100 Hz the "passband" band reaches the cutoff
+    itself and the f^2 expansion reads 7 to 19 % high depending on pole count.
+    That is a REFUSAL, not a number with a caveat."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    e = am.dc_plateau_db(f, _allpole_db(f, 100.0, poles), (40.0, 100.0), scale_hz=100.0)
+    assert not e.ok and "past the" in e.reason
+    assert e.detail["band_top_over_cutoff"] == pytest.approx(1.0)
+    # And the boundary itself is admitted, because the Filters family lives on
+    # it: a commanded 250 Hz puts the band top at 0.4 of the cutoff.
+    ok = am.dc_plateau_db(f, _allpole_db(f, 250.0, poles), (40.0, 100.0), scale_hz=250.0)
+    assert ok.ok, ok.reason
+    assert ok.detail["band_top_over_cutoff"] == pytest.approx(0.4)

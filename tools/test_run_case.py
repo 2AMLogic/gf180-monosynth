@@ -133,7 +133,14 @@ def test_pitch_drop_hz_refuses_a_window_that_is_already_silent():
 # ===========================================================================
 # prepare(): the two artefacts it was written wrong twice to avoid
 # ===========================================================================
-def _burst_in_silence(seconds=2.2, burst_ms=15.0, dc=0.0, lead_ms=10.0):
+def _burst_in_silence(seconds=2.2, burst_ms=60.0, dc=0.0, lead_ms=10.0):
+    """A 4 ms-tau burst inside 2.2 s of digital silence.
+
+    `burst_ms` was 15, which is 3.75 tau: the exponential was HARD-CUT at
+    -32 dB and the 2.2 s of zeros that followed were what satisfied the decay
+    guard's length criterion. That is #139's defect standing in this file's own
+    fixture, and it is why the number below is 60 -- fifteen tau, so the decay
+    is over before the silence starts and the record contains it."""
     n = int(seconds * SR)
     x = np.full(n, dc)
     a = int(lead_ms * 1e-3 * SR)
@@ -155,6 +162,15 @@ def test_prepare_does_not_leave_a_floor_that_never_decays():
     assert tail < 1e-6, tail
     e = am.schroeder_t20(y, SR)
     assert e.ok and e.value * 1e3 < 60.0, e
+    assert e.value == pytest.approx(am.t20_from_tau(0.004), rel=0.02), \
+        f"the prepared burst must read its own closed-form T20: {e}"
+    # The control, because "< 60 ms" is also satisfied by a refusal and by a
+    # wrong number: the SAME burst with a floor left in must NOT read the
+    # closed-form answer, or prepare is not what is being measured here.
+    for dc in (1e-3, 2e-3):
+        bad = am.schroeder_t20(_burst_in_silence(dc=dc), SR)
+        assert not bad.ok or abs(bad.value / e.value - 1) > 0.15, \
+            f"a {dc:.0e} floor left in read the right answer anyway: {bad}"
 
 
 def test_prepare_does_not_put_a_precursor_ahead_of_the_strike():
@@ -626,17 +642,65 @@ def probe_freqs():
 def test_filt_corner_is_plateau_relative_and_grid_interpolated():
     """The absolute number this estimator reports is NOT the textbook -3 dB
     corner, and pretending otherwise is how a biased number reaches a board.
-
-    It is -3 dB below the curve's own passband plateau, interpolated on a log
-    grid whose points are 20.2 % apart. On an ideal 4-pole with a 250 Hz pole,
-    whose closed-form corner is 108.54 Hz, it reads about 125 Hz -- 15 % high.
     This test exists to pin that bias where someone reading the board can find
-    it, not to wish it away."""
+    it, not to wish it away.
+
+    **It used to read 124.96 Hz against a closed-form 108.54 -- 15 % high**,
+    and that whole 15 % was the passband reference: the median of a band the
+    filter itself is 2.6 dB down at by its top edge. With the reference
+    extrapolated to DC (#150) the same curve reads 108.37, and what is left is
+    0.16 % of log-grid interpolation on points 20.2 % apart. The bias is now
+    smaller than the grid step by two orders of magnitude, and it is still a
+    bias."""
     f = probe_freqs()
     e = rc.filt_corner(IDEAL_FP)(f, ideal_4pole_db(f))
     assert e.ok, e.reason
-    assert e.value == pytest.approx(124.96, rel=0.005)
-    assert e.value > IDEAL_CORNER * 1.10, "the bias is high, not low"
+    assert e.value == pytest.approx(108.37, rel=0.005)
+    assert abs(e.value / IDEAL_CORNER - 1) < 0.01, \
+        f"{e.value:.2f} Hz against a closed-form {IDEAL_CORNER:.2f}"
+    # The old reference is still computed and still reported, so the size of
+    # the repair stays visible next to the number it repaired.
+    assert e.detail["band_median_db"] == pytest.approx(-0.904, abs=0.01)
+    assert e.detail["plateau_db"] == pytest.approx(-0.030, abs=0.01)
+
+
+def test_filt_corner_grid_dependence_is_the_reconciliation_of_150s_two_readings():
+    """#150 records two readings of the same control -- 0.500 / 0.445 / 0.434
+    and 0.460 / 0.439 / 0.432 -- and says the size of the correction depends on
+    which is right. **Both are right, and the difference is the grid**, which
+    is part of the instrument and was not stated with either number.
+
+    A grid whose lowest frequency is 20 Hz puts the plateau band lower relative
+    to the cutoff, so its median catches less of the filter's own droop and the
+    bias is smaller. `geomspace(20, 18000, 32)` reproduces the second reading
+    to three decimal places. The board's grid is `reference_compare.FREQS`,
+    `geomspace(40, 12000, 32)`, which is the first -- so the first is the one a
+    correction had to be sized against.
+
+    This test pins the OLD estimator's readings on both grids, because they are
+    what the two audits saw and a reconciliation nobody can re-run is an
+    assertion."""
+    def old_ratio(F, fc):
+        """`filt_corner` exactly as it stood: -3 dB below the band MEDIAN."""
+        g = ideal_4pole_db(F, fc)
+        return am.corner_from_curve(F, g, ref_band=rc._ref_band(F, fc)).value / fc
+
+    board = probe_freqs()
+    assert list(board[[0, -1]]) == [40.0, 12000.0] and len(board) == 32
+    got = [old_ratio(board, fc) for fc in (250.0, 1000.0, 4000.0)]
+    assert got == pytest.approx([0.4998, 0.4446, 0.4342], abs=0.0005), got
+
+    other = np.geomspace(20.0, 18000.0, 32)
+    got2 = [old_ratio(other, fc) for fc in (250.0, 1000.0, 4000.0)]
+    assert got2 == pytest.approx([0.4597, 0.4390, 0.4317], abs=0.0005), got2
+
+    # And the point: the repair is grid-independent, so the reconciliation
+    # stops mattering once it is in.
+    for F in (board, other):
+        new = [rc.filt_corner(fc)(F, ideal_4pole_db(F, fc)).value / fc
+               for fc in (250.0, 1000.0, 4000.0)]
+        assert max(new) / min(new) - 1 < CORNER_RATIO_SPREAD_MAX, (F[0], new)
+        assert new == pytest.approx([IDEAL_CORNER / IDEAL_FP] * 3, rel=0.015), (F[0], new)
 
 
 def test_filt_corner_recovers_a_known_ratio_between_two_corners():
@@ -649,6 +713,80 @@ def test_filt_corner_recovers_a_known_ratio_between_two_corners():
     b = rc.filt_corner(IDEAL_FP)(f, ideal_4pole_db(f, IDEAL_FP * 1.25))
     assert a.ok and b.ok
     assert b.value / a.value == pytest.approx(1.25, rel=0.05)
+
+
+# ---------------------------------------------------------------------------
+# #150 -- the test whose ABSENCE let a frequency-dependent bias through.
+#
+# `test_filt_corner_recovers_a_known_ratio_between_two_corners` pins a ratio
+# between two corners AT THE SAME cut_hz. That is common mode within one
+# comparison and says nothing about whether the bias is the same at 250 Hz and
+# at 4 kHz -- which is exactly what a claim about a TREND across the range
+# needs. An ideal 4-pole's corner/cutoff ratio is 0.4342 by construction,
+# independent of the cutoff, so the estimator's ratio must be constant too.
+# ---------------------------------------------------------------------------
+#: The commanded cutoffs the Filters family states (`refprofile.CUT_HZ` and
+#: `CUT_REGIONS_HZ`), plus four in between so the trend is sampled rather than
+#: sampled at its endpoints.
+CORNER_SWEEP_HZ = (250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0)
+
+#: How far the estimator's corner/cutoff ratio may move across that sweep, on
+#: a response whose true ratio is constant. This is the instrument's own
+#: frequency-dependent systematic and everything read off a trend across
+#: cutoffs is limited by it.
+CORNER_RATIO_SPREAD_MAX = 0.015
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+def test_filt_corner_ratio_is_constant_across_the_range(poles):
+    """An all-pole low-pass `|H| = (1+(f/fc)^2)^(-n/2)` has its -3 dB point at
+    `fc*sqrt(10^(3/(10n)) - 1)` -- **a constant multiple of fc, whatever fc
+    is.** So the estimator's reported ratio must be constant across the range
+    too, to within its own stated systematic.
+
+    It was not. On the profile's own grid it read 0.4998 / 0.4446 / 0.4342 at
+    250 / 1000 / 4000 Hz: **15 % of apparent droop contributed by the
+    instrument**, concentrated at the bottom of the range, where a claim about
+    the filter's cutoff mapping was being read.
+
+    Run over three pole counts because the repair must not be a curve fit to
+    the 4-pole case."""
+    f = probe_freqs()
+    true_ratio = math.sqrt(10 ** (3.0 / (10.0 * poles)) - 1.0)
+    ratios = {}
+    for fc in CORNER_SWEEP_HZ:
+        g = -(10.0 * poles) * np.log10(1.0 + (f / fc) ** 2)
+        e = rc.filt_corner(fc)(f, g)
+        assert e.ok, (fc, e.reason)
+        ratios[fc] = e.value / fc
+    spread = max(ratios.values()) / min(ratios.values()) - 1.0
+    assert spread < CORNER_RATIO_SPREAD_MAX, (
+        f"{poles}-pole: corner/cutoff ratio moves {100*spread:.2f} % across "
+        f"{CORNER_SWEEP_HZ[0]:.0f}-{CORNER_SWEEP_HZ[-1]:.0f} Hz on a response "
+        f"whose true ratio is {true_ratio:.4f} everywhere: "
+        + " ".join(f"{k:.0f}Hz={v:.4f}" for k, v in ratios.items()))
+
+
+def test_filt_corner_reads_a_constant_tuning_error_as_constant():
+    """The consequence, stated the way the board reads it. A synthesiser whose
+    cutoff is a **constant 16 % low** at every setting must read as 16 % low at
+    every setting. Through the uncalibrated estimator it read -11.9 / -15.3 /
+    -15.7 % at 250 / 1000 / 4000 Hz -- a 3.8-point trend manufactured out of a
+    constant error, in the same direction as the trend #146 attributed to the
+    filter."""
+    f = probe_freqs()
+    err = 0.16
+    read = {}
+    for fc in (250.0, 1000.0, 4000.0):
+        ref = rc.filt_corner(fc)(f, ideal_4pole_db(f, fc))
+        got = rc.filt_corner(fc)(f, ideal_4pole_db(f, fc * (1.0 - err)))
+        assert ref.ok and got.ok
+        read[fc] = got.value / ref.value - 1.0
+    for fc, v in read.items():
+        assert abs(v + err) < 0.010, \
+            f"a constant -16 % read as {100*v:.2f} % at {fc:.0f} Hz: " + str(read)
+    spread = max(read.values()) - min(read.values())
+    assert spread < 0.010, f"a constant error read with a {100*spread:.2f}-point trend: {read}"
 
 
 def test_filt_corner_refuses_a_curve_with_no_corner_in_it():

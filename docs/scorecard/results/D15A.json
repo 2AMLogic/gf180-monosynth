@@ -2,37 +2,37 @@
   "engine": "fixed-model",
   "case_id": "D15A",
   "subject": "Open hat / anchor",
-  "source_commit": "9d60eaa",
-  "analysis_run": "run_case@c8cfbad67bf4 + audio_measure@288aa83814a5 at 2026-09-19T00:21:02Z",
+  "source_commit": "7dd6337",
+  "analysis_run": "run_case@531aa8a3731d + audio_measure@77e321cbfe87 at 2026-09-19T01:28:35Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "9d60eaa",
-      "described": "node/D-drums-bitexact-74-g9d60eaa-dirty",
-      "branch": "sound-tom-pitch-drop",
+      "commit": "7dd6337",
+      "described": "node/D-drums-bitexact-83-g7dd6337",
+      "branch": "fix-decay-and-corner",
       "dirty": true,
-      "uncommitted_sha256": "d32c6c3719988cc3",
-      "untracked_files": 3
+      "uncommitted_sha256": "628231a78397603e",
+      "untracked_files": 1
     },
     "base_check": {
       "checked": true,
-      "origin_main": "c80382632fd5",
+      "origin_main": "398bc543d7b9",
       "behind_commits": 0,
       "ahead_commits": 5,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
       "ahead_dependencies": {
-        "model/drums_fx.py": {
-          "origin_main": "5ea51e6cf91b",
-          "here": "4a0177412ff4"
+        "model/audio_measure.py": {
+          "origin_main": "288aa83814a5",
+          "here": "77e321cbfe87"
         }
       },
       "allow_stale": false,
       "problems": [],
-      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: model/drums_fx.py. That is not a stale premise -- the tree contains everything origin/main has."
+      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: model/audio_measure.py. That is not a stale premise -- the tree contains everything origin/main has."
     },
-    "command": "tools/run_case.py D01A D02A D03A D04A D05A D06A D07A D08A D09A D10A D11A D12A D13A D14A D15A D16A --refs /tmp/tr808-ref",
+    "command": "tools/run_case.py --batch First 32 --no-audio --results /private/tmp/claude-501/-Users-joseph-dev-2amlogic/b50207d1-0443-45b1-85ae-6193fbb61d1b/scratchpad/res2",
     "config": {
       "voice": "OH",
       "refs": "/tmp/tr808-ref",
@@ -43,20 +43,20 @@
       "level_matched": true
     },
     "python": "3.14.7",
-    "run_at": "2026-09-19T00:21:13Z",
+    "run_at": "2026-09-19T01:28:44Z",
     "inputs": {
       "model/drums_fx.py": "sha256:4a0177412ff464a3",
       "model/voice_fx.py": "sha256:771f4a21ef7617ad",
-      "model/audio_measure.py": "sha256:288aa83814a52662",
+      "model/audio_measure.py": "sha256:77e321cbfe87a6c9",
       "model/reference_rigs.py": "sha256:99b1c862857a34a8",
-      "tools/run_case.py": "sha256:c8cfbad67bf468fe",
+      "tools/run_case.py": "sha256:531aa8a3731dfdb8",
       "tools/refprofile.py": "sha256:4bbd8e90c0a58e52",
       "refprofile/profile.json": "sha256:c49b2e9046de0c13",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
       "reference:oh8/OH50.WAV": "sha256:84ae3220fab23963"
     },
     "artefacts": {
-      "ours": "build/scorecard/D15A-ours.wav",
+      "ours": "not written (--no-audio)",
       "reference": "/tmp/tr808-ref/oh8/OH50.WAV"
     },
     "outcome_code": 2,
@@ -65,7 +65,7 @@
   "reference_profile": "fischer-tr808-103852:oh8/OH50.WAV (DECAY 5.0)",
   "reference_identity": "Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 s/n 103852, individual voice outputs, 16-bit/44.1 kHz",
   "render_run": "drums_fx@4a0177412ff4 kit_with_sounds('OH') solo, one hit at accent 1.0, 3.60 s, both drum buses 0.45, 48000 Hz, circuit 5 of 11",
-  "audio": "reference oh8/OH50.WAV; ours build/scorecard/D15A-ours.wav",
+  "audio": "reference oh8/OH50.WAV; ours not written",
   "tolerance_policy": {
     "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
     "time": "50 % of the reference value -- 1.7 states +-50 % on Q, and for these bridged-T resonators tau is proportional to Q",
@@ -131,7 +131,7 @@
     "decay": {
       "units": "ms",
       "valid": false,
-      "why": "reference: the record ends before the decay does: only 173.4 ms follow the -25 dB point and a T20 of 231.3 ms needs 462.5 ms after it, so the backward integral is reporting the cut and not the decay {'tail_db': -108.60436512282023, 'slope_db_s': -86.479311686536, 'residual_db': 5.704846339357427, 'n': 8329, 't20_ms': 231.26918577352427, 'after_hi_ms': 173.37868480725623, 'needed_after_hi_ms': 462.53837154704854, 'tail_in_t20s': 0.7496834661624198, 'min_tail_t20': 2.0}"
+      "why": "reference: the record ends before the decay does: only 173.4 ms follow the -25 dB point and a T20 of 231.3 ms needs 462.5 ms after it, so the backward integral is reporting the cut and not the decay {'tail_db': -108.60436512282023, 'slope_db_s': -86.479311686536, 'residual_db': 5.704846339357427, 'n': 8329, 't20_ms': 231.26918577352427, 'after_hi_ms': 173.37868480725623, 'needed_after_hi_ms': 462.53837154704854, 'tail_in_t20s': 0.7496834661624198, 'min_tail_t20': 2.0, 'tail_residual_db': -74.31843342048661, 'trailing_silence_ms': 0.0, 'sounding_samples': 21998, 'given_samples': 21998}"
     }
   },
   "diagnostics": {
