@@ -1,6 +1,6 @@
 # Monosynth Voice — Numeric Contract
 
-**Revision 10 — 2026-09-18 — status: PROPOSED. Not ratified.**
+**Revision 11 — 2026-09-19 — status: PROPOSED. Not ratified.**
 
 This document is a proposal for the complete, bit-exact specification of the
 gf180-parasynth voice: three band-limited oscillators with an on-chip glide, a
@@ -10,7 +10,7 @@ TR-808-shaped set of eleven stops whose bodies and filters are the modal
 resonator bank — producing one signed 16-bit sample per frame. It is written
 from the committed reference model and claims nothing the model does not do.
 It becomes the specification RTL is verified against only when ratified
-through the two-key process this fleet uses; until then it is revision 10,
+through the two-key process this fleet uses; until then it is revision 11,
 proposed, and the status line above must not be read as
 anything else (the rule is gf180-drone-fc DR-0005's: the status field must not
 claim ratification before that act has happened).
@@ -2049,6 +2049,20 @@ record that extends this document; none may be resolved by picking a reading.
   from `go` with the drum filter off (the all-maximum image: three reciprocals
   and both PolyBLEP windows on every edge). The chip around it is
   `docs/ARCHITECTURE.md`. Not ratified.
+- **Rev 11 (2026-09-19)** — reconcile the pinned image with the measured
+  tom correction already merged in #154 (section 15.7.1). **KIT808 moves from
+  `feb8c6fd…` to `a43fe2a7…`, still 147 writes.** Exactly three registers
+  differ: MODE_AMP[11] at 0xDE, 0x201 → 0x13B; MODE_AMP[12] at 0xE2,
+  0x296 → 0x196; MODE_AMP[13] at 0xE6, 0x42C → 0x28B. These are the
+  LT/MT/HT level reductions documented in `drums_fx.AMP_TOM`: the corrected
+  sweep removes the old detuning loss, so the same balance needs less drive.
+  The prior merge changed the model and this section's host law but left the
+  generated image and hash pins stale. Every other table is unchanged.
+  `test_revision_11_changes_only_the_three_documented_tom_levels` reconstructs
+  the revision-10 hash by reversing only those three writes, so updating the
+  new pin cannot conceal an unrelated register change. This revision changes
+  no model or RTL arithmetic, interface, schedule, or width. Not ratified.
+
 - **Rev 10 (2026-09-18)** — **the complete TR-808: all sixteen named sounds on
   eleven circuits.** No width, clamp or formula of the VOICE changes; what
   changes is the drum section's sizes, the PATH word, the drum page's address
@@ -2434,15 +2448,15 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 | 0xDB | 0x0 | MODE_NUM[10] | | 0x7C | 0xFA | ? |
 | 0xDC | 0x1FFD807 | MODE_A1[11] | | 0x7D | 0x52F1AA | ? |
 | 0xDD | 0x3001EE0 | MODE_A2[11] | | 0x7E | 0x72 | ? |
-| 0xDE | 0x201 | MODE_AMP[11] | | 0x80 | 0xFA | ? |
+| 0xDE | 0x13B | MODE_AMP[11] | | 0x80 | 0xFA | ? |
 | 0xDF | 0x0 | MODE_NUM[11] | | 0x81 | 0x6E978D | ? |
 | 0xE0 | 0x1FFBB4C | ? | | 0x82 | 0xA | ? |
 | 0xE1 | 0x300303D | ? | | 0x84 | 0xFA | ? |
-| 0xE2 | 0x296 | ? | | 0x85 | 0x161E4F | ? |
+| 0xE2 | 0x196 | ? | | 0x85 | 0x161E4F | ? |
 | 0xE3 | 0x0 | ? | | 0x86 | 0x3 | ? |
 | 0xE4 | 0x1FF9A1F | ? | | 0x90 | 0x807803 | PATH[0] |
 | 0xE5 | 0x3003F74 | ? | | 0x91 | 0x1F07823 | PATH[1] |
-| 0xE6 | 0x42C | ? | | 0x92 | 0x907843 | PATH[2] |
+| 0xE6 | 0x28B | ? | | 0x92 | 0x907843 | PATH[2] |
 | 0xE7 | 0x0 | ? | | 0x93 | 0xA07843 | PATH[3] |
 | 0xE8 | 0x1FCD356 | ? | | 0x94 | 0x307861 | PATH[4] |
 | 0xE9 | 0x30243FF | ? | | 0x95 | 0xB07883 | PATH[5] |
@@ -2465,6 +2479,6 @@ Informative, pinned so that the renders and the RTL bench are reproducible: the 
 | 0x42 | 0x3025 | ENV_RATE[0] | | 0xA6 | 0x1F0FA36 | ? |
 | 0x44 | 0x30F0 | ENV_CTL[1] | | | | |
 
-SHA-256 of the 147 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `feb8c6fdeab4c89e506bbfebf6114c82d698d09064933e1a7292998905ba0671`
+SHA-256 of the 147 decimal words `address << 32 | value`, joined by commas, which is `spec/reference/tables/kit808.hex` read as decimal: `a43fe2a7d596a417ae3c9949fe43f94cc8e64482f7cac6ede5bc271009a5ff19`
 
 <!-- END GENERATED APPENDICES -->
