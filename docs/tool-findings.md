@@ -1,5 +1,15 @@
 # Tool findings: what was filed upstream, and what was looked at and not filed
 
+This is the investigation recorded on **2026-09-18**, against the versions
+named below. Statements about upstream `main` refer to those commits. At
+landing on 2026-09-19, upstream issues
+[#2085](https://github.com/2AMLogic/klayout-tools/issues/2085),
+[#2088](https://github.com/2AMLogic/klayout-tools/issues/2088), and
+[#2089](https://github.com/2AMLogic/klayout-tools/issues/2089) were closed;
+[#2086](https://github.com/2AMLogic/klayout-tools/issues/2086) and
+[#2090](https://github.com/2AMLogic/klayout-tools/issues/2090) remained open.
+Closing an upstream issue does not revalidate our older flow artifacts.
+
 A comb of this repository for **defects in the tools we use** that had been
 discovered here and recorded only as workarounds in shell scripts, run logs and
 doc footnotes.
