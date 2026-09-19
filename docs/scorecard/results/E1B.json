@@ -2,21 +2,21 @@
   "engine": "fixed-model",
   "case_id": "E1B",
   "subject": "Bass and kit / dense",
-  "source_commit": "4892fa4",
-  "analysis_run": "run_case@d0c1d59ee990 + audio_measure@7386f4a9297f at 2026-09-18T20:59:26Z",
+  "source_commit": "3645b26",
+  "analysis_run": "run_case@c5596a0ab944 + audio_measure@7386f4a9297f at 2026-09-18T21:24:08Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "4892fa4",
-      "described": "node/D-drums-bitexact-34-g4892fa4-dirty",
+      "commit": "3645b26",
+      "described": "node/D-drums-bitexact-40-g3645b26-dirty",
       "branch": "tools/case-runner",
       "dirty": true,
-      "uncommitted_sha256": "d327ba82dcd567b3",
+      "uncommitted_sha256": "2074f22af6a69a29",
       "untracked_files": 0
     },
     "base_check": {
       "checked": true,
-      "origin_main": "edfcd4b3d761",
+      "origin_main": "3d8c1694a983",
       "behind_commits": 1,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
@@ -25,7 +25,7 @@
       "problems": [],
       "note": "1 commit(s) behind origin/main, none of them touching an input this measurement depends on"
     },
-    "command": "tools/run_case.py --batch First 32",
+    "command": "tools/run_case.py E1A E1B E2A",
     "config": {
       "patch": "01-bass-classic",
       "dense": true,
@@ -35,12 +35,12 @@
       "limiter": false
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T20:59:27Z",
+    "run_at": "2026-09-18T21:24:08Z",
     "inputs": {
       "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
       "model/voice_fx.py": "sha256:fc17442f2e21856a",
       "model/audio_measure.py": "sha256:7386f4a9297ff5f7",
-      "tools/run_case.py": "sha256:d0c1d59ee990a6fe",
+      "tools/run_case.py": "sha256:c5596a0ab944ab8b",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e"
     },
     "artefacts": {
@@ -64,7 +64,7 @@
     "Event timing": {
       "units": "ms",
       "valid": false,
-      "why": "BD: detected onsets do not match the scheduled events {'detected': 12, 'scheduled': 10}",
+      "why": "LT: detected onsets do not match the scheduled events {'scheduled': 8, 'detected_in_window': 6, 'min_gap_s': 0.0605, 'onsets_outside_the_schedule': 0}",
       "tolerance": 10.0
     },
     "bus balance": {
@@ -105,6 +105,7 @@
       "OH",
       "SD"
     ],
+    "onsets_outside_the_schedule": 1,
     "dc_offset_fs": 0.00174852,
     "patch": "01-bass-classic",
     "bpm": 124.0
