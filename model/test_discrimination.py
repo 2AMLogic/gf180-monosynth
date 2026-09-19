@@ -111,7 +111,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "audition"))
 
 from scipy.io import wavfile
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfilt, sosfiltfilt
 from scipy.stats import beta as beta_dist
 
 warnings.filterwarnings("ignore", message=".*EOF.*")
@@ -279,26 +279,100 @@ def onset(x: np.ndarray, frac: float = 0.02) -> int:
     return int(np.argmax(np.abs(x) > frac * pk))
 
 
-def condition(x: np.ndarray, sr: int, level_match: bool = True) -> np.ndarray:
-    """Remove DC, high-pass, onset-align, cut to WINDOW_S, optionally peak
-    normalise. Everything here is applied identically to a real clip and to
-    one of ours; nothing is resampled (the features are rate-independent).
+def preparation_state(x: np.ndarray, sr: int) -> dict:
+    """What two sides of a paired comparison have to agree about before a
+    shared function can be called fair (#163).
 
-    ORDER MATTERS. The high-pass runs on the WHOLE signal before the window is
-    cut, never inside it: a 20 Hz filter settles over ~50 ms, and filtering a
-    240 ms window in place puts that transient right on top of the attack --
-    which is where most of the discrimination lives. Mean subtraction does the
-    real work here (the refs carry about 1 LSB of converter DC, our renders
-    carry none); the first-order high-pass is belt and braces below FMIN."""
+    A comparison is fair when both sides are in the same STATE when the shared
+    function runs, not when they call the same function. The state is
+    established upstream -- `_render_raw` for ours, `read_wav` for the
+    machine's -- so the call site, which reads `f(ours)` and `f(theirs)`,
+    cannot see it. This makes it visible and cheap to assert."""
     x = np.asarray(x, dtype=float)
-    x = x - x.mean()
-    sos = butter(1, HPF_HZ / (sr / 2.0), btype="highpass", output="sos")
-    x = sosfiltfilt(sos, x)
-    i = onset(x)
+    if len(x) == 0:
+        return dict(n=0, sr=int(sr), lead_ms=0.0, first=0.0, peak=0.0, dur_ms=0.0)
+    return dict(n=int(len(x)), sr=int(sr), lead_ms=1000.0 * onset(x) / sr,
+                first=float(x[0]), peak=float(np.abs(x).max()),
+                dur_ms=1000.0 * len(x) / sr)
+
+
+def assert_same_preparation(a: dict, b: dict, lead_tol_ms: float = 0.1) -> bool:
+    """Raise, naming every field that differs. `lead_ms` is the one #101,
+    #132 and #160's F2 all turned on."""
+    bad = []
+    if abs(a["lead_ms"] - b["lead_ms"]) > lead_tol_ms:
+        bad.append(f"lead_ms {a['lead_ms']:.3f} vs {b['lead_ms']:.3f}")
+    if a["sr"] != b["sr"]:
+        bad.append(f"sr {a['sr']} vs {b['sr']}")
+    if abs(a["dur_ms"] - b["dur_ms"]) > 1.0:
+        bad.append(f"dur_ms {a['dur_ms']:.1f} vs {b['dur_ms']:.1f}")
+    if bad:
+        raise AssertionError("inputs are not in the same preparation state: "
+                             + "; ".join(bad))
+    return True
+
+
+def _highpass_sos(sr: int):
+    return butter(1, HPF_HZ / (sr / 2.0), btype="highpass", output="sos")
+
+
+def condition(x: np.ndarray, sr: int, level_match: bool = True,
+              legacy: bool = False) -> np.ndarray:
+    """Onset-align, cut to WINDOW_S, remove DC, high-pass, optionally peak
+    normalise. Applied identically to a real clip and to one of ours; nothing
+    is resampled (the features are rate-independent).
+
+    ORDER, AND WHY IT IS NOT THE ORDER THIS FUNCTION USED TO USE (#161).
+
+    It used to high-pass the WHOLE signal first, with `sosfiltfilt`, and cut
+    afterwards. The docstring's reason was sound -- a filter transient must
+    not land on the attack, which is where the discrimination lives -- but the
+    filter it reached for is the one that cannot honour it. `sosfiltfilt` pads
+    6 samples; the 20 Hz pole is 0.99715 at 44.1 k and 0.99739 at 48 k, about
+    2,400 samples to settle. Six samples against that is not a boundary
+    condition, it is an initial condition chosen at random, and on a unit
+    impulse at index 0 it answers with a full-scale NEGATIVE pedestal: second
+    sample -0.994, first 30 ms integrating to -342 (-373 at 48 k) against a
+    causal filter's +0.02. That pedestal sat on window 0 of every one of the
+    320 feature columns.
+
+    Filtering the whole signal first had a second cost, which is the one #163
+    is about: it let everything AHEAD of the onset into the answer. Our render
+    reaches here pre-trimmed by `_render_raw` and the machine's does not
+    (#160's F2), so the two sides were filtered from different initial
+    conditions while the call site read `condition(ours)` and
+    `condition(theirs)` and looked obviously fair.
+
+    Cutting at the onset FIRST and filtering CAUSALLY from rest fixes both.
+    The window depends on nothing outside itself, so the answer is invariant
+    to the lead -- `test_a_measurement_does_not_depend_on_where_the_record_
+    begins` asserts it to 1e-9 for 1, 10 and 50 ms of silence and for a
+    converter's DC-plus-hiss lead -- and the causal filter's initial condition
+    is rest, which is a stated one rather than a reflected guess. Subtracting
+    the window's own mean first (the refs carry about 1 LSB of converter DC,
+    our renders carry none) makes the DC removal exact instead of exponential,
+    so the first-order high-pass is again belt and braces below FMIN.
+
+    `legacy=True` restores the shipped acausal path EXACTLY, so #148's
+    published numbers stay re-derivable and the delta can be measured rather
+    than asserted (the same reason `_zspace` keeps its unfrozen ruler). It is
+    not for use in a result; `model/condition_boundary.py` is its only caller
+    outside the tests."""
+    x = np.asarray(x, dtype=float)
     n = int(round(WINDOW_S * sr))
-    seg = x[i:i + n]
+    if legacy:
+        y = x - x.mean()
+        y = sosfiltfilt(_highpass_sos(sr), y)
+        i = onset(y)
+        seg = y[i:i + n]
+    else:
+        i = onset(x)
+        seg = x[i:i + n]
     if len(seg) < n:                      # never expected; pad rather than lie about length
         seg = np.concatenate([seg, np.zeros(n - len(seg))])
+    if not legacy:
+        seg = seg - seg.mean()
+        seg = sosfilt(_highpass_sos(sr), seg)
     if level_match:
         pk = float(np.abs(seg).max())
         if pk > 0:
@@ -1719,6 +1793,101 @@ def test_conditioning_removes_length_and_dc():
     # must come through with its attack intact
     t = condition(_tone(200, sr, tau=10.0), sr, level_match=False)
     assert abs(np.abs(t[:200]).max() / np.abs(t[-200:]).max() - 1.0) < 0.25
+
+
+def test_conditioning_does_not_answer_an_impulse_with_a_pedestal():
+    """CONTROL for #161, and the signal that found it.
+
+    `sosfiltfilt` pads 6 samples. The 20 Hz high-pass has a pole at 0.99715
+    (44.1 k) / 0.99739 (48 k) -- about 2,400 samples to settle to 1e-3. Six
+    samples against that is not a boundary condition, it is an initial
+    condition chosen at random, and on a unit impulse at index 0 the acausal
+    filter answers with a FULL-SCALE NEGATIVE PEDESTAL: y[1] = -0.997 and the
+    first 30 ms integrating to -342 (44.1 k) / -373 (48 k), against a causal
+    filter's +0.02.
+
+    The pedestal lands on the attack, which is where the discrimination lives,
+    and `condition()` feeds every one of the 320 feature columns."""
+    for sr in (44100, 48000):
+        x = np.zeros(int(0.30 * sr))
+        x[0] = 1.0
+        y = condition(x, sr, level_match=False)
+        n30 = int(0.030 * sr)
+        assert abs(y[1]) < 0.05, f"sr={sr}: second sample {y[1]:.3f} is a pedestal"
+        assert abs(float(y[:n30].sum())) < 1.0, \
+            f"sr={sr}: first 30 ms integrates to {float(y[:n30].sum()):.1f}, not ~0"
+        # and the impulse itself must survive: a high-pass keeps an impulse
+        assert y[0] > 0.9, f"sr={sr}: the impulse itself was eaten ({y[0]:.3f})"
+
+
+def test_the_published_boundary_is_still_reachable_and_still_wrong():
+    """`legacy=True` must keep reproducing the defect exactly, or #148's
+    numbers stop being re-derivable and the delta becomes an assertion instead
+    of a measurement. This is the control that keeps its own teeth."""
+    sr = 44100
+    x = np.zeros(int(0.30 * sr))
+    x[0] = 1.0
+    y = condition(x, sr, level_match=False, legacy=True)
+    assert y[1] < -0.9, y[1]
+    assert float(y[:int(0.030 * sr)].sum()) < -300.0, float(y[:int(0.030 * sr)].sum())
+    # and it must still be lead-dependent, which is the other half of #161
+    hit = _tone(200, sr, 0.40, 0.05)
+    lead = np.concatenate([np.zeros(int(0.010 * sr)), hit])
+    d = np.abs(features(condition(hit, sr, legacy=True), sr)[0]
+               - features(condition(lead, sr, legacy=True), sr)[0]).max()
+    assert d > 1e-3, d
+
+
+def test_a_measurement_does_not_depend_on_where_the_record_begins():
+    """#103's invariance, the one that catches this class without knowing the
+    mechanism: prepend silence and the answer must not move.
+
+    This is the asymmetry #160's F2 named -- `_render_raw` pre-trims OUR clip
+    at its onset and `read_wav` does not trim the machine's -- expressed as a
+    property of the measurement instead of a rule about the callers. Once
+    `condition()` cuts at the onset BEFORE it filters, nothing ahead of the
+    onset can reach the answer, so the two sides may arrive differently
+    prepared and still be compared fairly."""
+    sr = 44100
+    hit = _tone(200, sr, 0.40, 0.05)
+    for lead_ms in (1.0, 10.0, 50.0):
+        lead = np.concatenate([np.zeros(int(lead_ms * 1e-3 * sr)), hit])
+        a = features(condition(hit, sr), sr)[0]
+        b = features(condition(lead, sr), sr)[0]
+        assert np.abs(a - b).max() < 1e-9, \
+            f"{lead_ms} ms of silence moved the features by {np.abs(a - b).max():.3g}"
+    # and the machine's lead is not silence: it carries about 1 LSB of
+    # converter DC and a -76 dBFS floor, which must not reach the answer either
+    rng = np.random.default_rng(11)
+    n = int(0.010 * sr)
+    dirty = np.concatenate([3e-5 + 1.6e-4 * rng.standard_normal(n), hit])
+    c = features(condition(dirty, sr), sr)[0]
+    a = features(condition(hit, sr), sr)[0]
+    assert np.abs(a - c).max() < 1e-9, \
+        f"a converter's lead moved the features by {np.abs(a - c).max():.3g}"
+
+
+def test_the_two_sides_arrive_differently_prepared_and_it_is_recorded():
+    """#163 rule 1: a paired comparison asserts its inputs are in the same
+    preparation state, or records that they are not.
+
+    Ours and the machine's genuinely are NOT in the same state -- our render
+    has no lead to give, so the asymmetry cannot be removed by equalising it.
+    What can be done is to record it and to prove it no longer reaches the
+    measurement, which is what the two assertions below are."""
+    sr = 44100
+    hit = _tone(200, sr, 0.40, 0.05)
+    trimmed = hit[onset(hit):]
+    untrimmed = np.concatenate([np.zeros(int(0.010 * sr)), hit])
+    a, b = preparation_state(trimmed, sr), preparation_state(untrimmed, sr)
+    assert a["lead_ms"] != b["lead_ms"], "the fixture no longer poses the problem"
+    try:
+        assert_same_preparation(a, b)
+    except AssertionError as e:
+        assert "lead_ms" in str(e), str(e)
+    else:
+        raise AssertionError("differing lead was not reported")
+    assert np.abs(condition(trimmed, sr) - condition(untrimmed, sr)).max() < 1e-12
 
 
 def test_floor_clamp_hides_a_noise_floor_difference():

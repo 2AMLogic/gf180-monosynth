@@ -190,6 +190,13 @@ accuracy with a Clopper-Pearson interval computed over **settings** rather
 than over generated comparisons. Two knob-equivalent columns, because the
 two rulers disagree and §3.1 is why.
 
+> **§3.3 corrects this table.** Every figure below was measured through
+> `condition()`'s acausal high-pass, whose 6-sample pad against a
+> 2,400-sample pole put a full-scale pedestal on the attack (#161). The
+> repaired pipeline moves BD **2.5 → 4.0**, HT (post-#154) **4.6 → 5.9** and
+> CY **8.1 → 8.6** — *further* from the machine, not closer. Read §3.3 before
+> quoting anything here.
+
 | sound | circuit | knobs | held-out settings | bal. acc. | 95 % CI | **knob-equiv** (per-comparison) | knob-equiv (frozen ruler) | verdict |
 |---|---|---|---|---|---|---|---|---|
 | **BD** | BD | TONE, DECAY | 16 | 0.844 | [0.67, 0.95] | **2.5** | 5.2 | known defect remains |
@@ -272,6 +279,118 @@ end of the dial and this corpus cannot say how far past it.
 The kit grew from eight sounds to sixteen without moving the five voices that
 were already measured — which is the result a contract revision is supposed
 to produce and is not always what happens.
+
+### 3.3 The conditioning filter's boundary, and what repairing it moved (#161)
+
+**Every number in §3 above was measured through an acausal high-pass whose
+initial condition was a guess.** `condition()` high-passed with
+`sosfiltfilt`, which pads **6 samples**. The 20 Hz pole is **0.99715** at
+44.1 kHz and **0.99739** at 48 kHz — about **2,400 samples** to settle to
+1e-3. Six against 2,400 is not a boundary condition, it is an initial
+condition chosen at random, and on a unit impulse at index 0 it answers with a
+**full-scale negative pedestal**: second sample **−0.994**, the first 30 ms
+integrating to **−342** (−373 at 48 k) against a causal filter's **+0.02**.
+`condition()` is inside the classifier's own feature pipeline, so that
+pedestal was in every 320-column vector, every interpretable feature and every
+knob-equivalent in the table above.
+
+`condition()`'s own docstring warned about this boundary problem and then
+reached for the acausal filter anyway.
+
+**It applied to both sides, so some of it cancels — and how much was measured,
+not assumed** (`model/condition_boundary.py`, which renders each setting once
+and conditions it both ways, so the only thing differing between the two
+columns is the boundary). Norms over the 320 columns in log10 power, median
+over each sound's settings; `resid` is the part that does **not** cancel in
+the paired difference:
+
+| sound | lead ms, machine / ours | ‖Δ‖ machine | ‖Δ‖ ours | resid | paired distance | resid / paired |
+|---|---|---|---|---|---|---|
+| BD | 0.14 / 0.00 | 0.91 | 0.38 | 0.47 | 5.24 | **9 %** |
+| HT | 0.14 / 0.00 | 1.22 | 0.35 | 0.97 | 8.86 | 11 % |
+| CY | 0.25 / 0.00 | 0.02 | 5.19 | 5.19 | 39.97 | 13 % |
+| SD | 0.14 / 0.00 | 0.40 | 0.85 | 1.22 | 7.63 | 16 % |
+| OH | 0.14 / 0.00 | 0.63 | 3.53 | 3.50 | 14.01 | 25 % |
+| MC | 0.14 / 0.00 | 0.07 | 0.30 | 0.28 | 0.95 | 29 % |
+| LT | 0.14 / 0.00 | 1.84 | 1.00 | 2.83 | 8.85 | 32 % |
+| MT | 0.11 / 0.00 | 2.25 | 0.98 | 3.23 | 7.96 | 41 % |
+| LC | 0.14 / 0.00 | 0.30 | 0.78 | 0.70 | 0.81 | **86 %** |
+| HC | 0.16 / 0.00 | 0.20 | 1.02 | 0.92 | 1.05 | **87 %** |
+| RS / CH / CL | 0.14–0.18 / 0.00 | 0.31–1.92 | 5.31–10.13 | 6.93–9.85 | 5.31–8.55 | **102–130 %** |
+
+**Almost nothing cancels.** Read the rows: for CY the machine's vector moves
+by 0.02 and ours by 5.19, and the residual is 5.19 — the machine's side
+contributes nothing to the cancellation at all. For LT, MT, SD, CB and MA the
+residual equals the *sum* of the two sides to two decimals, which is what
+near-orthogonal shifts look like. **The `lead ms` column is why**: our render
+reaches `condition()` pre-trimmed at its onset by `_render_raw` and the
+machine's does not (#160's F2), so a pedestal whose size depends on the first
+sample lands on two differently shaped onsets. This is #163's pattern exactly,
+and it is the reason "it applies to both sides" was never a defence.
+
+What saves the three adjudicable sounds is not cancellation but **scale**: the
+residual is 9–16 % of the distance being reported for BD, SD and CY. Where the
+reported distance is small — LC, HC, and the three no-knob sounds — **the
+artefact was as large as the difference**.
+
+**The repair.** Cut at the onset **first**, then high-pass **causally from
+rest**, on both sides. Cutting first makes the window depend on nothing
+outside itself, so the trim asymmetry cannot reach the answer at all — a
+stronger property than trimming both sides identically, and the one #103 asks
+for: `test_a_measurement_does_not_depend_on_where_the_record_begins` asserts
+the 320 columns are unchanged to 1e-9 under 1, 10 and 50 ms of prepended
+silence and under a converter's DC-plus-hiss lead. At HEAD, before the repair,
+10 ms of silence moved them by 0.069 (0.69 dB).
+
+**The knob-equivalents, re-derived.** `distance_curve` / `ours_distance` /
+`knob_equivalent_distance` exactly as `discrimination_run.py` calls them, run
+twice off the same renders. The baseline is **legacy at this commit**, not
+§3's printed figure: HEAD also carries #154's tom pitch-drop correction, which
+moves the renders themselves.
+
+| sound | §3 (#148) | legacy @ HEAD | **repaired** | Δ from the repair | ±1 % on the distance |
+|---|---|---|---|---|---|
+| **BD** | 2.5 | 2.5 | **4.0** | **+1.4** | 3.9 – 4.1 |
+| **SD** | 3.4 | 3.4 | **3.4** | +0.0 | 3.3 – 3.6 |
+| **CY** | 8.1 | 8.1 | **8.6** | **+0.5** | 8.4 – 8.8 |
+| OH | 6.9 | 6.9 | **6.0** | −0.9 | 5.3 – 6.7 |
+| HT | 7.3 | 4.6 | **5.9** | **+1.3** | 5.8 – 6.0 |
+| LT | ≥ 10 | 7.0 | **6.8** | −0.2 | 6.6 – 7.0 |
+| MT | 5.2 | 4.4 | **3.5** | **−0.9** | 3.5 – 3.6 |
+| LC | 3.5 | 2.5 † | **2.5** † | +0.0 | 2.5 |
+| MC | 5.4 | 2.5 † | **2.5** † | +0.0 | 2.5 |
+| HC | ≥ 10 | 2.5 † | **2.5** † | +0.0 | 2.5 |
+| CH CP CB RS CL MA | REFUSED | REFUSED | **REFUSED** | — | no knob, no yardstick |
+
+† pinned at the bottom of the yardstick: the ours-to-real distance is below
+the smallest knob step the curve holds, so 2.5 is a floor, not a reading.
+
+**The two columns on the left are two different corrections and must not be
+added.** #148 → legacy@HEAD is **#154's**, and it lands on exactly the six
+tom/conga sounds #154 re-fitted (LT MT HT LC MC HC) and on **none** of the
+other four. That BD 2.5, SD 3.4, CY 8.1 and OH 6.9 reproduce **to the
+decimal** through the legacy path is the check that this re-derivation runs
+the same code the study runs.
+
+**Three of the moves are outside the ruler's own sensitivity and four are
+not.** The last column is the knob-equivalent recomputed at ±1 % of the
+measured distance, because a knob-equivalent is read off a four-point
+interpolation and its steepness decides what a one-decimal figure is worth.
+BD (+1.4), HT (+1.3) and MT (−0.9) are far outside that band and are real
+moves; CY (+0.5) is just outside; **OH's −0.9 is inside it** (5.3–6.7 for a
+±1 % nudge) and should not be read as a move at all. SD and LT do not move.
+
+**BD, the closest sound we had, was the most flattered.** 2.5 → 4.0 of 10 is a
+**+58 %** increase in our distance from the machine on its own dial, and the
+underlying distance only moved 5.9 % (17.24 → 18.26) — the knob-equivalent
+amplifies it because BD's yardstick is shallow where we land. The repaired
+pipeline separates us **further** from the machine on BD, HT and CY. That is
+the finding: the old numbers were flattered by an artefact, and nothing was
+tuned to preserve them.
+
+**What is not re-derived here.** The balanced accuracies, CIs and ABX counts
+in §3 and §4 come from the classifier, and this section measures distances
+only. They are re-derived by the full run recorded in §9.
 
 ## 4. Controls — without these, none of §3 means anything
 
@@ -1051,6 +1170,37 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 | commands | `model/discrimination_run.py --refs /tmp/tr808-ref --sounds 16 --features both`; `model/discrimination_trajectory.py --refs /tmp/tr808-ref`; `pytest model/test_discrimination.py model/discrimination_features.py model/discrimination_trajectory.py -q` |
 | self-tests | **38 passed** (was 12) |
 | results | `docs/discrimination-results.json` (eight-voice), `docs/discrimination-results-16.json` (sixteen), `docs/discrimination-run.txt`, `docs/discrimination-trajectory.txt` |
+
+### Provenance of the #161 conditioning re-derivation (§3.3)
+
+| | |
+|---|---|
+| tree | branch `fix-condition-boundary`, **clean** (`dirty=false`, recorded by the tool itself) |
+| commit | `9c1e69fe83d7`, `node/D-drums-bitexact-75-g9c1e69f` |
+| model sha256 (drums_fx + modal_fixed + harness) | `c8d273a057a9966f` |
+| corpus | `tidalcycles/sounds-tr808-fischer` `85fbecf`, **116** WAVs, sha256 `6e6af82198eb5b46` (sorted relative path then bytes, so the digest does not depend on walk order — a different definition from the `e3ad2d77a79cda4a` above, not a different corpus) |
+| split hash | `ab381e78f9f4cc41` — **#148's, unchanged** |
+| command | `model/condition_boundary.py --refs /tmp/tr808-ref --json docs/condition-boundary-results.json` |
+| self-tests | `pytest model/test_discrimination.py -q` — **23 passed** (was 20; the four new conditioning controls, one of which replaced none) |
+| results | `docs/condition-boundary-results.json` |
+
+Both columns come from **one render per setting**, conditioned twice, so
+nothing but the boundary condition differs between them. Run twice; identical
+to the printed precision.
+
+**Wrong-then-right, this correction: 0 of 4.** All four controls were written
+before the repair and all four were red against HEAD
+(`test_conditioning_does_not_answer_an_impulse_with_a_pedestal`,
+`test_a_measurement_does_not_depend_on_where_the_record_begins`,
+`test_the_two_sides_arrive_differently_prepared_and_it_is_recorded`, and
+`test_the_published_boundary_is_still_reachable_and_still_wrong`, which keeps
+`legacy=True` reproducing the defect so the delta stays a measurement rather
+than an assertion). No published figure was tuned; three of the repaired
+knob-equivalents are **worse** than the ones they replace.
+
+**Not re-derived by that command:** the trajectory in
+`docs/discrimination-trajectory.txt` also runs through `condition()` and is
+therefore also affected. It is #152/#160's subject and is not touched here.
 
 **Which measurement path, and PR #132.** PR #132 repairs four estimator
 defects in `model/audio_measure.py` and `tools/run_case.py`. It was open when
