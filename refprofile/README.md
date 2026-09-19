@@ -101,6 +101,23 @@ operator who froze the profile has a reproducible rig and a moved reference.
 This host reproduced all fourteen, so the two new clips were frozen by the rig
 that froze the rest — not merely by a rig that agrees with itself.
 
+Asked again at `01e01e1`, on a host whose `cache/` was empty, after
+`--render` rebuilt it from nothing. The verdict is committed as
+[`repro-report.json`](repro-report.json) rather than quoted from a log:
+
+```
+16/16 clips bit-identical across 4 independent renders
+16 reproduced the committed sha256, 0 changed, 0 new, 0 dropped   (exit 0)
+```
+
+Sixteen now, not fourteen of sixteen: the two clips #146 added are on their
+second independent freeze and `profile.json` is byte-unchanged by the run.
+**This is the precondition the filter cases are measured under, not a property
+of the profile in general** — #164 had to leave every reference-side F1 number
+as a no-verdict precisely because `cache/` is gitignored and that host could not
+render it. A host that cannot produce this report cannot measure F1A/F1B/F1C's
+reference side, and the correct outcome there is the no-verdict, not a number.
+
 What it does **not** vary: the machine, the OS, the plugin build, the sample
 rate, the block size. Those are pinned by the rig and recorded in
 `profile.json`, and a claim about them needs a second machine, not a second
