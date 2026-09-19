@@ -586,6 +586,8 @@ def main(argv=None):
     ap.add_argument("--floors", action="store_true", help="the instrument's limits, measured")
     ap.add_argument("--map", action="store_true", help="the band x time map with floors")
     ap.add_argument("--attribute", action="store_true", help="per-path mute sweep")
+    ap.add_argument("--shared", action="store_true",
+                    help="the tom/conga 0.7-5 kHz constraint, at HEAD and before #154")
     ap.add_argument("--dc", action="store_true",
                     help="the excitation's mean and the DC gain it is multiplied by")
     ap.add_argument("--bands", action="store_true",
@@ -595,7 +597,7 @@ def main(argv=None):
     ap.add_argument("--voices", default="")
     ap.add_argument("--top", type=int, default=6)
     a = ap.parse_args(argv)
-    if not (a.floors or a.map or a.attribute or a.bands or a.dc):
+    if not (a.floors or a.map or a.attribute or a.bands or a.dc or a.shared):
         a.floors = a.map = True
     rc = 0
     if a.floors:
@@ -620,6 +622,8 @@ def main(argv=None):
         rc |= report_bands(a.refs, a.voices.split(",") if a.voices else None)
     if a.dc:
         rc |= report_dc(a.refs, a.voices.split(",") if a.voices else None)
+    if a.shared:
+        rc |= report_shared(a.refs, a.voices.split(",") if a.voices else None)
     return rc
 
 
@@ -1055,6 +1059,89 @@ def test_the_swing_nonlinearity_rectifies(  ):
     out = np.array([d._nonlinear(int(v), dx.NL_SWING) for v in sq], float)
     assert abs(sq.mean()) < 1e-9
     assert out.mean() / np.abs(out).mean() > 0.7, out.mean() / np.abs(out).mean()
+
+
+# ===========================================================================
+# The shared-circuit constraint of #152, measured at HEAD and before #154
+# ===========================================================================
+# "LT/MT/HT have nothing in 0.7-5 kHz while their conga twins on the same three
+# circuits have up to +28 dB too much" (#152, from `docs/discrimination.md` 5a,
+# which is #148's table). #148 predates #154, and #154 removed the x1.7 pitch
+# sweep those six voices were rendered with. This measures both states.
+def tom_pitch_drop_writes_before_154(frame, mode, f0_hz, q, amp, accent=1.0):
+    """`drums_fx.tom_pitch_drop_writes` EXACTLY as it stood at 24cff92, so the
+    red number stays reproducible after the red is gone -- the standard this
+    repository already holds `tools/probes/estimator_defects.py` to.
+
+    One law for tom and conga, the TUNING pot ignored, and `min(max(accent,
+    0), 1)` -- a CLAMP, so an unaccented hit got the full sweep."""
+    import math
+    out = []
+    excess = (1.7 - 1.0) * min(max(accent, 0.0), 1.0)
+    for i in range(dx.TOM_DROP_STEPS + 1):
+        t = i / dx.TOM_DROP_STEPS
+        hz = f0_hz * (1.0 + excess * math.exp(-3.0 * t))
+        f = frame + int(round(t * dx.TOM_DROP_MS * 1e-3 * dx.SR))
+        out += [(f, a, v) for a, v in dx.mode_writes(mode, hz, q, amp)[:2]]
+    return out
+
+
+SHARED = ("LT", "LC", "MT", "MC", "HT", "HC")
+
+
+def report_shared(refdir, voices=None):
+    print(provenance(refdir))
+    refs = td.ref_clips(refdir, include_unmodelled=True)
+    laws = td.fit_laws(refdir, all_sounds=True)
+    print("\n0.7-5 kHz share of the 240 ms conditioned window, rectangular-FFT Parseval.")
+    print("`before #154` re-renders with the x1.7 sweep and its accent CLAMP reinstated --")
+    print("the state `docs/discrimination.md` 5a and `docs/discrimination-trajectory.txt`")
+    print("were both measured in.\n")
+    print(f"    {'voice':6s} {'machine':>9s} {'HEAD':>9s} {'dB(o/m)':>8s} "
+          f"{'before #154':>12s} {'dB(o/m)':>8s} {'sweep made':>11s}")
+    orig = dx.tom_pitch_drop_writes
+    for v in (voices or SHARED):
+        use = [c for c in refs if c.voice == v and c.is_test] or \
+              [c for c in refs if c.voice == v]
+        M, H, B = [], [], []
+        for c in use:
+            xr, sr = td.read_wav(c.path)
+            M.append(parseval_shares(condition_causal(xr, sr)[0], sr)[1])
+            xo, so = td.render(v, c.knobs, laws, "ours")
+            H.append(parseval_shares(condition_causal(xo, so)[0], so)[1])
+            dx.tom_pitch_drop_writes = tom_pitch_drop_writes_before_154
+            try:
+                xb, sb = td.render(v, c.knobs, laws, "ours")
+            finally:
+                dx.tom_pitch_drop_writes = orig
+            B.append(parseval_shares(condition_causal(xb, sb)[0], sb)[1])
+        m, h, b = float(np.mean(M)), float(np.mean(H)), float(np.mean(B))
+        db = lambda a, c: 10 * np.log10((a + 1e-30) / (c + 1e-30))      # noqa: E731
+        print(f"    {v:6s} {m:9.5f} {h:9.5f} {db(h, m):8.2f} {b:12.5f} {db(b, m):8.2f} "
+              f"{db(b, h):11.2f}")
+    print("\n  `sweep made` = what the x1.7 sweep put into 0.7-5 kHz that HEAD does not.")
+    return 0
+
+
+def test_the_pre_154_sweep_is_the_one_that_was_shipped():
+    """The reimplementation, checked against what #154 documents about it.
+
+    The old law CLAMPED the accent, so a plain hit (accent 1.0, the model's
+    'x' and the 808's step with the accent bit off) got the FULL x1.7 and an
+    accented one got no more. The new law has a threshold: a plain tom gets
+    x1.06 and a plain conga gets nothing at all."""
+    def onset_ratio(fn, mode, f0, accent):
+        w = fn(0, mode, f0, 25.0, 0.3, accent)
+        return dx.poles_from_regs(w[0][2], w[1][2])[0] / f0
+    for accent in (1.0, 1.4, 2.0):
+        r = onset_ratio(tom_pitch_drop_writes_before_154, dx.M_LT, 90.0, accent)
+        assert abs(r - 1.7) < 0.02, (accent, r)          # clamped: all the same
+    assert abs(onset_ratio(dx.tom_pitch_drop_writes, dx.M_LT, 90.0, 1.0)
+               - dx.TOM_DROP_RATIO) < 0.02
+    # the conga position at a plain hit: full sweep before, none after
+    assert abs(onset_ratio(tom_pitch_drop_writes_before_154, dx.M_HT, 400.0, 1.0) - 1.7) < 0.02
+    assert dx.tom_drop_excess(dx.M_HT, 400.0, 1.0) == 0.0
+    assert abs(onset_ratio(dx.tom_pitch_drop_writes, dx.M_HT, 400.0, 1.0) - 1.0) < 1e-4
 
 
 if __name__ == "__main__":
