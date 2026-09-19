@@ -1454,14 +1454,17 @@ def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     over the band and reading the intercept therefore recovers the DC level
     without assuming the filter's order -- measured on ideal 2-, 4- and 6-pole
     responses, the corner/cutoff ratio's spread across 250 Hz-4 kHz falls from
-    8.9 / 15.1 / 20.9 % to 0.34 / 0.58 / 0.75 %.
+    8.92 / 15.10 / 20.93 % to 0.43 / 0.73 / 0.80 %.
 
-    Degree 1, not 2, deliberately. Degree 2 reaches 0.10 % on noiseless curves
-    and is unusable on real ones: extrapolating a quadratic from the five grid
-    points a 250 Hz band holds has an sd of 6.1 in the corner ratio under
-    0.2 dB of noise, against 0.036 for degree 1. What is left at degree 1 is
-    the 20.2 %-spaced grid's own interpolation error, which is the systematic
-    `filt_rolloff` already documents.
+    Degree 1, not 2, and the reason is NOISE and not accuracy. On noiseless
+    curves the two are indistinguishable through this project's crossing
+    interpolation -- 0.43/0.73/0.80 % for degree 1 against 0.45/0.65/0.15 % for
+    degree 2 -- because what is left after either is the 20.2 %-spaced log
+    grid's own interpolation error and not the plateau. Under 0.2 dB rms of
+    noise, extrapolating a quadratic from the FIVE grid points a 250 Hz band
+    holds doubles the sd of the corner ratio, 0.041 against 0.021, for nothing.
+    (`plateau_db`'s median is the more stable of the three at 0.016 and is
+    biased by 15 %, which is the trade this function exists to refuse.)
 
     REFUSES when the band holds fewer than three points, when the extrapolation
     lands more than `MAX_PLATEAU_EXTRAPOLATION_DB` from the highest point it

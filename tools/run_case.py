@@ -1234,13 +1234,16 @@ def filt_corner(cut_hz: float):
     against `(f/cut)^2` and extrapolated to DC, which is shape-agnostic for any
     real filter and does not depend on where the band sits relative to the
     cutoff. Measured on ideal 2-, 4- and 6-pole responses over 250 Hz-4 kHz the
-    ratio's spread falls from 8.9 / 15.1 / 20.9 % to 0.34 / 0.58 / 0.75 %, and
-    a constant 16 % error reads back as 16.0 / 16.2 / 16.2 %.
+    ratio's spread falls from 8.92 / 15.10 / 20.93 % to 0.43 / 0.73 / 0.80 %,
+    and a constant 16 % error reads back as -15.59 / -15.91 / -15.98 %, a
+    0.39-point trend where there was a 3.84-point one.
 
-    WHAT IS LEFT, AND IT IS NOT ZERO. About 0.6 % of residual spread, from the
+    WHAT IS LEFT, AND IT IS NOT ZERO. Up to 0.80 % of residual spread, from the
     log grid's own 20.2 % spacing and the linear-in-dB interpolation across it
-    -- the same systematic `filt_rolloff` documents. A trend smaller than
-    ~1 % across the range is this instrument's noise and not a filter's.
+    -- the same systematic `filt_rolloff` documents, and it is now the whole of
+    this estimator's frequency dependence. **A trend smaller than about 1 %
+    across the range is this instrument and not a filter's**, which is the
+    number a reader of F1A/F1B/F1C needs and did not have.
 
     THE GRID IS PART OF THE INSTRUMENT. #150 records two different readings of
     this control, 0.500/0.445/0.434 and 0.460/0.439/0.432. Both are right: the
