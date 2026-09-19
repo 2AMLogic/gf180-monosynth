@@ -1,0 +1,24 @@
+reference corpus: /tmp/tr808-ref
+results into:     /private/tmp/wt-toms/docs/scorecard/results
+
+case   state         worst  note
+------------------------------------------------------------------------------------------------
+D01A   no verdict       --  invalid: decay
+D02A   pass           0.58  
+D03A   fail           6.04  worst: body spectrum
+D04A   no verdict       --  invalid: decay
+D05A   fail           5.46  worst: body spectrum
+D06A   fail           3.99  worst: body spectrum
+D07A   fail           4.51  worst: body spectrum
+D08A   fail           3.64  worst: body spectrum
+D09A   pass           0.61  
+D10A   fail           5.76  worst: Partial balance
+D11A   fail           5.42  worst: decay
+D12A   fail           4.75  worst: burst/tail ratio
+D13A   fail          11.34  worst: unwanted difference tone
+D14A   no verdict       --  invalid: total decay
+D15A   no verdict       --  invalid: decay
+D16A   pass           0.96  
+------------------------------------------------------------------------------------------------
+fail: 9  no verdict: 4  pass: 3
+exit 2: 0 match, 1 mismatch (a result), 2 did not run (no evidence)

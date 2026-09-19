@@ -382,6 +382,11 @@ finding: a wrong sweep was paying a different bill.**
 - Held-out splits, per-cell fits and the accent-map sensitivity:
   `docs/tom-pitch-drop-law.json`. Per-setting trajectories, both stages:
   `docs/tom-pitch-drop-before.json`, `docs/tom-pitch-drop-after.json`.
+- Both instruments carry their validation cases in
+  `model/test_tom_drop_law.py`, including the refusals demonstrated red and the
+  test that locks `drums_fx`'s shipped constants to the committed law.
+- The trajectories, plotted and browsable:
+  <https://claude.ai/artifact/PaJS6CCUpSour1MjkxkGTe>
 
 ### Wrong-then-right rate for this change
 
