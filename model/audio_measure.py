@@ -1247,12 +1247,16 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     **What this does NOT do, stated because the number looks like a ruler.**
     It removes DIGITAL silence. A record cut and then padded with LOW-LEVEL
     NOISE is still accepted, because that pad is signal by every measure this
-    function has: at -60 dB the padded record's tail residual is -24.8 dB
-    against -25.3 dB for `cl8/CL.WAV`, which is a genuine untruncated
-    reference, so the two populations OVERLAP and no threshold separates them.
-    The residual is reported as `tail_residual_db` so a caller can see it; it
-    is deliberately not a refusal. `tools/probes/estimator_defects.py` section
-    5 is that measurement.
+    function has. The best of #139's other two candidates -- the residual of
+    the fit continued into the tail -- is not merely too weak for it, it is
+    INVERTED on the real corpus: a -60 dB noise pad reads -24.8 dB while
+    `bd8/BD5050.WAV`, the board's own bass-drum reference, reads -33.6 and
+    `cl8/CL.WAV` reads -25.3, so any threshold that refuses the pad refuses
+    both references first. The discontinuity candidate does not separate the
+    populations in either direction (0.04 for a zero pad against 4.18 for a
+    genuine -80 dBFS noise floor). The residual is therefore REPORTED as
+    `tail_residual_db` and refuses nothing.
+    `tools/probes/estimator_defects.py` section 5 is that measurement.
 
     A genuine quiet tail is not affected in either direction: 16-bit
     quantisation puts a real decay's tail 90 dB above this floor, and the

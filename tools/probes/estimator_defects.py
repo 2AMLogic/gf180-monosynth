@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The four measurement defects of #101/#103, #118, #119 and #108, each shown
-producing its WRONG number beside the repaired one.
+"""The six measurement defects of #101/#103, #118, #119, #108, #139 and #150,
+each shown producing its WRONG number beside the repaired one.
 
     .venv/bin/python tools/probes/estimator_defects.py
     .venv/bin/python tools/probes/estimator_defects.py --all-voices
@@ -280,6 +280,231 @@ def defect_4():
           "and a difference tone that is not there is refused, not reported")
 
 
+# ===========================================================================
+# 5. #139 -- the decay guard was a LENGTH, and silence satisfies length
+# ===========================================================================
+def t20_length_guard_shipped(x, sr, lo_db=-5.0, hi_db=-25.0, min_tail_t20=2.0):
+    """`schroeder_t20`'s guard exactly as #118 left it: the criterion counts
+    samples in the ARRAY after the -25 dB point. `np.zeros` are samples."""
+    x = np.asarray(x, float)
+    e = np.cumsum((x ** 2)[::-1])[::-1]
+    L = 10.0 * np.log10(np.maximum(e / e[0], 1e-30))
+    if float(L[-1]) > hi_db:
+        return None, float("nan")
+    i_lo, i_hi = int(np.argmax(L <= lo_db)), int(np.argmax(L <= hi_db))
+    if i_hi <= i_lo + 8:
+        return None, float("nan")
+    t = np.arange(i_lo, i_hi) / sr
+    slope = np.polyfit(t, L[i_lo:i_hi], 1)[0]
+    if slope >= 0:
+        return None, float("nan")
+    t20 = -20.0 / float(slope)
+    after = (len(x) - i_hi) / float(sr)
+    return (t20 if after >= min_tail_t20 * t20 else None), after / t20
+
+
+def _step_outlier(x, sr):
+    """Candidate (b): the discontinuity a cut-then-pad leaves, as the largest
+    sample-to-sample step divided by the local RMS envelope."""
+    x = np.asarray(x, float)
+    env = np.maximum(am.rms_envelope(x, 2.0, sr), 1e-300)
+    return float((np.abs(np.diff(x)) / env[:-1]).max())
+
+
+def _tail_residual(x, sr, min_tail_t20=2.0, lo_db=-5.0, hi_db=-25.0):
+    """Candidate (c): how far the backward-integrated curve falls BELOW the
+    line fitted to it, continued into the required tail. Signed and one-sided:
+    a cut record's curve collapses, a slow ring-out's rises.
+
+    Computed here on the array AS GIVEN, not on its sounding extent, because
+    the question this table answers is what (c) would have done had it been
+    chosen INSTEAD of the repair that shipped."""
+    x = np.asarray(x, float)
+    e = np.cumsum((x ** 2)[::-1])[::-1]
+    if e[0] <= 0:
+        return float("nan")
+    L = 10.0 * np.log10(np.maximum(e / e[0], 1e-30))
+    if float(L[-1]) > hi_db:
+        return float("nan")
+    i_lo, i_hi = int(np.argmax(L <= lo_db)), int(np.argmax(L <= hi_db))
+    if i_hi <= i_lo + 8:
+        return float("nan")
+    t = np.arange(i_lo, i_hi) / sr
+    slope, icept = np.polyfit(t, L[i_lo:i_hi], 1)
+    if slope >= 0:
+        return float("nan")
+    end = min(i_hi + int(round(min_tail_t20 * (-20.0 / slope) * sr)), len(L))
+    if end <= i_hi:
+        return float("nan")
+    tt = np.arange(i_hi, end) / sr
+    return float((L[i_hi:end] - (slope * tt + icept)).min())
+
+
+def _decay(tau, seconds, f=220.0, sr=SR):
+    t = np.arange(int(seconds * sr)) / sr
+    return np.exp(-t / tau) * np.sin(2 * math.pi * f * t)
+
+
+def defect_5():
+    print("\n" + "=" * 78)
+    print("5. #139 -- appending zeros turned a refusal into an accepted wrong answer")
+    print("=" * 78)
+    tau = 0.200
+    exact = math.log(10) * tau
+    x = _decay(tau, 2.000)
+    cut = x[:int(0.300 * SR)]
+    pad = np.concatenate([cut, np.zeros(int(1.700 * SR))])
+    print(f"   a single exponential, tau {tau*1e3:.0f} ms, exact T20 {exact*1e3:.1f} ms\n")
+    print(f"   {'record':<30}{'SHIPPED (#118)':>18}{'in T20s':>9}{'REPAIRED (#139)':>18}")
+    for label, y in (("full 2.0 s", x),
+                     ("truncated to 0.30 s", cut),
+                     ("truncated + 1.7 s of SILENCE", pad)):
+        old, ratio = t20_length_guard_shipped(y, SR)
+        new = am.schroeder_t20(y, SR)
+        print(f"   {label:<30}"
+              f"{(f'{old*1e3:8.1f} ms' if old else 'REFUSED'):>18}{ratio:9.2f}"
+              f"{(f'{new.value*1e3:8.1f} ms' if new.ok else 'REFUSED'):>18}")
+    print("\n   The pad satisfied the LENGTH criterion seven times over and moved the")
+    print(f"   answer by {100*(t20_length_guard_shipped(pad, SR)[0]/exact-1):+.1f} %. "
+          "Zeros carry no information about a decay.")
+    check(t20_length_guard_shipped(pad, SR)[0] is not None,
+          "the shipped length guard accepts the padded record")
+    check(abs(t20_length_guard_shipped(pad, SR)[0] / exact - 1) > 0.40,
+          "and the answer it accepts is nearly 50 % wrong")
+    check(not am.schroeder_t20(pad, SR).ok,
+          "the repaired guard refuses it")
+    check(not am.schroeder_t20(cut, SR).ok,
+          "and refuses the unpadded cut it is made of -- the SAME verdict, which "
+          "is the invariance")
+    base = am.schroeder_t20(_decay(0.040, 0.500), SR)
+    for pad_s in (0.2, 1.7, 5.0):
+        g = am.schroeder_t20(np.concatenate([_decay(0.040, 0.500),
+                                             np.zeros(int(pad_s * SR))]), SR)
+        check(g.ok and abs(g.value - base.value) < 1e-12,
+              f"{pad_s} s of trailing silence is EXACTLY invariant on a record "
+              "that does contain its decay")
+
+    print("\n   WHY THE OTHER TWO CANDIDATES IN #139 WERE NOT CHOSEN. Both were")
+    print("   measured; the numbers are the reason, not a preference.\n")
+    rng = np.random.default_rng(139)
+    n = int(1.700 * SR)
+    pop = [
+        ("PAD  zeros",                 pad, False),
+        ("PAD  noise -100 dB",         np.concatenate([cut, rng.normal(0, 1e-5, n)]), False),
+        ("PAD  noise  -60 dB",         np.concatenate([cut, rng.normal(0, 1e-3, n)]), False),
+        ("REAL tau 40 ms, 0.5 s",      _decay(0.040, 0.500), True),
+        ("REAL 16-bit quantised",      np.round(_decay(0.040, 0.600) * 32767) / 32767, True),
+        ("REAL on a -80 dBFS floor",   _decay(0.040, 0.600) + rng.normal(0, 1e-4, int(0.6 * SR)), True),
+        ("REAL two-exp, slow late",    None, True),
+    ]
+    t = np.arange(int(1.2 * SR)) / SR
+    pop[-1] = ("REAL two-exp, slow late",
+               np.sin(2 * math.pi * 220 * t) * (np.exp(-t / 0.05) + 0.003 * np.exp(-t / 0.35)),
+               True)
+    print(f"   {'record':<28}{'(b) step ratio':>16}{'(c) tail resid dB':>20}   want")
+    for label, y, good in pop:
+        print(f"   {label:<28}{_step_outlier(y, SR):16.2f}{_tail_residual(y, SR):20.2f}"
+              f"   {'pass' if good else 'REFUSE'}")
+    for label, path in (("bd8/BD5050.WAV", REFS / "bd8" / "BD5050.WAV"),
+                        ("cl8/CL.WAV", REFS / "cl8" / "CL.WAV")):
+        if not path.exists():
+            continue
+        from scipy.io import wavfile
+        sr, y = wavfile.read(str(path))
+        y = np.asarray(y, float)
+        y = y.mean(1) if y.ndim > 1 else y
+        y = y / max(float(np.abs(y).max()), 1e-30)
+        print(f"   {'REAL ' + label:<28}{_step_outlier(y, sr):16.2f}"
+              f"{_tail_residual(y, sr):20.2f}   pass")
+    print("\n   (b) does not separate the two populations in EITHER direction: the zero")
+    print("   pad reads 0.04 and a genuine -80 dBFS noise floor reads 4.18. It is")
+    print("   measuring the carrier's slew against its own envelope, which is a")
+    print("   property of the sound and not of the cut.")
+    print("   (c) separates zero pads cleanly, overlaps on noise pads, and on the")
+    print("   real corpus it is INVERTED: the -60 dB pad reads -24.8 dB while")
+    print("   bd8/BD5050.WAV -- the board's own bass-drum reference -- reads -33.6")
+    print("   and cl8/CL.WAV reads -25.3. Any threshold that refuses the pad refuses")
+    print("   both references FIRST, so there is no threshold. (c) is REPORTED as")
+    print("   `tail_residual_db` and refuses nothing.")
+    print("   What shipped is the exact criterion: the estimate is read off the")
+    print("   record's SOUNDING extent, so a pad cannot change any verdict at all.")
+
+
+# ===========================================================================
+# 6. #150 -- a passband reference that moves with the commanded cutoff
+# ===========================================================================
+def corner_shipped(freqs, g, cut_hz):
+    """`filt_corner` exactly as it stood: -3 dB below the MEDIAN of a band
+    whose top edge is 0.25 * the commanded cutoff."""
+    return am.corner_from_curve(freqs, g, ref_band=rc._ref_band(freqs, cut_hz))
+
+
+def defect_6():
+    import reference_compare as rcmp
+    print("\n" + "=" * 78)
+    print("6. #150 -- the corner estimator droops, on a response that does not")
+    print("=" * 78)
+    F = np.asarray(rcmp.FREQS, dtype=np.float64)
+    true_ratio = math.sqrt(10 ** (3.0 / 40.0) - 1.0)
+    print(f"   an ideal 4-pole |H| = (1+(f/fc)^2)^-2 has its -3 dB point at")
+    print(f"   f/fc = {true_ratio:.4f} for EVERY fc. Grid: geomspace("
+          f"{F[0]:.0f}, {F[-1]:.0f}, {len(F)}), points {100*(F[1]/F[0]-1):.1f} % apart.\n")
+    print(f"   {'commanded':>10}{'plateau used':>15}{'SHIPPED ratio':>15}{'bias':>9}"
+          f"{'REPAIRED ratio':>16}{'bias':>9}")
+    for fc in (250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0):
+        g = -40.0 * np.log10(1.0 + (F / fc) ** 2)
+        old = corner_shipped(F, g, fc)
+        new = rc.filt_corner(fc)(F, g)
+        print(f"   {fc:9.0f} {old.detail['plateau_db']:+14.3f}"
+              f"{old.value/fc:15.4f}{100*(old.value/fc/true_ratio-1):+8.2f}%"
+              f"{new.value/fc:16.4f}{100*(new.value/fc/true_ratio-1):+8.2f}%")
+    print("\n   The plateau is the mechanism: the band's top is 0.25*fc, where a")
+    print("   4-pole is 2.58 dB down, and its bottom is pinned at the grid's first")
+    print("   point, so the median catches a different droop at every cutoff.")
+    print("   A reference 0.90 dB low puts the corner 15 % high; 0.04 dB low, 0.02 %.\n")
+    print("   A CONSTANT 16 % tuning error, read back:")
+    print(f"   {'commanded':>10}{'SHIPPED':>12}{'REPAIRED':>12}")
+    for fc in (250.0, 1000.0, 4000.0):
+        ref_g = -40.0 * np.log10(1.0 + (F / fc) ** 2)
+        got_g = -40.0 * np.log10(1.0 + (F / (fc * 0.84)) ** 2)
+        o = corner_shipped(F, got_g, fc).value / corner_shipped(F, ref_g, fc).value - 1
+        n = rc.filt_corner(fc)(F, got_g).value / rc.filt_corner(fc)(F, ref_g).value - 1
+        print(f"   {fc:9.0f}{100*o:11.2f}%{100*n:11.2f}%")
+    print("\n   #150's TWO READINGS, RECONCILED. Both are right; the difference is")
+    print("   the grid, which neither number was stated with.\n")
+    print(f"   {'grid':<28}{'250 Hz':>9}{'1 kHz':>9}{'4 kHz':>9}   constant-16 % readback")
+    for label, G in (("geomspace(40, 12000, 32)", F),
+                     ("geomspace(20, 18000, 32)", np.geomspace(20.0, 18000.0, 32))):
+        rs, es = [], []
+        for fc in (250.0, 1000.0, 4000.0):
+            ref_g = -40.0 * np.log10(1.0 + (G / fc) ** 2)
+            got_g = -40.0 * np.log10(1.0 + (G / (fc * 0.84)) ** 2)
+            rs.append(corner_shipped(G, ref_g, fc).value / fc)
+            es.append(100 * (corner_shipped(G, got_g, fc).value
+                             / corner_shipped(G, ref_g, fc).value - 1))
+        print(f"   {label:<28}" + "".join(f"{v:9.4f}" for v in rs)
+              + "   " + " ".join(f"{v:7.2f}" for v in es))
+    print("   The first is the external audit's and is `reference_compare.FREQS`,")
+    print("   the grid the board is measured on. The second reproduces the issue")
+    print("   author's 0.460/0.439/0.432 and -14.7/-16.0/-16.0 to three decimals.")
+    print("   A 20 Hz floor puts the band lower relative to fc, so it catches less")
+    print("   droop. The correction had to be sized against the FIRST.")
+
+    for poles in (2, 4, 6):
+        tr = math.sqrt(10 ** (3.0 / (10.0 * poles)) - 1.0)
+        olds, news = [], []
+        for fc in (250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0):
+            g = -(10.0 * poles) * np.log10(1.0 + (F / fc) ** 2)
+            olds.append(corner_shipped(F, g, fc).value / fc)
+            news.append(rc.filt_corner(fc)(F, g).value / fc)
+        check(max(olds) / min(olds) - 1 > 0.08,
+              f"{poles}-pole: the shipped estimator moves "
+              f"{100*(max(olds)/min(olds)-1):.2f} % on a constant ratio")
+        check(max(news) / min(news) - 1 < 0.015,
+              f"{poles}-pole: the repaired one moves "
+              f"{100*(max(news)/min(news)-1):.2f} %, against a true {tr:.4f}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all-voices", action="store_true",
@@ -293,6 +518,8 @@ def main() -> int:
     defect_2()
     defect_3()
     defect_4()
+    defect_5()
+    defect_6()
     print("\n" + "=" * 78)
     if fails:
         print(f"{len(fails)} check(s) FAILED:")
