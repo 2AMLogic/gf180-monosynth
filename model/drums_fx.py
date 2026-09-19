@@ -507,8 +507,8 @@ FRAME = 1.0 / SR
 CHART_VPP = dict(BD=3.5, SD=3.0, LT=3.5, LC=3.5, MT=3.0, MC=3.0, HT=3.5, HC=3.5,
                  RS=3.0, CL=2.5, CP=6.0, MA=3.0, CB=3.5, CY=3.5, OH=3.5, CH=3.0)
 BUS_TARGET = {n: round(0.5 * min(v, 3.5) / 3.5, 4) for n, v in CHART_VPP.items()}
-AMP_TOM = {"LT": 0.0048686, "MT": 0.0062791, "HT": 0.0100452,
-           "LC": 0.0093449, "MC": 0.0122848, "HC": 0.0206735}
+AMP_TOM = {"LT": 0.0048081, "MT": 0.0061911, "HT": 0.0099312,
+           "LC": 0.0093529, "MC": 0.0122886, "HC": 0.0206735}
 # RE-BALANCED with the pitch drop corrected, by `drums_fx_render.py --balance`
 # unchanged: the procedure did not move, its input did. Sweeping f0 by x1.7 and
 # back detunes the resonator while the pulse is still in it, so the OLD drop was
@@ -836,13 +836,28 @@ def tom_pitch_drop_writes(frame: int, mode: int, f0_hz: float, q: float, amp: fl
     15.7.1 and of the link budget (`fpga/link_budget.py`), and a sequence whose
     length depended on the accent would make a host's timing depend on what it
     played. They are then writes of the settled coefficients, which is what the
-    machine's own foot resistance is doing."""
+    machine's own foot resistance is doing.
+
+    EACH STEP HOLDS THE INTERVAL'S MEAN, NOT ITS LEFT EDGE. A coefficient
+    written at t_i is held until t_{i+1}, so writing exp(-3 t_i / T) holds the
+    curve's HIGHEST value across the whole interval and the staircase sits
+    above the law everywhere. Over six steps that is not a rounding error: the
+    left-edge hold reads back 22-38 % high through `tom_pitch_probe` and misses
+    the law by 0.0055 rms in f0 where the interval mean misses it by 0.0029 --
+    half the error, at the same six steps and the same fourteen writes. The
+    mean of exp(-3t/T) over one step of T/S is (S/3)(e^(-3i/S) - e^(-3(i+1)/S));
+    the last write is the endpoint itself, because nothing is held after it.
+    Measured three ways in docs/tom-pitch-drop-correction.md."""
     out = []
     excess = tom_drop_excess(mode, f0_hz, accent)
-    for i in range(TOM_DROP_STEPS + 1):
-        t = i / TOM_DROP_STEPS
-        hz = f0_hz * (1.0 + excess * math.exp(-3.0 * t))
-        f = frame + int(round(t * TOM_DROP_MS * 1e-3 * SR))
+    s = TOM_DROP_STEPS
+    for i in range(s + 1):
+        if i < s:
+            shape = (s / 3.0) * (math.exp(-3.0 * i / s) - math.exp(-3.0 * (i + 1) / s))
+        else:
+            shape = math.exp(-3.0)
+        hz = f0_hz * (1.0 + excess * shape)
+        f = frame + int(round(i / s * TOM_DROP_MS * 1e-3 * SR))
         out += [(f, a, v) for a, v in mode_writes(mode, hz, q, amp)[:2]]
     return out
 

@@ -112,6 +112,22 @@ def validate_resample(tol: float = 0.01) -> dict:
     return {"tolerance_rel": tol, "cases": out}
 
 
+def trim_dead_tail(x: np.ndarray) -> np.ndarray:
+    """Cut the model render's EXACTLY ZERO tail before measuring it.
+
+    The model is integer and its ring reaches 0 and stays there; the recordings
+    have a dither floor and never do. `tom_pitch_probe` measures each file's own
+    floor from its last 30 ms, so a digitally silent tail reports a floor of
+    -400 dBFS, every period in the file then clears floor + 40 dB including the
+    ones that are pure quantisation residue, and the coarse f0 taken from them
+    lands far enough out that the sanity band throws the REAL periods away --
+    six of twenty rows refused as `only 0 clean periods after the pulse` before
+    this was found. Trimming the dead tail leaves the probe the same kind of
+    floor the recordings give it. No sample inside the ring is touched."""
+    nz = np.nonzero(np.asarray(x) != 0.0)[0]
+    return x if len(nz) == 0 else x[:nz[-1] + 1]
+
+
 def to_44100(x: np.ndarray) -> np.ndarray:
     from scipy.signal import resample_poly
     return resample_poly(np.asarray(x, dtype=np.float64), 147, 160)
@@ -174,7 +190,7 @@ def compare_one(voice: str, accent_level: str, tuning: int, sizes: dict) -> dict
         "ratio_first_period": ref.get("ratio_first_period"),
         "tau_ms": ref.get("fit_tau_ms"), "traj": _thin(ref["traj"])})
 
-    y = to_44100(render(voice, ACCENT_MAP[accent_level], f0_hz=f_ref))
+    y = to_44100(trim_dead_tail(render(voice, ACCENT_MAP[accent_level], f0_hz=f_ref)))
     ours = P.measure(y, P.SR_EXPECTED, label=f"model {voice} accent {ACCENT_MAP[accent_level]}")
     row["ours"] = {"verdict": ours["verdict"], "why": ours.get("why")}
     if ours["verdict"] == "REFUSED":
