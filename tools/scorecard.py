@@ -100,7 +100,7 @@ def evaluate(case: dict, res: dict | None) -> dict:
         return {"state": NO_VERDICT, "worst": None,
                 "why": "missing required: " + ", ".join(missing), "engine": engine}
 
-    worst, worst_name, invalid = None, "", []
+    worst, worst_name, invalid, props = None, "", [], {}
     for name, m in metrics.items():
         if not m.get("valid", True):
             invalid.append(name)
@@ -111,16 +111,113 @@ def evaluate(case: dict, res: dict | None) -> dict:
             invalid.append(name)
             continue
         d = abs(err) / abs(tol)            # dimensionless; units never mixed
+        props[name] = d                    # KEEP IT -- see `compare` below
         if worst is None or d > worst:
             worst, worst_name = d, name
     if invalid:
-        return {"state": NO_VERDICT, "worst": None,
+        return {"state": NO_VERDICT, "worst": None, "properties": props,
                 "why": "invalid: " + ", ".join(invalid), "engine": engine}
     if worst is None:
-        return {"state": NO_VERDICT, "worst": None, "why": "no valid metrics",
-                "engine": engine}
+        return {"state": NO_VERDICT, "worst": None, "properties": props,
+                "why": "no valid metrics", "engine": engine}
     return {"state": PASS if worst <= 1.0 else FAIL, "worst": worst,
+            "properties": props,
             "why": "" if worst <= 1.0 else f"worst: {worst_name}", "engine": engine}
+
+
+ACCEPT, REJECT, INCOMPARABLE = "accept", "reject", "incomparable"
+
+# A property may regress by this much and still be called unchanged, unless the
+# case names its own allowance. It is a PLACEHOLDER: DR 0015 requires allowances
+# derived from each measurement's own uncertainty, and #158 is where that gets
+# measured. Until then it is stated here rather than hidden in a comparison.
+DEFAULT_ALLOWANCE = 0.05
+
+
+def measurement_basis(res: dict) -> dict:
+    """What a result was measured WITH, as opposed to what it measured.
+
+    Two results are comparable only on the same basis: same reference, same
+    estimator build, same windows, same tolerances, same required set. When an
+    estimator is repaired the baseline must be RE-MEASURED, because comparing an
+    old instrument's old number against a new instrument's corrected one
+    confounds two changes (DR 0015).
+    """
+    prov = res.get("provenance") or {}
+    return {"engine": res.get("engine"),
+            "rubric": res.get("rubric_version"),
+            "analysis": prov.get("analysis_run"),
+            "inputs": (prov.get("inputs") or {}).get("refs")}
+
+
+def compare(base: dict, cand: dict, *, required: list[str] | None = None,
+            allowances: dict | None = None,
+            min_improvement: float = DEFAULT_ALLOWANCE) -> dict:
+    """DR 0015's acceptance rule. THE PROPERTY VECTOR JUDGES.
+
+    `worst` is a bottleneck summary and CANNOT carry this: it is an aggregate,
+    so it hides everything beneath it. A change taking pitch 2.0 -> 1.5 while
+    decay goes 0.2 -> 0.9 improves `worst` and degrades a property 4.5x; a
+    change taking decay 0.9 -> 0.2 with pitch stuck at 2.0 is real progress that
+    `worst` does not show at all.
+
+    Accept when: at least one required property improves meaningfully, NO
+    property regresses beyond its allowance, and required coverage is preserved.
+
+    Returns ACCEPT / REJECT / INCOMPARABLE with the reasons -- never a bare
+    boolean, because "why" is the part a designer acts on.
+    """
+    allowances = allowances or {}
+    reasons: list[str] = []
+
+    # Comparability first. A verdict across two measurement bases is not a
+    # verdict about the instrument.
+    bb, cb = measurement_basis(base), measurement_basis(cand)
+    differs = [k for k in bb if bb[k] != cb[k]]
+    if differs:
+        return {"verdict": INCOMPARABLE, "reasons":
+                [f"measurement basis differs on {k}: {bb[k]!r} vs {cb[k]!r} -- "
+                 f"re-measure the baseline before comparing" for k in differs]}
+
+    # A state that is not a verdict cannot be improved upon or regressed from.
+    for who, r in (("baseline", base), ("candidate", cand)):
+        if r.get("state") in (NO_VERDICT, NOT_RUN):
+            return {"verdict": INCOMPARABLE,
+                    "reasons": [f"{who} is {r.get('state')}: {r.get('why') or 'no reason given'}"]}
+
+    bp = base.get("properties") or {}
+    cp = cand.get("properties") or {}
+
+    # Coverage. Losing a property is never an improvement -- dropping the metric
+    # that was failing is the cheapest way to make any aggregate look better.
+    lost = sorted(set(required or bp) - set(cp))
+    if lost:
+        return {"verdict": REJECT, "reasons":
+                [f"coverage lost: {', '.join(lost)} -- a dropped measurement is "
+                 f"missing evidence, not an improvement"]}
+
+    improved, regressed = [], []
+    for name, cd in cp.items():
+        if name not in bp:
+            continue                       # new coverage is fine, not an improvement
+        delta = cd - bp[name]              # negative is better
+        allow = allowances.get(name, DEFAULT_ALLOWANCE)
+        if delta <= -min_improvement:
+            improved.append(f"{name} {bp[name]:.3f} -> {cd:.3f}")
+        elif delta > allow:
+            regressed.append(f"{name} {bp[name]:.3f} -> {cd:.3f} "
+                             f"(+{delta:.3f}, allowance {allow:.3f})")
+
+    if regressed:
+        reasons.append("regressed beyond allowance: " + "; ".join(regressed))
+    if not improved:
+        reasons.append("no required property improved meaningfully "
+                       f"(threshold {min_improvement:.3f})")
+    if reasons:
+        return {"verdict": REJECT, "reasons": reasons,
+                "improved": improved, "regressed": regressed}
+    return {"verdict": ACCEPT, "reasons": ["improved: " + "; ".join(improved)],
+            "improved": improved, "regressed": []}
 
 
 def checkout_staleness() -> str | None:
