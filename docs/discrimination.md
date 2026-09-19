@@ -1044,7 +1044,7 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 
 | | |
 |---|---|
-| tree | branch `measure-discrimination-current`, **clean**, off `main` `c752145` |
+| tree | branch `measure-discrimination-current`, **clean**. Measured off `main` `c752145`; rebased onto `main` `a57d469` (which contains PR #132, `ba14af2`) and re-verified identical |
 | model sha256 (drums_fx + modal_fixed + harness) | `3cf0210cca1aef01` (sixteen-sound run) |
 | corpus | `tidalcycles/sounds-tr808-fischer` `85fbecf`, **116** WAVs, sha256 `e3ad2d77a79cda4a` |
 | split hash | `ab381e78f9f4cc41` (sixteen); `6738610a454806f8` (the published eight, reproduced byte-for-byte) |
@@ -1053,9 +1053,16 @@ as in the acceptance suite: a control that has drifted measures its own drift.
 | results | `docs/discrimination-results.json` (eight-voice), `docs/discrimination-results-16.json` (sixteen), `docs/discrimination-run.txt`, `docs/discrimination-trajectory.txt` |
 
 **Which measurement path, and PR #132.** PR #132 repairs four estimator
-defects in `model/audio_measure.py` and `tools/run_case.py` and is **open,
-not merged**; this re-run was made on a tree that does **not** contain it.
-It does not matter here, and that is checkable rather than assumed:
+defects in `model/audio_measure.py` and `tools/run_case.py`. It was open when
+this re-run started and **merged to `main` as `ba14af2` while it was running**;
+the branch has since been rebased onto it and **every number above re-measured
+identically** (split hash `6738610a454806f8`, pooled 0.868 [0.77,0.94],
+BD 2.5, SD 3.4, OH 6.9, HT 7.3, LT ≥10 — unchanged to the tenth).
+
+That it changes nothing is checkable rather than assumed, and the check is
+the reason: PR #132 touches `audio_measure.py`, `run_case.py`,
+`tools/probes/` and the scorecard results, and **none of the eleven files
+this study uses**.
 `model/test_discrimination.py` imports nothing from `model/audio_measure.py`.
 Its features are its own log-mel and MFCC code; its diagnostics are its own
 `measure_tau`, `measure_f0`, `band_share` and `partial_ratio`. **No number in
