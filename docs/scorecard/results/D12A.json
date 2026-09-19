@@ -2,37 +2,37 @@
   "engine": "fixed-model",
   "case_id": "D12A",
   "subject": "Clap / anchor",
-  "source_commit": "698d700",
-  "analysis_run": "run_case@58f0b2ee3767 + audio_measure@692a766470b2 at 2026-09-18T22:48:35Z",
+  "source_commit": "9d60eaa",
+  "analysis_run": "run_case@c8cfbad67bf4 + audio_measure@288aa83814a5 at 2026-09-19T00:20:35Z",
   "provenance": {
     "engine": "fixed-model",
     "worktree": {
-      "commit": "698d700",
-      "described": "node/D-drums-bitexact-62-g698d700-dirty",
-      "branch": "fix-estimator-defects",
+      "commit": "9d60eaa",
+      "described": "node/D-drums-bitexact-74-g9d60eaa-dirty",
+      "branch": "sound-tom-pitch-drop",
       "dirty": true,
-      "uncommitted_sha256": "c168eaeb3fac9de5",
-      "untracked_files": 0
+      "uncommitted_sha256": "5593eecf04785e86",
+      "untracked_files": 3
     },
     "base_check": {
       "checked": true,
-      "origin_main": "c752145adcca",
+      "origin_main": "c80382632fd5",
       "behind_commits": 0,
       "ahead_commits": 5,
       "n_stops_here": 11,
       "n_stops_origin_main": 11,
       "stale_dependencies": {},
       "ahead_dependencies": {
-        "model/audio_measure.py": {
-          "origin_main": "7386f4a9297f",
-          "here": "692a766470b2"
+        "model/drums_fx.py": {
+          "origin_main": "5ea51e6cf91b",
+          "here": "4a0177412ff4"
         }
       },
       "allow_stale": false,
       "problems": [],
-      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: model/audio_measure.py. That is not a stale premise -- the tree contains everything origin/main has."
+      "ahead_note": "5 commit(s) ahead of origin/main and 0 behind, so these inputs differ because this branch changed them: model/drums_fx.py. That is not a stale premise -- the tree contains everything origin/main has."
     },
-    "command": "tools/run_case.py D01A D02A D03A D04A D05A D06A D07A D08A D09A D10A D11A D12A D13A D14A D15A D16A",
+    "command": "tools/run_case.py D01A D02A D03A D04A D05A D06A D07A D08A D09A D10A D11A D12A D13A D14A D15A D16A --refs /tmp/tr808-ref",
     "config": {
       "voice": "CP",
       "refs": "/tmp/tr808-ref",
@@ -43,15 +43,15 @@
       "level_matched": true
     },
     "python": "3.14.7",
-    "run_at": "2026-09-18T22:48:42Z",
+    "run_at": "2026-09-19T00:20:44Z",
     "inputs": {
-      "model/drums_fx.py": "sha256:5ea51e6cf91b53d6",
-      "model/voice_fx.py": "sha256:fc17442f2e21856a",
-      "model/audio_measure.py": "sha256:692a766470b2cad1",
+      "model/drums_fx.py": "sha256:4a0177412ff464a3",
+      "model/voice_fx.py": "sha256:771f4a21ef7617ad",
+      "model/audio_measure.py": "sha256:288aa83814a52662",
       "model/reference_rigs.py": "sha256:99b1c862857a34a8",
-      "tools/run_case.py": "sha256:58f0b2ee3767fe4c",
-      "tools/refprofile.py": "sha256:454becc06bce5e03",
-      "refprofile/profile.json": "sha256:93e1b954b1db9ef3",
+      "tools/run_case.py": "sha256:c8cfbad67bf468fe",
+      "tools/refprofile.py": "sha256:4bbd8e90c0a58e52",
+      "refprofile/profile.json": "sha256:c49b2e9046de0c13",
       "docs/scorecard/cases.csv": "sha256:a51ac5844f32873e",
       "reference:cp8/CP.WAV": "sha256:376429bb81cb48d1"
     },
@@ -64,7 +64,7 @@
   },
   "reference_profile": "fischer-tr808-103852:cp8/CP.WAV (no knob)",
   "reference_identity": "Fischer/Technopolis 1994, CC0-1.0 via TidalCycles, real TR-808 s/n 103852, individual voice outputs, 16-bit/44.1 kHz",
-  "render_run": "drums_fx@5ea51e6cf91b kit_with_sounds('CP') solo, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz, circuit 6 of 11",
+  "render_run": "drums_fx@4a0177412ff4 kit_with_sounds('CP') solo, one hit at accent 1.0, 2.20 s, both drum buses 0.45, 48000 Hz, circuit 6 of 11",
   "audio": "reference cp8/CP.WAV; ours build/scorecard/D12A-ours.wav",
   "tolerance_policy": {
     "frequency": "10 % of the reference value -- the TR-808's own component tolerance on an oscillator's f0 (docs/tr808-reference.md 1.7)",
