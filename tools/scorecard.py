@@ -122,8 +122,16 @@ def evaluate(case: dict, res: dict | None) -> dict:
                 "why": "no valid metrics", "engine": engine}
     return {"state": PASS if worst <= 1.0 else FAIL, "worst": worst,
             "properties": props,
+            # carried so compare() can see the basis -- it could not before
+            "provenance": prov, "analysis_run": res.get("analysis_run"),
             "why": "" if worst <= 1.0 else f"worst: {worst_name}", "engine": engine}
 
+
+# The measuring apparatus, by path. NOT the device under test: model/drums_fx.py
+# and model/voice_fx.py are what we are comparing, so they must stay out or every
+# model change reads as INCOMPARABLE.
+APPARATUS = ("model/audio_measure.py", "tools/run_case.py",
+             "model/reference_rigs.py", "tools/refprofile.py")
 
 ACCEPT, REJECT, INCOMPARABLE = "accept", "reject", "incomparable"
 
@@ -137,17 +145,27 @@ DEFAULT_ALLOWANCE = 0.05
 def measurement_basis(res: dict) -> dict:
     """What a result was measured WITH, as opposed to what it measured.
 
-    Two results are comparable only on the same basis: same reference, same
-    estimator build, same windows, same tolerances, same required set. When an
-    estimator is repaired the baseline must be RE-MEASURED, because comparing an
-    old instrument's old number against a new instrument's corrected one
-    confounds two changes (DR 0015).
+    THE FIRST VERSION OF THIS WAS INERT ON REAL RECORDS and its twelve tests
+    passed anyway, because the fixture was a shape nothing in the system
+    produces. It looked for `provenance.analysis_run`, `rubric_version` and
+    `inputs.refs`; `run_case.py` writes `analysis_run` at TOP LEVEL, has no
+    `rubric_version`, and keys `inputs` by PATH. Every field came back None on
+    both sides, compared equal, and the guard never fired -- so a repaired
+    estimator's artefact was reported as the device regressing, which is the
+    confound DR 0015 exists to prevent.
+
+    THE APPARATUS IS NOT THE DEVICE. `provenance.inputs` hashes both, and only
+    the apparatus belongs here: put `model/drums_fx.py` in the basis and every
+    model change becomes INCOMPARABLE, which blocks exactly the comparisons
+    this guard exists to enable.
     """
     prov = res.get("provenance") or {}
-    return {"engine": res.get("engine"),
-            "rubric": res.get("rubric_version"),
-            "analysis": prov.get("analysis_run"),
-            "inputs": (prov.get("inputs") or {}).get("refs")}
+    inputs = prov.get("inputs") or {}
+    return {"engine": res.get("engine") or prov.get("engine"),
+            # content hashes of what MEASURES -- these change when an estimator
+            # is repaired, which is the case the guard is for.
+            "apparatus": {k: v for k, v in inputs.items() if k in APPARATUS},
+            "refs": (prov.get("config") or {}).get("refs")}
 
 
 def compare(base: dict, cand: dict, *, required: list[str] | None = None,
