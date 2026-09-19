@@ -29,11 +29,14 @@ THREE THINGS IT HAS TO GET RIGHT, and only the first is obvious.
     register map. `MusicHost` emits them; `fpga/verify_fixture.py --wrong
     no-coef-seq` is what it sounds like when a host does not.
 
-WHAT IT DOES NOT DO. It does not correct the tom pitch drop. The kit ships
-x1.7 (`drums_fx.TOM_DROP_RATIO`); measurement against 99 hardware files puts it
-at x1.06 / x1.14 / x1.24 by accent (#110, merged) and #99 blocks the change.
-This host sends faithfully whatever the current model specifies, because what is
-being verified here is the PATH, not the values.
+WHAT IT DOES NOT DO. It does not decide any value. This host sends faithfully
+whatever the current model specifies, because what is being verified here is the
+PATH, not the values. (The tom pitch drop was the standing example of that: it
+shipped at an inferred x1.7 while 99 hardware files measured x1.06 / x1.14 /
+x1.24 by accent, and the host sent x1.7. The correction has since landed -- it
+set a constant to a measured quantity rather than fitting one to a score, which
+is why #99 never covered it -- and the host now sends x1.06 for the same reason
+it sent x1.7.)
 
 TIMING MODEL. `LinkTiming` is exact to the picosecond and its landing-frame
 prediction is CHECKED against the RTL, write for write, by
@@ -498,9 +501,9 @@ class MusicHost:
     def _tom_bend(self, frame: int, mode: int, accent: float):
         """Contract 15.7.1, second bullet. (TOM_DROP_STEPS + 1) x 2 writes over
         60 ms, read out of the IMAGE so a retuned tom or a conga sweeps from
-        where it actually sits. The x1.7 ratio is known wrong -- measured
-        x1.06 / x1.14 / x1.24 by accent (#110) -- and is sent as the model
-        specifies it, because this verifies the path and not the value."""
+        where it actually sits -- which now matters twice over, because the
+        measured law depends on the TUNING pot as well as the accent. Sent as
+        the model specifies it: this verifies the path, not the value."""
         a1, a2 = self._mode_pair(mode)
         f0, q = dx.poles_from_regs(a1, a2)
         amp = self.image.get(dx.A_MODE + mode * dx.MODE_STRIDE + 2, 0) / float(1 << 15)
@@ -508,8 +511,9 @@ class MusicHost:
         for f, a, v in seq:
             self.drum(f, a, v, tag="tom-bend")
         self.events.append((frame, f"tom pitch drop: {len(seq)} writes over "
-                                   f"{dx.TOM_DROP_MS:.0f} ms, x{dx.TOM_DROP_RATIO} (#110: measured "
-                                   f"x1.06/x1.14/x1.24 -- sent as the model specifies, #99 blocks it)"))
+                                   f"{dx.TOM_DROP_MS:.0f} ms, "
+                                   f"x{1.0 + dx.tom_drop_excess(mode, f0, accent):.4f} at accent "
+                                   f"{accent:.2f}, f0 {f0:.1f} Hz (#110's measured law)"))
 
     # -- the knobs
     def knob(self, frame: int, name: str, value: float) -> "MusicHost":

@@ -1553,7 +1553,7 @@ says so:
 |---|---|---|---|---|---|
 | 0 BD | PULSE × 0.1 ms exponential → mode 6 (**49.4 Hz**, Q 22.3, DECAY 5.0); PULSE × 1 ms rectangle → MIX at 0.06 (the click); the host's 4 ms attack window retunes mode 6 to 130 Hz / Q 6 and back (15.7.1) | 6 (RAW) | 0, 1 | f0 **and** Q **and** the attack window, all reference 2 | the 0.1 ms kick as the pulse shaper's rising edge (reference 2, "what to implement"); no sigh, no tone filter (17.14) |
 | 1 SD | PULSE × 0.1 ms → modes 7 (173 Hz, Q 16.3) and 8 (336 Hz, Q 9.9); NOISE × 15 ms → mode 3 (**BP** 2.75 kHz, Q 0.7) | 7, 8 (RAW), 3 (**BP**) | 2, 3 | both f0/Q, the snappy filter's pole, τ 15 ms | both bodies from the pulse, not the cascade (17.15); the snappy filter's **numerator**: reference 3 calls it a high-pass and the machine measures a band-pass on the same pole (17.22); SNAPPY level set to the knob's own curve at 5.0 |
-| 2 LT, 3 HT | PULSE × 0.1 ms → mode 9 (90 Hz, Q 25) / 10 (185 Hz, Q 25); the host's diode pitch drop sweeps f0 from ×1.7 down over 60 ms, scaled by accent (15.7.1) | 9, 10 (RAW) | 4, 5 | f0, Q, **the pitch drop** (reference 4) | no pink-noise rumble (17.14) |
+| 2 LT, 3 HT | PULSE × 0.1 ms → mode 9 (90 Hz, Q 25) / 10 (185 Hz, Q 25); the host's diode pitch drop sweeps f0 from ×1.06 down over 60 ms, scaled by accent above a threshold and by the TUNING pot (15.7.1) | 9, 10 (RAW) | 4, 5 | f0, Q, **the pitch drop** (reference 4) | no pink-noise rumble (17.14) |
 | 4 CH, 5 OH | SQSUM → mode 0 (BP 7117 Hz, Q 6, amp 0); TAP 0, SWING × envelope → mode 2 (HP 11.7 kHz, Q 2.5) / mode 1 (HP 7.8 kHz, Q 2.5); CH chokes OH | 0 (BP), 1, 2 (HP) | 6 (20 ms), 7 (150 ms, choke 4) | oscillators, BP, HPs, CH τ, the choke | OH τ 150 ms (DECAY mid) |
 | 6 CP | NOISE → mode 4 (BP 1071 Hz, Q 1.6, amp 0); TAP 4, TANH × (3 bursts τ 4 ms every 480 frames + tail τ 47 ms at 0.32) → MIX | 4 (BP) | 8, 9 | BP, three bursts, τ 47 ms | period 480 = 10 ms, tail −10 dB (17.17) |
 | 7 CB | **SQ 4 and SQ 5 on two separate paths**, each SWING × (τ 5 ms at 0.5 + **τ 100 ms** at 0.5) → mode 5 (BP **1100 Hz, Q 2.8**) | 5 (BP) | 10, 11 | oscillators 540/800 Hz, two-slope envelope, **one gate per oscillator** (reference 9, DR 0010) | nothing: the BP centre was 17.16 and is now fitted to a recording (1100 Hz Q 2.8), and the tail is the measured 98 ms |
@@ -1585,10 +1585,49 @@ in the reference host (`drums_fx.hit_writes`, `bd_attack_writes`,
   `a1`/`a2` at the hit and writes them back 192 frames (4 ms) later — four
   writes per hit.
 - **The toms' diode pitch drop** (reference 4, SN text): with the germanium
-  diodes conducting the foot resistance collapses and f0 starts at up to
-  ×1.7 the small-signal value, relaxing back as the ring decays. It is
-  amplitude-dependent — "accent changes the pitch envelope" — so the excess
-  is scaled by the accent and swept over 60 ms in six steps, two writes each.
+  diodes conducting the foot resistance collapses and f0 starts above the
+  small-signal value, relaxing back as the ring decays over 60 ms in six
+  steps, two writes each. **HARDWARE-MEASURED** (#110, 99 clean-digital tom
+  files of a real TR-808; `model/tom_pitch_probe.py`,
+  `docs/tom-pitch-drop-measurement.md`), replacing the ×1.7 this section
+  carried while the magnitude was marked *[inferred]*:
+
+  | accent | n | onset f0 ÷ settled f0 | range over 11 tunings |
+  |---|--:|--:|---|
+  | no accent | 23 | **×1.063** | ×1.040 – ×1.094 |
+  | accent | 33 | **×1.140** | ×1.085 – ×1.272 |
+  | more accent | 33 | **×1.236** | ×1.169 – ×1.344 |
+
+  **×1.7 occurs in none of the 99 files**, at any accent or tuning; the largest
+  drop anywhere is ×1.344. The excess is
+
+  ```
+  excess = (TOM_DROP_RATIO − 1) · max(0, accent − A0)/(1 − A0_tom)
+                                · exp(G · (f0/f0_nominal − 1))
+  ```
+
+  with `TOM_DROP_RATIO = 1.060` the measured onset ratio at a **stated**
+  reference setting — accent 1.0, the TUNING pot at its centre, the TOM
+  position of the circuit. Three terms because the measurement found three
+  separate faults in the inferred law: the magnitude; the accent **clamp**,
+  which gave an unaccented hit the *full* sweep where the machine gives it
+  ×1.06 (germanium diodes do not conduct below a drive, so a soft hit does not
+  sweep at all); and the **TUNING pot**, which the sequence ignored — LT at
+  *More Accent* runs ×1.169 at 82 Hz and ×1.325 at 101 Hz.
+
+  `A0` and `G` are the selected **position's**: the tom and conga halves of one
+  circuit differ, and not because of frequency — HT and LC are both nominally
+  185 Hz on the same bridged-T with a capacitor switched (§4 SW8) and
+  unaccented their excesses are 0.061 and 0.0055, eleven times apart at the
+  same pitch. The shape and the 60 ms are unchanged: the exponential beat a
+  linear ramp in 88 of 89 measured rows and τ = 20 ms sits against a measured
+  24.5 ms at *Accent*. The measured τ is itself accent-dependent (13 / 24.5 /
+  33 ms) and this law is not — a known deviation, recorded in
+  `docs/tom-pitch-drop-correction.md`.
+
+  The write count does **not** depend on the accent: below the threshold the
+  six steps still run, writing the settled coefficients, so a host's timing
+  never depends on what it played.
 
 A host that sequences coefficients itself passes `coef_seq=False` and gets
 the bare register image. Neither sequence changes the block, the buses or

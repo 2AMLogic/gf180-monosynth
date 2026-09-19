@@ -686,32 +686,126 @@ def test_bd_has_the_attack_window_and_without_it_does_not():
     assert with_[1] > 5 * without[1]
 
 
-def test_toms_drop_in_pitch_by_the_diode_ratio_and_by_accent():
-    """VERIFIED IN A SOURCE (section 4, [SN text; magnitude inferred]): with
-    the germanium diodes conducting the foot resistance collapses and f0 rises
-    to ~1.7x the small-signal value at the start of a hard hit, settling back
-    -- "amplitude-dependent and gradual", and "accent changes the pitch
-    envelope". The reference's own example is LT ~145 Hz at the start of a
-    hard hit settling to 86.
+# HARDWARE, not the contract. Every bound below comes from
+# docs/tom-pitch-drop-results.json -- 99 clean-digital tom files of a real
+# TR-808 measured in #110 -- and NOT from what drums_fx ships. A test written
+# against the shipped constant can only ever say the constant is itself, which
+# is exactly how x1.7 survived three revisions marked [inferred].
+CORPUS = {                     # onset f0 / settled f0, per accent level
+    "A": {"median": 1.063, "min": 1.040, "max": 1.094},   # No Accent
+    "B": {"median": 1.140, "min": 1.085, "max": 1.272},   # Accent
+    "C": {"median": 1.236, "min": 1.169, "max": 1.344},   # More Accent
+}
+CORPUS_MAX_ANYWHERE = 1.344    # the largest drop in any of the 99 files
+CORPUS_ACCENT = {"A": 1.0, "B": 1.4, "C": 2.0}   # model/tom_drop_fit.py's map
 
-    Measured from half-periods between zero crossings, which needs no window
-    at all. `coef_seq=False` is the negative control."""
+
+def _tom_start_hz(accent, seq=True, stop=None, kit=None):
+    """Onset f0 of an LT hit, from half-periods between zero crossings -- no
+    window at all. `seq=False` is the negative control: no sequence, no sweep."""
     def halfperiods(x, n=4):
         z = np.nonzero(np.diff(np.signbit(x)))[0]
         return [SR / (2 * (z[i + 1] - z[i])) for i in range(min(n, len(z) - 1))]
-    def start_hz(accent, seq):
-        d = dx.DrumsFx()
-        n = int(0.6 * SR)
-        dm, bd = d.play(dx.hit_writes([(10, dx.LT, accent)], dx.kit_808(), coef_seq=seq), n)
-        import drum_fit as df
-        return max(halfperiods(df.trim_onset(bd.astype(np.float64), SR)))
-    flat = start_hz(1.0, False)
+    d = dx.DrumsFx()
+    dm, bd = d.play(dx.hit_writes([(10, dx.LT if stop is None else stop, accent)],
+                                  dx.kit_808() if kit is None else kit, coef_seq=seq),
+                    int(0.6 * SR))
+    import drum_fit as df
+    return max(halfperiods(df.trim_onset(bd.astype(np.float64), SR)))
+
+
+def test_toms_drop_in_pitch_by_the_MEASURED_ratio_not_the_inferred_one():
+    """VERIFIED IN A SOURCE (section 4, SN text) that the drop exists, is
+    amplitude-dependent and is gradual. HARDWARE-MEASURED (#110, 99 files)
+    for how big it is: x1.063 unaccented, x1.140 accented, x1.236 at more
+    accent, and NEVER x1.7 -- the largest drop in the whole corpus is x1.344.
+
+    The assertion is against the corpus's own measured range at each level, so
+    this test fails if the inferred x1.7 ever comes back, and it does not care
+    what drums_fx currently holds."""
+    flat = _tom_start_hz(1.0, seq=False)
     assert flat == pytest.approx(90.0, rel=0.03), f"the control must be flat at 90 Hz, got {flat}"
-    hard = start_hz(1.0, True)
-    assert hard / 90.0 == pytest.approx(dx.TOM_DROP_RATIO, rel=0.10), hard
-    assert hard == pytest.approx(145.0, rel=0.10), "the reference's own LT example"
-    soft = start_hz(0.4, True)
-    assert flat < soft < hard, f"accent must move it: {soft} between {flat} and {hard}"
+    for lvl, accent in CORPUS_ACCENT.items():
+        got = _tom_start_hz(accent) / 90.0
+        lo, hi = CORPUS[lvl]["min"], CORPUS[lvl]["max"]
+        assert lo * 0.98 <= got <= hi * 1.02, (
+            f"accent {accent} reads x{got:.4f}; the machine's {lvl} level spans "
+            f"x{lo:.3f}-x{hi:.3f} over 11 tunings. x1.7 is outside every one of them.")
+
+
+def test_no_setting_the_register_map_allows_exceeds_the_largest_drop_measured():
+    """The loudest hit at either end of the TUNING pot must still land inside
+    the 99 files. This is the guard that fails if x1.7 -- or anything like it --
+    returns by any route: a constant, the clamp, or the tuning term."""
+    worst = 0.0
+    for name in ("LT", "MT", "HT", "LC", "MC", "HC"):
+        f_nom = dx.TOM_PRESET[name][0]
+        mode = {"LT": dx.M_LT, "LC": dx.M_LT, "MT": dx.M_MT,
+                "MC": dx.M_MT, "HT": dx.M_HT, "HC": dx.M_HT}[name]
+        for f0 in (0.80 * f_nom, f_nom, 1.25 * f_nom):
+            for accent in (0.0, 0.5, 1.0, 1.4, 2.0):
+                worst = max(worst, 1.0 + dx.tom_drop_excess(mode, f0, accent))
+    assert worst <= CORPUS_MAX_ANYWHERE * 1.02, (
+        f"the register map allows x{worst:.4f}; the largest drop in 99 files of "
+        f"real hardware is x{CORPUS_MAX_ANYWHERE}")
+    assert dx.TOM_DROP_RATIO < CORPUS["A"]["max"] * 1.02, (
+        f"TOM_DROP_RATIO is the ratio at accent 1.0 with the pot centred, which "
+        f"the machine measures at x{CORPUS['A']['median']}; it is x{dx.TOM_DROP_RATIO}")
+
+
+def test_the_unaccented_hit_is_not_given_the_full_drop():
+    """The old law scaled by min(max(accent, 0), 1), so an unaccented hit got
+    the WHOLE sweep. The machine gives it x1.06 and its loudest hit x1.24, so
+    the excess at accent 1.0 must be a small fraction of the excess at 2.0 --
+    measured 0.063 / 0.236, i.e. about a quarter."""
+    e1 = dx.tom_drop_excess(dx.M_LT, 90.0, 1.0)
+    e2 = dx.tom_drop_excess(dx.M_LT, 90.0, 2.0)
+    assert e1 > 0.0 and e2 > e1
+    ratio = e1 / e2
+    measured = (CORPUS["A"]["median"] - 1.0) / (CORPUS["C"]["median"] - 1.0)
+    assert ratio == pytest.approx(measured, rel=0.25), (
+        f"excess at accent 1.0 is {100*ratio:.0f} % of the excess at 2.0; "
+        f"the machine says {100*measured:.0f} %. A clamp would say 100 %.")
+
+
+def test_the_drop_has_a_threshold_and_a_soft_hit_does_not_sweep_at_all():
+    """Germanium diodes do not conduct below a drive. Below the threshold the
+    sequence still runs -- the write count is part of 15.7.1 -- but it writes
+    the settled coefficients, so the pitch does not move."""
+    assert dx.tom_drop_excess(dx.M_LT, 90.0, dx.TOM_DROP_ACCENT_0) == 0.0
+    assert dx.tom_drop_excess(dx.M_LT, 90.0, 0.4) == 0.0
+    soft = _tom_start_hz(0.4)
+    assert soft == pytest.approx(90.0, rel=0.03), f"a soft hit must not sweep, got {soft}"
+    assert len(dx.tom_pitch_drop_writes(0, dx.M_LT, 90.0, 25.0, 0.2, 0.4)) == \
+        len(dx.tom_pitch_drop_writes(0, dx.M_LT, 90.0, 25.0, 0.2, 2.0)), \
+        "the write count must not depend on what the host played"
+
+
+def test_the_drop_follows_the_tuning_pot():
+    """HARDWARE-MEASURED (#110): LT at More Accent runs x1.169 at 82 Hz and
+    x1.325 at 101 Hz -- the excess nearly doubles across the pot. The shipped
+    sequence used to be tuning-independent."""
+    lo = dx.tom_drop_excess(dx.M_LT, 82.0, 2.0)
+    hi = dx.tom_drop_excess(dx.M_LT, 101.0, 2.0)
+    assert hi > lo
+    measured = (1.325 - 1.0) / (1.169 - 1.0)
+    assert hi / lo == pytest.approx(measured, rel=0.25), (
+        f"the pot moves the excess by x{hi/lo:.2f}; the machine says x{measured:.2f}")
+
+
+def test_the_conga_position_drops_far_less_than_the_tom_at_the_same_frequency():
+    """HT and LC are BOTH nominally 185 Hz, one bridged-T with a capacitor
+    switched (SW8). HARDWARE-MEASURED (#110): unaccented their excesses are
+    0.061 and 0.0055 -- eleven times apart at the SAME frequency. So the drop
+    cannot be a function of f0, and a law that made it one would be wrong here
+    and nowhere else."""
+    tom = dx.tom_drop_excess(dx.M_HT, 185.0, 1.0)     # HT position
+    conga = dx.tom_drop_excess(dx.M_LT, 185.0, 1.0)   # LC position, same f0
+    assert dx.tom_position(dx.M_HT, 185.0) == "HT" and dx.tom_position(dx.M_LT, 185.0) == "LC"
+    assert tom > 0.0
+    assert conga < tom / 5.0, (
+        f"tom {tom:.4f} against conga {conga:.4f} at the same 185 Hz; the machine "
+        f"measures 0.061 against 0.0055")
 
 
 def test_a_write_past_the_end_is_dropped_and_a_negative_frame_is_not():

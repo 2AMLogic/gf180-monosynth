@@ -184,10 +184,10 @@ Per event, counted from the reference hosts' own write lists: note on 5 writes
 (the compensation lookup), BD decay knob 2. Boot is 182 writes = 4.43 ms of
 link time, once.
 
-### Known wrong, sent anyway
+### The host decides no value
 
-The toms' pitch drop ships at ×1.7 (`drums_fx.TOM_DROP_RATIO`). Measurement
-against 99 hardware files puts it at **×1.06 / ×1.14 / ×1.24 by accent**
-(#110, merged); the correction is blocked on #99. The host sends whatever the
-current model specifies, because what is verified here is the **path**, not
-the value.
+It sends whatever the current model specifies, because what is verified here is
+the **path**, not the value. The toms' pitch drop was the standing example: it
+shipped at an inferred ×1.7 while 99 hardware files measured **×1.06 / ×1.14 /
+×1.24 by accent** (#110), and this host sent ×1.7. The correction has landed in
+`drums_fx` and the host now sends the measured law — the same rule, twice.

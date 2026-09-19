@@ -507,8 +507,14 @@ FRAME = 1.0 / SR
 CHART_VPP = dict(BD=3.5, SD=3.0, LT=3.5, LC=3.5, MT=3.0, MC=3.0, HT=3.5, HC=3.5,
                  RS=3.0, CL=2.5, CP=6.0, MA=3.0, CB=3.5, CY=3.5, OH=3.5, CH=3.0)
 BUS_TARGET = {n: round(0.5 * min(v, 3.5) / 3.5, 4) for n, v in CHART_VPP.items()}
-AMP_TOM = {"LT": 0.0078319, "MT": 0.0101087, "HT": 0.0162904,
-           "LC": 0.0160655, "MC": 0.0214200, "HC": 0.0368928}
+AMP_TOM = {"LT": 0.0048081, "MT": 0.0061911, "HT": 0.0099312,
+           "LC": 0.0093529, "MC": 0.0122886, "HC": 0.0206735}
+# RE-BALANCED with the pitch drop corrected, by `drums_fx_render.py --balance`
+# unchanged: the procedure did not move, its input did. Sweeping f0 by x1.7 and
+# back detunes the resonator while the pulse is still in it, so the OLD drop was
+# costing the toms 38-44 % of their ring; with the measured x1.06 they reach the
+# chart's proportions on 0.56-0.62 x the exciter. Nothing but the six tom/conga
+# positions moved (every other voice re-balances at x1.00 +- 0.01).
 AMP_CY_HI = 1.0
 PEAK_RSG, PEAK_CLG, PEAK_MA = 0.343, 0.5, 0.5395
 # The RS/CL exciter, by position. The RIMSHOT's is low on purpose: both taps
@@ -555,12 +561,69 @@ BD_DECAY_Q = {0.0: 2.3, 1.0: 5.2, 5.0: 22.3, 9.0: 63.0, 10.0: 84.0}
 # It is the SAME resonator retuned, not a second one, so the host writes the
 # attack coefficients at the hit and the body's 4 ms later.
 BD_ATTACK_HZ, BD_ATTACK_Q, BD_ATTACK_MS = 130.0, 6.0, 4.0
-# VERIFIED IN A SOURCE [section 4, SN text; magnitude inferred]: with the tom's
-# germanium diodes conducting the foot resistance collapses and f0 rises to
-# ~1.7x the small-signal value at the start of a hard hit, settling back as the
-# ring decays -- "amplitude-dependent and gradual, not a stepped envelope", and
-# "accent changes the pitch envelope". This is the toms' "doom" sweep.
-TOM_DROP_RATIO, TOM_DROP_MS, TOM_DROP_STEPS = 1.7, 60.0, 6
+# VERIFIED IN A SOURCE [section 4, SN text]: with the tom's germanium diodes
+# conducting the foot resistance collapses and f0 rises at the start of a hard
+# hit, settling back as the ring decays -- "amplitude-dependent and gradual,
+# not a stepped envelope", and "accent changes the pitch envelope". This is the
+# toms' "doom" sweep. The EXISTENCE of the drop, its accent dependence and its
+# gradual shape are the source's. The MAGNITUDE was marked [inferred] at x1.7
+# and is now measured.
+#
+# HARDWARE-MEASURED [99 clean-digital tom files and 66 conga files of a real
+# TR-808, 808 From Mars; model/tom_pitch_probe.py behind its own gate;
+# docs/tom-pitch-drop-measurement.md (#110); the law, its constants and four
+# held-out splits in model/tom_drop_fit.py and docs/tom-pitch-drop-law.json;
+# before/after against the recordings in docs/tom-pitch-drop-correction.md]:
+#
+#   onset f0 / settled f0, median over 11 TUNING positions x 3 voices
+#     no accent  x1.063 (n 23)    accent  x1.140 (n 33)    more  x1.236 (n 33)
+#
+# x1.7 OCCURS NOWHERE IN THE CORPUS. The largest drop in any of the 99 files is
+# x1.344. The inferred magnitude was 3x too large at the loudest hit measured
+# and 11x too large at an unaccented one -- DR 0009's kick again, a magnitude
+# marked [inferred] that the machine contradicts.
+#
+# The measurement found THREE separate faults, which is why one constant became
+# four:
+#   1. THE MAGNITUDE, above. TOM_DROP_RATIO is now the measured onset ratio at
+#      one stated reference setting -- accent 1.0, the TUNING pot at its centre,
+#      the TOM position of the circuit -- and the law below scales it from
+#      there. It is still the single knob that sets the size of the sweep.
+#   2. THE CLAMP. The old law scaled the excess by min(max(accent, 0), 1),
+#      which hands the FULL drop to an unaccented hit, where the machine does
+#      x1.06. Correcting the magnitude alone would have left the accent curve
+#      wrong at the bottom. The drop has a THRESHOLD instead: germanium diodes
+#      do not conduct below a drive, so below TOM_DROP_ACCENT_0 there is no
+#      drop at all, and above it the excess is linear in accent. Measured
+#      excess is 0.054 / 0.143 / 0.239 at the three recorded accent levels --
+#      a straight line that does not pass through the origin.
+#   3. THE TUNING POT, which the old sequence ignored entirely. LT at More
+#      Accent runs x1.169 at 82 Hz and x1.325 at 101 Hz: the excess nearly
+#      doubles across the pot. Section 4's circuit reading predicts a
+#      dependence; the direction and size here are the measurement's.
+#
+# The TOM and CONGA positions of one circuit have different thresholds, and
+# that is NOT an f0 effect: HT and LC are BOTH nominally 185 Hz, on the same
+# bridged-T with a capacitor switched (SW8), and unaccented their drops differ
+# by 11x (excess 0.061 against 0.0055). It is the switch, not the frequency --
+# which is also why the tuning term below is normalised to each POSITION's own
+# nominal rather than to an absolute frequency.
+TOM_DROP_RATIO = 1.060        # onset / settled at accent 1.0, pot centre, TOM
+TOM_DROP_ACCENT_0 = 0.670     # accent below which the diodes do not conduct
+TOM_DROP_ACCENT_0_CONGA = 1.064
+TOM_DROP_TUNING_G = 3.58      # d ln(excess) / d (f0/f0_nominal), tom position
+TOM_DROP_TUNING_G_CONGA = 7.46
+# The TUNING pot spans +-10 % (reference 1.7), which is also the span the 99
+# files cover, so the tuning term is clamped there: past the pot's own range
+# the law would be extrapolating outside every file it was measured from.
+TOM_DROP_TUNING_SPAN = 0.10
+# UNCHANGED, AND DELIBERATELY. exp(-3t/60 ms) is tau = 20 ms against a measured
+# 24.5 ms at Accent, and the exponential beat a linear ramp in 88 of 89 rows,
+# so the shape and the duration are the parts of 15.7.1 that survived contact
+# with the hardware. The measured tau is itself accent-dependent -- 13 / 24.5 /
+# 33 ms at the three levels -- and this law is not. That is a known and
+# reported deviation, not an oversight: docs/tom-pitch-drop-correction.md.
+TOM_DROP_MS, TOM_DROP_STEPS = 60.0, 6
 
 # ---- the toms and congas, reference section 4's component-value table ---------
 # VERIFIED IN A SOURCE [SN p.6 "Voices are switched by SW8"]: the tom and the
@@ -710,19 +773,91 @@ def bd_attack_writes(frame: int, restore: list = None) -> list:
             + [(frame + n, base + i, v) for i, v in enumerate(restore)])
 
 
+# Which of a circuit's two positions the panel switch is in. The pair share one
+# bridged-T (SW8) and their nominal frequencies are 2x apart, so the tuning the
+# host has written says which one is selected -- and it must, because the two
+# positions have different pitch-drop thresholds and the same mode number.
+TOM_PAIR = {M_LT: ("LT", "LC"), M_MT: ("MT", "MC"), M_HT: ("HT", "HC")}
+
+
+def tom_position(mode: int, f0_hz: float) -> str | None:
+    """'LT'/'LC'/... for a tom circuit tuned to f0_hz, else None.
+
+    Nearest of the circuit's OWN two nominals in log frequency -- only the two,
+    never all six: LC and HT are both nominally 185 Hz and a global nearest
+    would confuse them."""
+    names = TOM_PAIR.get(mode)
+    if not names:
+        return None
+    if not (f0_hz > 0.0):
+        return names[0]
+    return min(names, key=lambda n: abs(math.log(f0_hz / TOM_PRESET[n][0])))
+
+
+def tom_drop_excess(mode: int, f0_hz: float, accent: float) -> float:
+    """The onset excess of the diode pitch drop: f0 starts at
+    f0_hz * (1 + excess) and relaxes back.
+
+        excess = TOM_DROP_RATIO_EXCESS
+                 * max(0, accent - A0) / (1 - TOM_DROP_ACCENT_0)
+                 * exp(G * (f0 / f0_nominal - 1))
+
+    Three terms, one per fault the measurement found: the magnitude, the
+    accent THRESHOLD in place of the old clamp, and the TUNING pot the old
+    sequence ignored. A0 and G are the selected position's -- tom or conga.
+    Normalised so that a tom at accent 1.0 with the pot at its centre gives
+    exactly TOM_DROP_RATIO, which is therefore still the one knob that scales
+    the whole sweep (and is still what a probe monkey-patching it moves).
+
+    An unknown mode, or a hit at or below the diodes' threshold, gives 0.0 --
+    no sweep at all, which is what the machine does to an unaccented conga."""
+    name = tom_position(mode, f0_hz)
+    if name is None:
+        return 0.0
+    conga = name in ("LC", "MC", "HC")
+    a0 = TOM_DROP_ACCENT_0_CONGA if conga else TOM_DROP_ACCENT_0
+    g = TOM_DROP_TUNING_G_CONGA if conga else TOM_DROP_TUNING_G
+    drive = max(0.0, accent - a0) / (1.0 - TOM_DROP_ACCENT_0)
+    if drive <= 0.0:
+        return 0.0
+    u = f0_hz / TOM_PRESET[name][0] - 1.0
+    u = min(max(u, -TOM_DROP_TUNING_SPAN), TOM_DROP_TUNING_SPAN)
+    return (TOM_DROP_RATIO - 1.0) * drive * math.exp(g * u)
+
+
 def tom_pitch_drop_writes(frame: int, mode: int, f0_hz: float, q: float, amp: float,
                           accent: float = 1.0) -> list:
     """The toms' diode pitch drop as host writes (reference section 4): f0
-    starts at up to TOM_DROP_RATIO x its small-signal value and relaxes back
-    over TOM_DROP_MS in TOM_DROP_STEPS, the excess scaled by the accent
-    because the mechanism is amplitude-dependent. Q is held: the diodes move
-    the foot resistance, which the reference treats as an f0 effect."""
+    starts at (1 + `tom_drop_excess`) x its small-signal value and relaxes back
+    over TOM_DROP_MS in TOM_DROP_STEPS. Q is held: the diodes move the foot
+    resistance, which the reference treats as an f0 effect.
+
+    Emits the steps even when the excess is zero -- the write count is part of
+    15.7.1 and of the link budget (`fpga/link_budget.py`), and a sequence whose
+    length depended on the accent would make a host's timing depend on what it
+    played. They are then writes of the settled coefficients, which is what the
+    machine's own foot resistance is doing.
+
+    EACH STEP HOLDS THE INTERVAL'S MEAN, NOT ITS LEFT EDGE. A coefficient
+    written at t_i is held until t_{i+1}, so writing exp(-3 t_i / T) holds the
+    curve's HIGHEST value across the whole interval and the staircase sits
+    above the law everywhere. Over six steps that is not a rounding error: the
+    left-edge hold reads back 22-38 % high through `tom_pitch_probe` and misses
+    the law by 0.0055 rms in f0 where the interval mean misses it by 0.0029 --
+    half the error, at the same six steps and the same fourteen writes. The
+    mean of exp(-3t/T) over one step of T/S is (S/3)(e^(-3i/S) - e^(-3(i+1)/S));
+    the last write is the endpoint itself, because nothing is held after it.
+    Measured three ways in docs/tom-pitch-drop-correction.md."""
     out = []
-    excess = (TOM_DROP_RATIO - 1.0) * min(max(accent, 0.0), 1.0)
-    for i in range(TOM_DROP_STEPS + 1):
-        t = i / TOM_DROP_STEPS
-        hz = f0_hz * (1.0 + excess * math.exp(-3.0 * t))
-        f = frame + int(round(t * TOM_DROP_MS * 1e-3 * SR))
+    excess = tom_drop_excess(mode, f0_hz, accent)
+    s = TOM_DROP_STEPS
+    for i in range(s + 1):
+        if i < s:
+            shape = (s / 3.0) * (math.exp(-3.0 * i / s) - math.exp(-3.0 * (i + 1) / s))
+        else:
+            shape = math.exp(-3.0)
+        hz = f0_hz * (1.0 + excess * shape)
+        f = frame + int(round(i / s * TOM_DROP_MS * 1e-3 * SR))
         out += [(f, a, v) for a, v in mode_writes(mode, hz, q, amp)[:2]]
     return out
 
