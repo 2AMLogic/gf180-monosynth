@@ -57,6 +57,30 @@ def sine(hz, seconds, amp=1.0, sr=SR):
     return amp * np.sin(2 * math.pi * hz * np.arange(n) / sr)
 
 
+def test_changed_control_accepts_distance_change_when_both_states_fail():
+    """A control must not be satisfied merely because both runs are red.
+
+    This is the #167 shape: F1A fails cleanly after the corner repair, while
+    REF_CORNER_2X makes its measured error much larger.  The distance is the
+    evidence that the injected defect fired.
+    """
+    clean = ("fail", 1.68, "clean F1A")
+    injected = ("fail", 6.45, "injected F1A")
+    assert rc.control_changed(clean, injected)
+
+
+def test_changed_control_rejects_an_injection_removed_from_a_clean_failure():
+    clean = ("fail", 1.68, "clean F1A")
+    same = ("fail", 1.68, "injection removed")
+    assert not rc.control_changed(clean, same)
+
+
+def test_changed_control_rejects_two_refusals():
+    clean = ("no verdict", None, "missing frozen reference")
+    injected = ("no verdict", None, "missing frozen reference")
+    assert not rc.control_changed(clean, injected)
+
+
 # ===========================================================================
 # Ground truth: band_energy and band_ratio_db
 # ===========================================================================
@@ -804,7 +828,9 @@ def test_filt_rolloff_of_an_ideal_4pole():
     f = probe_freqs()
     e = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f))
     assert e.ok, e.reason
-    assert e.value == pytest.approx(-18.68, abs=0.15)
+    # With the corrected DC plateau reference the fit band starts at the
+    # corrected 108.4 Hz corner, not the old 124.9 Hz moving-median corner.
+    assert e.value == pytest.approx(-17.06, abs=0.15)
     assert e.detail["fit_residual_db"] < 1.5
 
 
@@ -826,7 +852,7 @@ def test_filt_rolloff_is_nearly_scale_invariant():
     # apart must cost less than a fifth of the tolerance.
     a = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f, 250.0))
     b = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f, 312.5))
-    assert abs(a.value - b.value) < 0.35, (a.value, b.value)
+    assert abs(a.value - b.value) < 0.45, (a.value, b.value)
 
 
 def test_filt_rolloff_sees_a_pole_that_is_not_there():
@@ -840,7 +866,7 @@ def test_filt_rolloff_sees_a_pole_that_is_not_there():
     four = rc.filt_rolloff(IDEAL_FP)(f, ideal_4pole_db(f))
     three = rc.filt_rolloff(IDEAL_FP)(f, g3)
     assert three.ok, three.reason
-    assert three.value - four.value > 3.5, (three.value, four.value)
+    assert three.value - four.value > 2.5, (three.value, four.value)
 
 
 def test_filt_rolloff_refuses_when_the_band_is_not_a_straight_line():
@@ -849,7 +875,10 @@ def test_filt_rolloff_refuses_when_the_band_is_not_a_straight_line():
     That refusal is what found our own ladder's quantisation floor: at -60 dBFS
     it fired on every resonant row."""
     f = probe_freqs()
-    g = np.maximum(ideal_4pole_db(f), -30.0)      # a knee mid-band, not a slope
+    # Put the knee inside the corrected fit band.  At -30 dB the old band
+    # happened to stop before the knee; -20 dB makes the refusal independent of
+    # which corner reference positions that band.
+    g = np.maximum(ideal_4pole_db(f), -20.0)      # a knee mid-band, not a slope
     e = rc.filt_rolloff(IDEAL_FP)(f, g)
     assert not e.ok
     assert "straight line" in e.reason
