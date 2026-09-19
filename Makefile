@@ -74,6 +74,16 @@ verify-full:
 ## (`tools/refprofile.py --render`, which needs Surge XT and dawdreamer) or
 ## accept that these three are not covered on this host and say so.
 ##
+## THE TWO PROFILE CONTROLS NOW COVER F1B AND F1C, and REF_CORNER_2X DOES NOT,
+## which is the D01A lesson applied rather than restated. `--expect 'no verdict'`
+## still discriminates on F1B and F1C: both produce a verdict when clean (fail,
+## worst 1.41 and 1.62), so a missing clip or a tampered hash turning them into
+## `no verdict` is a state CHANGE and the control can come back green only by
+## firing. `--expect fail` cannot discriminate on them -- they are already fail
+## -- so adding them to the octave control would have bought a line that passes
+## with the injection removed, which is the false green D01A was moved for.
+## Measured, not assumed: injected, F1B and F1C read worst 6.65 and 6.59.
+##
 ## TWO CONTROLS ARE DELIBERATELY NOT HERE, and both were MEASURED, not assumed:
 ##
 ##   I2S_SWAP -- no longer discriminates at the whole-chip level. i2s_tx re-reads
@@ -129,8 +139,8 @@ controls:
 	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D09A --results build/case-detune --expect fail" \
 	  "$(PY) tools/run_case.py --inject REF_MISSING D09A --results build/case-noref --expect 'no verdict'" \
 	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect fail" \
-	  "$(PY) tools/run_case.py --inject REF_PROFILE_MISSING F1A --results build/case-noclip --expect 'no verdict'" \
-	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A --results build/case-badhash --expect 'no verdict'"
+	  "$(PY) tools/run_case.py --inject REF_PROFILE_MISSING F1A F1B F1C --results build/case-noclip --expect 'no verdict'" \
+	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A F1B F1C --results build/case-badhash --expect 'no verdict'"
 
 test:
 	@$(PY) -m pytest model/ spec/ tools/ fpga/ -q

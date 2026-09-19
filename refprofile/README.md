@@ -9,9 +9,10 @@ qualification verdict and the commit it was built at. The WAVs live in
 `cache/`, which is gitignored.
 
 ```sh
-python tools/refprofile.py            # verify the cache against the profile
-python tools/refprofile.py --list     # what it holds, and which rigs it rejects
-python tools/refprofile.py --render   # re-render it — an explicit act, a visible diff
+python tools/refprofile.py              # verify the cache against the profile
+python tools/refprofile.py --list       # what it holds, and which rigs it rejects
+python tools/refprofile.py --render     # re-render it — an explicit act, a visible diff
+python tools/refprofile_repro.py        # render it N times and compare the bytes
 ```
 
 ## Why a profile and not a render on demand
@@ -59,14 +60,52 @@ different facts and only the second one tells the next person not to try.
 | **Arturia Mini V3** | ❌ | makes sound, and every parameter is a bare 0..1 with no units and no readback. Its cutoff can be calibrated against its own self-oscillation (`reference_compare.calibrate_knob`); its **envelope** knobs cannot, because nothing here maps a Mini V3 envelope knob to a time. Its Range control also defaults an octave down — note 48 reads 65.42 Hz until parameter 45 is written |
 | **u-he Diva** | ❌ | found running unlicensed and inserting clicks (`docs/reference-integrity.md` §1), and is a general analogue-modelling synth rather than a Minimoog emulation |
 
-Fourteen clips, all from Surge XT Type 2 at 48 kHz, all at the 250 Hz cutoff
-region the First-32 filter cases state:
+Sixteen clips, all from Surge XT Type 2 at 48 kHz:
 
 - one **wide open** (20 kHz) stepped-tone render — the passband reference that
   makes "low-band gain" a ratio *inside one instrument*
 - ten at **250 Hz**, at resonance 0 and at each rung of
   `reference_compare.RES_GRID["surge"]`
 - three **drive** clips: a steady 100 Hz tone at −12, −6 and 0 dBFS
+- one each at **1 kHz** and **4 kHz**, resonance zero — the other two cutoff
+  regions `docs/scorecard/cases.csv` states, read by F1B and F1C. Surge's own
+  readback is exactly 1000.00 and 4000.00 Hz; the *corner* those produce is
+  neither number and is read off the audio
+
+Only resonance zero is rendered at the new regions, and that is a limit rather
+than an omission. F1B and F1C are the only cases those clips can be read by.
+F2B and F2C want a resonance ladder there and are blocked on a matched-drive
+**definition**, not on audio — see `run_case.NOT_RUN["F2A"]` — so freezing ten
+more rungs per region would cache audio no case can consume and move every
+consumer's profile hash to do it. Whoever writes that definition renders the
+ladder the definition asks for.
+
+## Frozen, and *reproducibly* frozen — two different claims
+
+A list of hashes says these are the bytes that were frozen. It says nothing
+about whether the rig would make them again, and only the second makes the
+profile a reference rather than a recording. `tools/refprofile_repro.py` asks
+the second question: N separate `--render` **processes**, so the VST3 is
+reloaded and the rig re-qualified every time, then a byte-for-byte comparison.
+
+At `daf9e64`, macOS/arm64, Surge XT 1.2.3, dawdreamer 0.9.0, Python 3.14.7:
+
+```
+16/16 clips bit-identical across 4 independent renders
+14 reproduced the committed sha256, 0 changed, 2 new, 0 dropped
+```
+
+The second line is a *different* claim from the first and is the load-bearing
+one: a host that renders the same thing four times and something else than the
+operator who froze the profile has a reproducible rig and a moved reference.
+This host reproduced all fourteen, so the two new clips were frozen by the rig
+that froze the rest — not merely by a rig that agrees with itself.
+
+What it does **not** vary: the machine, the OS, the plugin build, the sample
+rate, the block size. Those are pinned by the rig and recorded in
+`profile.json`, and a claim about them needs a second machine, not a second
+run. A clip that does not reproduce is not frozen, and the tool refuses to
+install it.
 
 ## The probe level, and the floor it comes from
 

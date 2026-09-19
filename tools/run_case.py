@@ -1326,15 +1326,28 @@ FILTER_CASES = {
     "F1A": dict(ref_clip="surge-type2/lp-cut250-res0.00",
                 ref_open_clip="surge-type2/lp-open20k-res0.00",
                 cut_hz=250.0, open_hz=20000.0, res_ref=0.0, res_ours=0.0),
+    # The other two cutoff REGIONS `cases.csv` states for this family. Same
+    # stimulus, same probe level, same estimators, same wide-open clip on the
+    # far side of the ratio: the ONLY thing that moves is the commanded cutoff,
+    # which is what makes F1A/F1B/F1C a sweep of one variable rather than three
+    # separate measurements. `refprofile.CUT_REGIONS_HZ` renders them.
+    "F1B": dict(ref_clip="surge-type2/lp-cut1000-res0.00",
+                ref_open_clip="surge-type2/lp-open20k-res0.00",
+                cut_hz=1000.0, open_hz=20000.0, res_ref=0.0, res_ours=0.0),
+    "F1C": dict(ref_clip="surge-type2/lp-cut4000-res0.00",
+                ref_open_clip="surge-type2/lp-open20k-res0.00",
+                cut_hz=4000.0, open_hz=20000.0, res_ref=0.0, res_ours=0.0),
 }
 
-FILTER_PLAN = {
-    "F1A": [
-        ("Corner frequency", "Hz", "corner", tol_frequency),
-        ("low-band gain", "dB", "lowband", tol_db),
-        ("rolloff", "dB/oct", "rolloff", tol_fixed(1.5, "rolloff")),
-    ],
-}
+#: All three cutoff-response cases state the same three measurements, so they
+#: share one plan rather than three copies of it that could drift apart.
+_CUTOFF_RESPONSE_PLAN = [
+    ("Corner frequency", "Hz", "corner", tol_frequency),
+    ("low-band gain", "dB", "lowband", tol_db),
+    ("rolloff", "dB/oct", "rolloff", tol_fixed(1.5, "rolloff")),
+]
+
+FILTER_PLAN = {cid: _CUTOFF_RESPONSE_PLAN for cid in FILTER_CASES}
 
 
 def load_filter_reference(clip_id: str, inject: str = "") -> tuple:
@@ -1500,19 +1513,111 @@ def _est_value(e):
 # forgot" become the same entry.
 NOT_RUN = {}
 
-#: The other cutoff regions and the sealed settings. The profile freezes ONE
-#: cutoff region, 250 Hz, which is what the First-32 filter cases state; the
-#: Expansion and Holdout variants are a separate deliverable and are not
-#: attempted here.
-for _c in ("F1B", "F1C", "F1D", "F2B", "F2C", "F2D", "F3B", "F3C", "F3D",
-           "F4A", "F4B", "F4C", "F4D", "F5B", "F5C", "F5D",
-           "F6A", "F6B", "F6C", "F6D"):
-    NOT_RUN[_c] = ("out of scope for this reference profile, which freezes the "
-                   "250 Hz cutoff region the First-32 filter cases state. The "
-                   "1 kHz / 4 kHz regions and the sealed holdout trajectories "
-                   "are a separate deliverable; they need their own frozen "
-                   "clips, and a holdout's settings must be sealed before any "
-                   "of it is measured.")
+# These twenty entries used to read "out of scope for this reference profile,
+# which freezes the 250 Hz cutoff region". That was true of the profile and it
+# was the WRONG REASON for most of them, which is the failure mode a not-run
+# table exists to prevent: one plausible sentence covering twenty cases stops
+# anybody asking what each is actually blocked on. The profile now freezes
+# 1 kHz and 4 kHz as well (`refprofile.CUT_REGIONS_HZ`) and exactly two of the
+# twenty ran as a result -- F1B and F1C, above. The other eighteen were never
+# blocked on the cutoff, and each now says what it is blocked on.
+#
+# It was most visibly wrong for F4A, whose cutoff region is 250 Hz: the one the
+# profile froze from the start. Nothing about that case was ever out of scope
+# for the cutoff reason it was given.
+
+#: The holdout trajectories. Not a tooling gap -- a sequencing rule.
+for _c in ("F1D", "F2D", "F3D", "F5D"):
+    NOT_RUN[_c] = (
+        "a Holdout-20 case whose settings are not sealed yet. Its stimulus is "
+        "'seal an unseen cutoff/resonance/drive trajectory', and the sealing is "
+        "the measurement's whole value: docs/scorecard/README.md, 'once a holdout "
+        "case's detailed errors have guided a change, it has become development "
+        "data'. An agent that picks the setting, freezes the clip and reads the "
+        "error in one pass has produced a development case wearing a holdout's "
+        "label, and there is no way to tell afterwards which it was. The rig, the "
+        "profile and the estimators are all ready -- what is missing is somebody "
+        "OTHER than the party tuning the model choosing the trajectory and "
+        "committing it before it is rendered.")
+
+#: The resonance family. Unblocked on audio since this commit; still blocked on
+#: the same definition F2A is.
+for _c in ("F2B", "F2C"):
+    NOT_RUN[_c] = (
+        "blocked on exactly what F2A is blocked on, and no longer on the cutoff: "
+        "a peak gain quoted at a fixed input level is a statement about that "
+        "level, because Surge Type 2 is level-independent over the whole probed "
+        "range and our fixed-point ladder is not (+32.1 dB at -60 dBFS against "
+        "+10.0 at -12, at res 1.20). See NOT_RUN['F2A'] for the measurement and "
+        "for why reference_compare.stage_peakdrive's matched-drive answer is not "
+        "available to us. The resonance LADDER at 1 kHz and 4 kHz was "
+        "deliberately not frozen: whoever writes the matched-drive definition "
+        "decides which rungs it needs, and freezing ten guesses per region now "
+        "would move every consumer's profile hash to cache audio no case can "
+        "read. The 250 Hz ladder is already frozen and is enough to write the "
+        "definition against.")
+
+#: Mixer drive. A rig change, not a runner change.
+for _c in ("F3B", "F3C"):
+    NOT_RUN[_c] = (
+        "blocked on exactly what F3A is blocked on, and no longer on the cutoff: "
+        "the case requires separating MIXER DRIVE from output gain, Surge's "
+        "mixer drive is Pre-Filter Gain (parameter 316), and the qualified rig "
+        "PINS it at '0.00 dB' as a setting that is not the thing under test. "
+        "#87's rig refuses to build when a pin does not hold, which is the "
+        "behaviour to keep. Making 316 the thing under test is a change to "
+        "reference_rigs.SurgeRig and to what 'the qualified rig' means, and it "
+        "has to be re-qualified after, at every cutoff region -- not a clip this "
+        "profile can render.")
+
+#: Self oscillation. Renderable on BOTH sides today; no estimator, and no
+#: matched-resonance definition.
+for _c in ("F4A", "F4B", "F4C", "F4D"):
+    NOT_RUN[_c] = (
+        "no self-oscillation clip in the profile, and -- separately -- no "
+        "estimator in this runner for what the case asks: frequency tracking, "
+        "spectrum, stability. The cutoff was never the blocker; F4A's region is "
+        "250 Hz, which this profile froze from the beginning, and it still "
+        "carried the cutoff excuse. What is actually missing, measured here so "
+        "the next agent does not have to: BOTH sides ring. "
+        "reference_rigs.OurLadder.ring at resonance 2.00 peaks at 0.55 and "
+        "sounds at 236.8 / 949.4 / 1425.2 / 3803.3 Hz for commanded cutoffs of "
+        "250 / 1000 / 1500 / 4000 Hz, and SurgeRig.ring exists and is the same "
+        "excite-then-remove stimulus. So the audio is a render away. The two "
+        "things that are not: (1) an estimator, because 'spectrum' and "
+        "'stability' have no definition in this repository yet and a frequency "
+        "read off a decaying ring is not the same measurement as one off a "
+        "sustained oscillation; (2) WHICH resonance each device is set to, "
+        "which is F2A's incommensurability again -- 'each device at its own "
+        "maximum' is a defensible definition and it is a definition somebody "
+        "has to write down and defend before a number is published against it.")
+
+#: Cutoff motion. Our side cannot produce the stimulus at all.
+for _c in ("F5B", "F5C"):
+    NOT_RUN[_c] = (
+        "blocked on exactly what F5A is blocked on, and no longer on the cutoff: "
+        "no clip in this profile automates a parameter, deliberately, and "
+        "'stepping' cannot be attributed between the plugin and the host without "
+        "the host's automation block size pinned -- docs/failure-modes.md records "
+        "all three plugins appearing to step at 94 Hz because that was the "
+        "host's block rate. Our side additionally has no swept-cutoff render: "
+        "reference_rigs.OurLadder answers three questions (tone_gain_db, ring, "
+        "drive_tone) and a sweep is not one of them, so there would be nothing "
+        "to compare a frozen sweep against.")
+
+#: Audio-rate modulation. The same missing stimulus as F5, one decade faster.
+for _c in ("F6A", "F6B", "F6C", "F6D"):
+    NOT_RUN[_c] = (
+        "the same missing stimulus as F5, and not the cutoff: the case wants an "
+        "identical MODULATED control trace through both devices with the "
+        "modulation rate and depth pinned, and reference_rigs.OurLadder has no "
+        "modulation input -- its cutoff is an argument to _render, fixed for the "
+        "whole buffer. SurgeRig.swept_cutoff can drive the reference side and is "
+        "a slow sweep through host automation, which is a different thing from "
+        "audio-rate modulation and would be capped by the host block rate "
+        "anyway. Sidebands and foldback measured against a stimulus only one "
+        "side can produce would be a property of the stimulus. Our ladder "
+        "needs a per-sample cutoff input before this case means anything.")
 
 NOT_RUN["F2A"] = (
     "the reference is frozen and the resonance ladder is in the profile; the "
