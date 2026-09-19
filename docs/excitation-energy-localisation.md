@@ -12,24 +12,27 @@ eighteen self-tests, two of them injected-bug controls.
 
 ## The answer, in four sentences
 
-**Two mechanisms, on disjoint voice sets, and a third of #152's sixteen voices
-have no defect at all.**
+**Two mechanisms, on disjoint voice sets, and #152's "sixteen" is not sixteen.**
 
-1. **The excess is real on eight voices and is not broadband.** It is a
-   **low-frequency step at the onset** — everything below about 200 Hz — and it
-   is emitted by two named things in the excitation path: `SRC_PULSE`, whose
-   mean equals its mean magnitude exactly, driving modes whose DC gain is 18 to
-   23,899; and `NL_SWING`, which rectifies. Nothing downstream removes a mean,
-   because the block has **no output coupling anywhere**.
+1. **The excess is real on five voices strongly and three weakly, and it is not
+   broadband.** It is a **low-frequency step** — a single 33 Hz-wide bin below
+   200 Hz, which is to say near DC — emitted by two named things in the
+   excitation path: `SRC_PULSE`, whose mean equals its mean magnitude *exactly*,
+   driving modes whose DC gain is 18 to 23,899; and `NL_SWING`, which
+   rectifies. Nothing downstream removes a mean, because the block has **no
+   output coupling anywhere**.
 2. **The deficit is a separate mechanism on the six tom/conga positions**, in
-   0.7–5 kHz, and it is not an onset artefact at all — it is present in every
-   window.
+   0.7–5 kHz, present in every window, and it moves not at all when the
+   excitation's asymmetry is removed.
 3. **The shared-circuit paradox of #152 does not exist at HEAD.** All six
-   positions are short in 0.7–5 kHz, by 6 to 20 dB, monotone with pitch. The
-   "+28 dB too much" on the congas was the ×1.7 sweep #154 removed.
-4. **Five of #152's sixteen rows are the measuring instrument.** CH, OH, CL,
-   CP and RS's window-0 low-frequency readings are created, in whole or in
-   large part, by `test_discrimination.condition()`'s zero-phase high-pass.
+   positions are short in 0.7–5 kHz, by 6 to 20 dB, monotone in f0. The
+   "+28 dB too much" on the congas was the ×1.7 sweep #154 removed — it moved
+   a 400 Hz conga's fundamental across the 700 Hz split and a 90 Hz tom's
+   nowhere near it.
+4. **Several of #152's sixteen rows are the measuring instrument.** CH, OH and
+   BD have no low-frequency onset excess at all once the conditioning is
+   causal, and on CL, CP and RS most of the reported magnitude was
+   `test_discrimination.condition()`'s zero-phase high-pass.
 
 ---
 
@@ -149,15 +152,72 @@ file. Two consequences, both checked:
 
 `.venv/bin/python tools/probes/excitation_energy.py --map` — the full 52 × 8
 per voice, ours minus the machine, under a **causal** 20 Hz high-pass with both
-sides pre-trimmed, every row carrying its floor. `--map --study-conditioning`
-re-runs it with F1 active, so the difference between the two files is the
-artefact.
+sides pre-trimmed, every row carrying its floor. Full report:
+[`excitation-energy-map.txt`](excitation-energy-map.txt).
 
-See [`excitation-energy-map.txt`](excitation-energy-map.txt) for the report and
-[`excitation-energy-map-study.txt`](excitation-energy-map-study.txt) for the
-same map with the acausal filter.
+### The summary the one-mechanism question turns on
 
----
+`low w0` is the largest EXCESS under 200 Hz in window 0 — the onset pedestal.
+`high` is the mean signed difference over every live cell in 0.7–5 kHz, all
+eight windows. Both in dB, ours minus the machine.
+
+| voice | low w0 | high 0.7–5 k | excess cells | deficit cells |
+|---|--:|--:|--:|--:|
+| CY | **+50.7** | **+12.6** | 228 | 8 |
+| RS | **+44.6** | −13.0 | 13 | 261 |
+| MA | **+43.2** | +0.7 | 109 | 165 |
+| CL | **+36.1** | −3.7 | 26 | 156 |
+| CP | **+24.1** | −6.0 | 42 | 142 |
+| MC | +8.8 | −4.8 | 3 | 38 |
+| CB | +8.7 | +2.6 | 141 | 52 |
+| HC | +8.4 | −5.2 | 2 | 35 |
+| MT | +6.4 | **−20.1** | 1 | 194 |
+| LT | +1.6 | **−19.3** | 0 | 206 |
+| LC | +0.8 | −8.3 | 0 | 33 |
+| HT | +0.6 | **−21.9** | 1 | 201 |
+| SD | −0.1 | +1.4 | 93 | 36 |
+| CH | −0.5 | −5.3 | 20 | 144 |
+| BD | −0.9 | −1.9 | 14 | 34 |
+| OH | −6.4 | −5.1 | 31 | 93 |
+
+**The two columns are anti-correlated, not aligned.** Every voice with a large
+onset pedestal (top five) has a small or positive 0.7–5 kHz number, and every
+voice with a large 0.7–5 kHz deficit (LT, MT, HT) has no pedestal at all. If
+one blunt over-broad excitation produced both, they would move together.
+
+### Where the excess lives
+
+- **It is below 200 Hz**, in the bands F3 says are single bins — so read it as
+  "the 33 Hz neighbourhood of 67 / 95 / 135 / 170 Hz", which is to say
+  *near DC*. Not broadband. `RS 95 Hz 0–30 ms +44.6`, `CL 67 Hz 0–30 ms +36.1`,
+  `CP 170 Hz 0–30 ms +24.1`.
+- **On RS, CL and CP it is confined to window 0** and gone by 60 ms: a step.
+- **On CY it is not.** `CY 135 Hz` reads +67.5, +64.6, +66.5, +63.3 dB at
+  30–60, 90–120, 150–180 and 210–240 ms. The cymbal's low band runs through the
+  swing VCA under `E_CYL`, whose τ is 500 ms, so its rectified mean decays over
+  the whole clip rather than at the onset. Same mechanism, longer envelope.
+- **MA carries a second, unrelated excess**: +42 to +48 dB across 3–14 kHz at
+  30–60 ms. That is the maraca's `HP` mode ringing where the machine's has
+  decayed, not a low-frequency step.
+- **CH and OH have no low-frequency excess at all** under a causal
+  conditioning. Their #152 rows (`CH 95 Hz +33.4`, `OH 67 Hz +21.1`) do not
+  reproduce.
+
+### Where the deficit lives
+
+- **0.7–5 kHz on all six tom/conga positions, in every window.** `LT 538 Hz
+  0–30 ms −47.6`, `HT 678 Hz 120–150 ms −47.4`, `MT 604 Hz 60–90 ms −44.4`.
+  On the congas it is concentrated in window 0 and higher up — `HC 1709 Hz
+  0–30 ms −29.7`, `LC 1709 Hz 0–30 ms −27.8` — which is where a strike's
+  broadband content would be.
+- **BD's whole attack is short**, 170–678 Hz in window 0 only, −17.8 to
+  −23.2 dB. That is a separate finding and it is not in #152: our bass drum's
+  click is too weak across the band, not too strong.
+- **CH is short everywhere and late**: 3–15 kHz at 210–240 ms, −20 to −22 dB,
+  our side at the −75 dB clamp. The closed hat ends before the machine's does.
+- **OH's tail is the other way**: +17 to +20 dB at 5–15 kHz at 210–240 ms, and
+  −15 dB at 3–4 kHz mid-clip. It decays too slowly at the top and too fast in
+  the middle.
 
 ## 3. Attributing the excess
 
@@ -276,32 +336,34 @@ in the congas" would be explaining an artefact that has already been removed.
 
 **Two**, and the sets are disjoint.
 
-| | the onset step | the 0.7–5 kHz deficit |
+| | A: the onset step | B: the 0.7–5 kHz deficit |
 |---|---|---|
-| **voices** | RS, MA, CY, CB, CL, CP (+ BD/SD/toms, where some is wanted) | LT MT HT LC MC HC |
-| **time** | window 0 only; gone by 60 ms | every window |
-| **band** | below ~200 Hz | 0.7–5 kHz |
-| **sign** | excess | deficit |
-| **cause** | a mean the excitation has and nothing removes | a partial the single two-pole mode does not make |
-| **named in** | §3 | not settled — §6 |
+| **voices** | CY RS MA CL CP, weakly CB MC HC | LT MT HT LC MC HC |
+| **time** | window 0 on RS/CL/CP; the whole clip on CY, whose envelope is 500 ms | every window |
+| **band** | below ~200 Hz — one bin wide, i.e. near DC | 0.7–5 kHz |
+| **sign** | excess, +24 to +51 dB | deficit, 6 to 22 dB |
+| **cause** | a mean the excitation has and nothing removes (§3) | a partial one two-pole mode does not make (§4, unsettled) |
+| **evidence they are separate** | muting the swing VCAs moves A by up to 47 dB and moves B by **nothing** on any tom | the deficit is monotone in f0 across both switch positions; the pedestal is not |
 
-A blunt, over-broad excitation would have to produce both, and it does not:
-the excess is *concentrated*, not spread. It is a step, which is the narrowest
-thing a transient can be, and it sits two and a half decades below the band the
-toms are short in. Muting the swing VCAs moves the low band by up to 47 dB and
-moves 0.7–5 kHz by nothing on any tom, because the toms have no swing VCA.
+**The two summary columns are anti-correlated.** CY, RS, MA, CL and CP carry
+the pedestal and carry no unusual 0.7–5 kHz deficit; LT, MT and HT carry a
+19–22 dB deficit and no pedestal. A single over-broad excitation cannot give
+that: energy spread where it should be concentrated would raise the low band
+*and* the mid band on the same voices.
 
-**This matters for the decision #152 asks about.** It is not one fix for
-sixteen voices. It is:
+And the excess is not "broadband" in any case. It is a **step**, which is the
+most concentrated thing a transient can be, and it sits two and a half decades
+below the band the toms are short in.
 
-- **one fix for the low-frequency step** — a DC block, which is one high-pass
-  on the output path and would touch every voice at once;
-- **a separate question for the toms**, which is about what supplies
-  0.7–5 kHz on a bridged-T body and is *not* an excitation question at all;
-- **and five voices in #152 that need no fix**, because their rows were the
-  conditioning.
+**This decides the question #152 asks.** It is not one fix for sixteen voices.
+It is:
 
----
+- **one fix for mechanism A** — a DC block. That is one high-pass on the output
+  path and it would address five voices strongly and three weakly, at once;
+- **a separate and unrelated question for mechanism B**, which is about what
+  supplies 0.7–5 kHz on a bridged-T body and is not an excitation question;
+- **and four voices in #152 that need no fix at all** — CH, OH, BD and SD have
+  no low-frequency onset excess once the conditioning is causal.
 
 ## 6. What is not settled here
 
