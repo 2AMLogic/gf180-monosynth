@@ -4,8 +4,9 @@ through revisions 2, 3 and 4 (4 changed no arithmetic); K_ROM32 from DR 0006
 (revision 3); NOISE64 from DR 0008 (revision 5), which KIT808 joined in the
 same revision and then LEFT in revision 6 -- the kit was fitted to a real
 TR-808 (DR 0009, DR 0010) and its hash moved. It moved again in revision 7
-(the snare) and a third time in revision 10, which is the first move that is
-not a refit: six more SOUNDS, 100 writes -> 147. It is the first pinned table in
+(the snare) and in revision 10, which is the first move that is
+not a refit: six more SOUNDS, 100 writes -> 147. Revision 11 records the
+tom level rebalance after the measured pitch correction. It is the first pinned table in
 this contract's history to change, and the pair below is how that is visible
 rather than quiet: REV5 holds what rev 5 stated, REV6 what rev 6 states, and
 `test_the_only_hash_that_ever_moved_is_the_kits` asserts exactly which one.
@@ -53,6 +54,11 @@ REV7 = {
 REV10 = {
     "KIT808":        "feb8c6fdeab4c89e506bbfebf6114c82d698d09064933e1a7292998905ba0671",
 }
+# Revision 11 records #154's tom level rebalance after correcting the sweep.
+# Only MODE_AMP[11..13] changes; retain REV10 as the historical pin.
+REV11 = {
+    "KIT808": "a43fe2a7d596a417ae3c9949fe43f94cc8e64482f7cac6ede5bc271009a5ff19",
+}
 # Revision 9 (DR 0011) moved the cutoff ROM, and with it the resonance-
 # compensation ROM derived from it: Huovilainen's `fcr` tuning polynomial and
 # one constant scale went into `voice_fx.make_g_rom`. These are the SECOND and
@@ -84,7 +90,7 @@ def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
     got = {name: gt.sha(vals) for name, vals, _, _, _ in gt.tables()}
     assert {k: got[k] for k in REV3_STILL} == REV3_STILL
     assert {k: got[k] for k in REV5} == REV5
-    assert {k: got[k] for k in REV10} == REV10
+    assert {k: got[k] for k in REV11} == REV11
     assert {k: got[k] for k in REV9} == REV9
     assert {k: got[k] for k in REV9_NEW} == REV9_NEW
     assert set(got) == set(REV3) | set(REV5) | set(REV10) | set(REV9_NEW)
@@ -92,8 +98,9 @@ def test_rev3_hashes_are_unchanged_and_rev5_adds_two():
 
 def test_exactly_three_pinned_tables_have_ever_moved():
     """Loudly, because a pinned table moving is the expensive kind of change.
-    KIT808 moved three times: revisions 6 and 7 were fits to a real machine,
-    revision 10 is six more SOUNDS (the kit went 100 -> 147 writes). G_ROM128
+    KIT808 moved four times: revisions 6 and 7 were fits to a real machine,
+    revision 10 is six more SOUNDS (the kit went 100 -> 147 writes), and
+    revision 11 records the tom level rebalance. G_ROM128
     and K_ROM32 moved once, together, in revision 9 (DR 0011's tuning
     polynomial -- K_ROM32 is derived from G_ROM128, so it could not not move).
     Every other table in the contract's history is still what revision 1 or 3
@@ -104,7 +111,7 @@ def test_exactly_three_pinned_tables_have_ever_moved():
     was = {**REV3, **REV5, "KIT808": KIT808_REV5}   # EXP_ROM65 did not exist then
     moved = sorted(k for k, v in was.items() if got[k] != v)
     assert moved == ["G_ROM128", "KIT808", "K_ROM32"], f"against revision 5's pins: {moved}"
-    assert got["KIT808"] == REV10["KIT808"]
+    assert got["KIT808"] == REV11["KIT808"]
     # The check that makes re-pinning honest rather than a rubber stamp: against
     # revision 9's pins -- the ones immediately before this change -- the kit
     # must be the ONLY thing that moved.
@@ -157,3 +164,18 @@ def test_spot_values_the_contract_quotes():
 def test_note_inc_is_the_siblings():
     """Same formula, same 128 values as gf180-polysynth's Appendix A."""
     assert gt.sha(gt.note_inc()) == "e771e6b7b39d3941c471b772bfb5cdca398b78ee7fa964c3c90388d2cc888ba4"
+
+
+def test_revision_11_changes_only_the_three_documented_tom_levels():
+    """Reconstruct the previous image independently of the new hash pin.
+    A different register, write order, or amplitude change cannot pass merely
+    by updating REV11 to whatever the generator produced.
+    """
+    kit = gt.kit808()
+    changes = {0xDE: (0x201, 0x13B), 0xE2: (0x296, 0x196),
+               0xE6: (0x42C, 0x28B)}
+    for addr, (_, after) in changes.items():
+        assert dict(kit)[addr] == after
+    old = [(addr << 32) | (changes[addr][0] if addr in changes else value)
+           for addr, value in kit]
+    assert gt.sha(old) == REV10["KIT808"]

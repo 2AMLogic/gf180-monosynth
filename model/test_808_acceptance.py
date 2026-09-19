@@ -1051,35 +1051,52 @@ def test_tom_decay(name, stop, f0_ref, tau_ref):
 
 @pytest.mark.parametrize("name,stop,f0_ref,tau_ref", TOMS)
 def test_tom_pitch_falls_during_the_ring(name, stop, f0_ref, tau_ref):
-    """[source-verified: SN p.6, quoted in reference 4]
+    """[source-verified: SN p.6, quoted in reference 4] The pitch falls.
+    The old 5 % early-window bound was inferred before hardware measurement;
+    the 1--8 ms Hilbert window is less than one period of a low tom. Use the
+    same period estimator as the hardware study, and distinguish no measurable
+    drop from a small drop. Magnitude is checked against hardware below.
 
-    **Was a tracked defect; closed in contract revision 6** -- 15.7.1 sweeps
-    the tom's f0 from x1.7 over 60 ms, scaled by accent, which is this
-    section's "accent changes the pitch envelope".
- "While the oscillation is
-    large in amplitude immediately after triggering, it is on a higher
-    frequency due to conductions of D80 and D81, which reduce time constant of
-    the filter. As the resonance is damped, its frequency is lowered..." Roland
-    states the fall outright; this is the toms' characteristic doom sweep.
-
-    The EXISTENCE of the fall is source-verified and is asserted. Its 1.7x
-    magnitude is source-inferred and reference 4 warns the knee is soft, so the
-    provisional bound here is only "at least 5 %" -- the weakest statement that
-    still separates "it falls" from "it does not". The magnitude has its own
-    test below, as a wider provisional range.
-
-    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide,
-    test_audio_measure.test_instantaneous_frequency_is_flat_for_a_steady_tone
+    Ground truth: test_tom_pitch_probe.test_recovers_small_drops,
+    test_tom_drop_law.test_the_resample_control_passes_the_conversion_actually_used
     """
     first, settled = _tom_pitch(stop)
-    assert first / settled >= 1.05, (
-        f"{name} starts at {first:.1f} Hz and settles at {settled:.1f} Hz "
-        f"(ratio {first/settled:.3f}): no diode pitch drop. kit_808() loads one fixed "
-        f"coefficient pair per tom and never changes it while the mode rings.")
+    assert first > settled, f"{name}: no pitch drop above the estimator's floor"
 
 
 def _tom_pitch(stop):
-    return _pitch_of(one_hit(stop, 1.4, 1.0))
+    return _period_pitch_of(one_hit(stop, 1.4, 1.0))
+
+
+def _period_pitch_of(r: Render):
+    """The hardware study's estimator, including its range/floor refusals.
+
+    Render.body carries integer bus samples, not normalized WAV samples.
+    The explicit Q1.15 conversion matters: passing raw integers was caught by
+    the probe's clipping refusal while reconciling this suite.
+    """
+    import tom_drop_compare as comparison
+    import tom_pitch_probe as probe
+    x = comparison.to_44100(comparison.trim_dead_tail(r.body / 32768.0))
+    result = probe.measure(x, probe.SR_EXPECTED, label=r.manifest["name"])
+    assert result["verdict"] in ("OK", "NO-DROP-ABOVE-FLOOR"), result
+    settled = result["f_settled_hz"]
+    ratio = result["ratio_at_onset"] if result["verdict"] == "OK" else 1.0
+    return settled * ratio, settled
+
+
+def _measured_pitch_bounds(name):
+    """Observed min/max across the hardware's Accent-level tuning sweep.
+
+    These are development bounds from recorded hardware, not a new claim of
+    holdout validation or a tolerance inferred from our model's answer.
+    """
+    import json
+    path = os.path.join(HERE, "..", "docs", "tom-pitch-drop-results.json")
+    with open(path) as f:
+        measured = json.load(f)["voices"][name]["B"]["ratio_at_onset"]
+    assert measured["n"] > 0
+    return measured["min"], measured["max"]
 
 
 def _pitch_of(r: Render):
@@ -1099,21 +1116,30 @@ def _pitch_of(r: Render):
 
 @pytest.mark.parametrize("name,stop,f0_ref,tau_ref", TOMS)
 def test_tom_pitch_drop_magnitude(name, stop, f0_ref, tau_ref):
-    """[source-inferred: reference 4, "f0 up to about 1.7x the small-signal
-    value"] The magnitude is inferred from the diode-conducting foot resistance
-    and reference 4 says the transition is a soft germanium knee, not a step --
-    so this is a wide provisional range, 1.2x to 2.0x on a hard hit, not a
-    point value. It is a separate test from the existence of the fall because
-    it is a weaker claim, and it must not be able to fail the build for a
-    reason the existence test would not.
+    """[hardware-measured: docs/tom-pitch-drop-results.json, Accent/B]
+    The onset/settled ratio must lie in the measured tuning sweep for this
+    voice. The superseded 1.2--2.0 bound rejected the corrected model and
+    accepted the inferred x1.7 defect; the recorded hardware never reaches it.
 
-    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide
+    Ground truth: test_tom_pitch_probe.test_recovers_small_drops,
+    test_tom_drop_law.test_the_resample_control_passes_the_conversion_actually_used
     """
     first, settled = _tom_pitch(stop)
-    ratio = first / settled
-    if ratio < 1.05:
-        pytest.skip(f"{name} has no pitch drop at all -- see test_tom_pitch_falls_during_the_ring")
-    assert 1.2 <= ratio <= 2.0, f"{name} pitch drop {ratio:.2f}x, reference up to about 1.7x"
+    lo, hi = _measured_pitch_bounds(name)
+    assert lo <= first / settled <= hi, (name, first / settled, lo, hi)
+
+
+@pytest.mark.parametrize("ratio", [1.0, 1.7])
+def test_meta_measured_tom_bounds_reject_absent_and_old_excessive_drop(monkeypatch, ratio):
+    """[meta] Both removing the sweep and restoring the actual x1.7 defect
+    must fail the same hardware bounds that accept the current model."""
+    if STUB:
+        pytest.skip("already running against a stub")
+    monkeypatch.setattr(dx, "TOM_DROP_RATIO", ratio)
+    r = one_hit(dx.LT, 1.4, 1.0, name=f"LT-injected-drop-{ratio}")
+    first, settled = _period_pitch_of(r)
+    lo, hi = _measured_pitch_bounds("LT")
+    assert not lo <= first / settled <= hi, (ratio, first / settled, lo, hi)
 
 
 # ===========================================================================
@@ -1774,10 +1800,9 @@ def test_mid_tom_pitch_falls_during_the_ring_like_its_two_siblings():
     15.7.1 now reads the tuning out of the register image instead of assuming
     the kit's, which is what lets it sweep a conga from the right place.
 
-    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide,
-    test_audio_measure.test_instantaneous_frequency_is_flat_for_a_steady_tone
+    Ground truth: test_tom_pitch_probe.test_recovers_small_drops
     """
-    first, settled = _pitch_of(sound("MT", 1.4, 1.0))
+    first, settled = _period_pitch_of(sound("MT", 1.4, 1.0))
     assert first / settled >= 1.05, \
         f"MT starts at {first:.1f} Hz and settles at {settled:.1f} Hz: no diode pitch drop"
 
@@ -1791,11 +1816,12 @@ def test_conga_pitch_drop_starts_from_the_congas_own_tuning():
     back out of the image. The check is that the conga's settled pitch and its
     starting pitch are on the same side of its own chart value.
 
-    Ground truth: test_audio_measure.test_instantaneous_frequency_tracks_a_known_glide
+    Ground truth: test_tom_pitch_probe.test_recovers_small_drops
     """
-    first, settled = _pitch_of(sound("MC", 1.4, 1.0))
+    first, settled = _period_pitch_of(sound("MC", 1.4, 1.0))
     assert abs(settled / 280.0 - 1) <= 0.12, f"MC settles at {settled:.0f} Hz, chart 280"
-    assert 1.05 <= first / settled <= 2.0, f"MC pitch drop {first/settled:.2f}x"
+    lo, hi = _measured_pitch_bounds("MC")
+    assert lo <= first / settled <= hi, f"MC pitch drop {first/settled:.3f}x, hardware {lo:.3f}--{hi:.3f}"
 
 
 def test_rimshot_decay_matches_the_machine_and_the_chart():
