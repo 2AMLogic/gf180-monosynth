@@ -1495,10 +1495,10 @@ def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
     lands more than `MAX_PLATEAU_EXTRAPOLATION_DB` from the highest point it
     was fitted to, or when the fit misses any point it was fitted to by more
     than that -- each of which means the measured band is not in the filter's
-    passband and there is no plateau for anything to be relative to. Both
-    thresholds are needed and neither is redundant: a band two octaves down a
-    6-pole skirt gives a 19.3 dB residual with the extrapolation pointing the
-    WRONG WAY (16.3 dB below the band, which a low-pass's DC gain cannot be).
+    passband and there is no plateau for anything to be relative to. The two
+    level thresholds are not redundant: a 25 dB notch inside an otherwise
+    clean band leaves the extrapolation at a plausible -2.73 dB and the fit
+    residual at 20.31, so only the residual catches it.
 
     Ground truth: test_dc_plateau_db_recovers_the_dc_gain_of_an_ideal_filter,
     test_run_case.py::test_filt_corner_ratio_is_constant_across_the_range."""
