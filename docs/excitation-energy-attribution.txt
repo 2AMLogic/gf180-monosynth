@@ -1,0 +1,437 @@
+commit 0fa09734fc1c  corpus /tmp/tr808-ref 116 files sha256 0731ddfa7bbc6d18  argv --attribute --refs /tmp/tr808-ref
+
+per-path mute sweep: sub-120 Hz energy of the first 30 ms, dB re clip total
+a path whose removal DROPS the number is the one emitting the onset excess
+
+BD  baseline +24.5 dB
+    coef_seq=False     +25.1     +0.6      the BD attack window / tom pitch drop
+    mute p0            +14.4    -10.2  <== PULSE   e0  LIN   -> m8
+    mute p1            +24.5     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            +24.5     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            +24.5     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            +24.5     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            +24.5     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            +24.5     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            +24.5     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            +24.5     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            +24.5     +0.0      TAP0    e6  SWING -> m2
+    mute p10           +24.5     +0.0      TAP0    e7  SWING -> m1
+    mute p11           +24.5     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           +24.5     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           +24.5     +0.0      SQ4     e10 SWING -> m5
+    mute p14           +24.5     +0.0      SQ5     e10 SWING -> m5
+    mute p15           +24.5     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           +24.5     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           +24.5     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           +24.5     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           +24.5     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           +24.5     +0.0      TAP0    e15 SWING -> m2
+    mute p21           +24.5     +0.0      TAP0    e16 SWING -> m7
+    mute p22           +24.5     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      +24.5     +0.0      the swing/tanh VCAs
+
+SD  baseline +6.0 dB
+    coef_seq=False      +6.0     +0.0      the BD attack window / tom pitch drop
+    mute p0             +6.0     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             +6.0     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             +1.6     -4.4      PULSE   e2  LIN   -> m9
+    mute p3             +2.8     -3.2      PULSE   e2  LIN   -> m10
+    mute p4             +7.1     +1.1      NOISE   e3  LIN   -> m3
+    mute p5             +6.0     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             +6.0     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             +6.0     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             +6.0     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             +6.0     +0.0      TAP0    e6  SWING -> m2
+    mute p10            +6.0     +0.0      TAP0    e7  SWING -> m1
+    mute p11            +6.0     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            +6.0     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            +6.0     +0.0      SQ4     e10 SWING -> m5
+    mute p14            +6.0     +0.0      SQ5     e10 SWING -> m5
+    mute p15            +6.0     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            +6.0     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            +6.0     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            +6.0     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            +6.0     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            +6.0     +0.0      TAP0    e15 SWING -> m2
+    mute p21            +6.0     +0.0      TAP0    e16 SWING -> m7
+    mute p22            +6.0     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       +6.0     +0.0      the swing/tanh VCAs
+
+LT  baseline +25.2 dB
+    coef_seq=False     +25.3     +0.1      the BD attack window / tom pitch drop
+    mute p0            +25.2     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            +25.2     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            +25.2     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            +25.2     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            +25.2     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             +nan     +nan      PULSE   e4  LIN   -> m11
+    mute p6            +25.2     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            +25.2     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            +25.2     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            +25.2     +0.0      TAP0    e6  SWING -> m2
+    mute p10           +25.2     +0.0      TAP0    e7  SWING -> m1
+    mute p11           +25.2     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           +25.2     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           +25.2     +0.0      SQ4     e10 SWING -> m5
+    mute p14           +25.2     +0.0      SQ5     e10 SWING -> m5
+    mute p15           +25.2     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           +25.2     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           +25.2     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           +25.2     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           +25.2     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           +25.2     +0.0      TAP0    e15 SWING -> m2
+    mute p21           +25.2     +0.0      TAP0    e16 SWING -> m7
+    mute p22           +25.2     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      +25.2     +0.0      the swing/tanh VCAs
+
+LC  baseline +0.3 dB
+    coef_seq=False      +0.3     +0.0      the BD attack window / tom pitch drop
+    mute p0             +0.3     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             +0.3     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             +0.3     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             +0.3     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             +0.3     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             +nan     +nan      PULSE   e4  LIN   -> m11
+    mute p6             +0.3     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             +0.3     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             +0.3     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             +0.3     +0.0      TAP0    e6  SWING -> m2
+    mute p10            +0.3     +0.0      TAP0    e7  SWING -> m1
+    mute p11            +0.3     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            +0.3     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            +0.3     +0.0      SQ4     e10 SWING -> m5
+    mute p14            +0.3     +0.0      SQ5     e10 SWING -> m5
+    mute p15            +0.3     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            +0.3     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            +0.3     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            +0.3     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            +0.3     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            +0.3     +0.0      TAP0    e15 SWING -> m2
+    mute p21            +0.3     +0.0      TAP0    e16 SWING -> m7
+    mute p22            +0.3     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       +0.3     +0.0      the swing/tanh VCAs
+
+MT  baseline +16.5 dB
+    coef_seq=False     +18.3     +1.8      the BD attack window / tom pitch drop
+    mute p0            +16.5     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            +16.5     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            +16.5     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            +16.5     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            +16.5     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            +16.5     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             +nan     +nan      PULSE   e12 LIN   -> m12
+    mute p7            +16.5     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            +16.5     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            +16.5     +0.0      TAP0    e6  SWING -> m2
+    mute p10           +16.5     +0.0      TAP0    e7  SWING -> m1
+    mute p11           +16.5     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           +16.5     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           +16.5     +0.0      SQ4     e10 SWING -> m5
+    mute p14           +16.5     +0.0      SQ5     e10 SWING -> m5
+    mute p15           +16.5     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           +16.5     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           +16.5     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           +16.5     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           +16.5     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           +16.5     +0.0      TAP0    e15 SWING -> m2
+    mute p21           +16.5     +0.0      TAP0    e16 SWING -> m7
+    mute p22           +16.5     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      +16.5     +0.0      the swing/tanh VCAs
+
+MC  baseline -0.9 dB
+    coef_seq=False      -0.9     +0.0      the BD attack window / tom pitch drop
+    mute p0             -0.9     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             -0.9     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             -0.9     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             -0.9     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             -0.9     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             -0.9     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             +nan     +nan      PULSE   e12 LIN   -> m12
+    mute p7             -0.9     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             -0.9     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             -0.9     +0.0      TAP0    e6  SWING -> m2
+    mute p10            -0.9     +0.0      TAP0    e7  SWING -> m1
+    mute p11            -0.9     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            -0.9     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            -0.9     +0.0      SQ4     e10 SWING -> m5
+    mute p14            -0.9     +0.0      SQ5     e10 SWING -> m5
+    mute p15            -0.9     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            -0.9     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            -0.9     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            -0.9     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            -0.9     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            -0.9     +0.0      TAP0    e15 SWING -> m2
+    mute p21            -0.9     +0.0      TAP0    e16 SWING -> m7
+    mute p22            -0.9     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       -0.9     +0.0      the swing/tanh VCAs
+
+HT  baseline +1.7 dB
+    coef_seq=False      +2.7     +1.0      the BD attack window / tom pitch drop
+    mute p0             +1.7     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             +1.7     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             +1.7     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             +1.7     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             +1.7     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             +1.7     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             +1.7     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             +nan     +nan      PULSE   e5  LIN   -> m13
+    mute p8             +1.7     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             +1.7     +0.0      TAP0    e6  SWING -> m2
+    mute p10            +1.7     +0.0      TAP0    e7  SWING -> m1
+    mute p11            +1.7     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            +1.7     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            +1.7     +0.0      SQ4     e10 SWING -> m5
+    mute p14            +1.7     +0.0      SQ5     e10 SWING -> m5
+    mute p15            +1.7     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            +1.7     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            +1.7     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            +1.7     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            +1.7     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            +1.7     +0.0      TAP0    e15 SWING -> m2
+    mute p21            +1.7     +0.0      TAP0    e16 SWING -> m7
+    mute p22            +1.7     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       +1.7     +0.0      the swing/tanh VCAs
+
+HC  baseline -3.4 dB
+    coef_seq=False      -3.4     +0.0      the BD attack window / tom pitch drop
+    mute p0             -3.4     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             -3.4     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             -3.4     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             -3.4     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             -3.4     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             -3.4     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             -3.4     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             +nan     +nan      PULSE   e5  LIN   -> m13
+    mute p8             -3.4     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             -3.4     +0.0      TAP0    e6  SWING -> m2
+    mute p10            -3.4     +0.0      TAP0    e7  SWING -> m1
+    mute p11            -3.4     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            -3.4     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            -3.4     +0.0      SQ4     e10 SWING -> m5
+    mute p14            -3.4     +0.0      SQ5     e10 SWING -> m5
+    mute p15            -3.4     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            -3.4     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            -3.4     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            -3.4     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            -3.4     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            -3.4     +0.0      TAP0    e15 SWING -> m2
+    mute p21            -3.4     +0.0      TAP0    e16 SWING -> m7
+    mute p22            -3.4     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       -3.4     +0.0      the swing/tanh VCAs
+
+RS  baseline +20.2 dB
+    coef_seq=False     +20.2     +0.0      the BD attack window / tom pitch drop
+    mute p0            +20.2     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            +20.2     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            +20.2     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            +20.2     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            +20.2     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            +20.2     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            +20.2     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            +20.2     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            +20.2     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            +20.2     +0.0      TAP0    e6  SWING -> m2
+    mute p10           +20.2     +0.0      TAP0    e7  SWING -> m1
+    mute p11           +20.2     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           +20.2     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           +20.2     +0.0      SQ4     e10 SWING -> m5
+    mute p14           +20.2     +0.0      SQ5     e10 SWING -> m5
+    mute p15           +17.0     -3.2      PULSE   e13 LIN   -> m14
+    mute p16           +19.8     -0.4      PULSE   e13 LIN   -> m15
+    mute p17           +17.0     -3.2      TAP14   e14 SWING -> MIX
+    mute p18           +19.8     -0.4      TAP15   e14 SWING -> MIX
+    mute p19           +20.2     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           +20.2     +0.0      TAP0    e15 SWING -> m2
+    mute p21           +20.2     +0.0      TAP0    e16 SWING -> m7
+    mute p22           +20.2     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       +5.5    -14.7  <== the swing/tanh VCAs
+
+CL  baseline -9.7 dB
+    coef_seq=False      -9.7     +0.0      the BD attack window / tom pitch drop
+    mute p0             -9.7     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             -9.7     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             -9.7     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             -9.7     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             -9.7     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             -9.7     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             -9.7     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             -9.7     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             -9.7     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             -9.7     +0.0      TAP0    e6  SWING -> m2
+    mute p10            -9.7     +0.0      TAP0    e7  SWING -> m1
+    mute p11            -9.7     +0.0      NOISE   e31 LIN   -> m4
+    mute p12            -9.7     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13            -9.7     +0.0      SQ4     e10 SWING -> m5
+    mute p14            -9.7     +0.0      SQ5     e10 SWING -> m5
+    mute p15            -9.7     +0.0      OFF     e30 LIN   -> MIX
+    mute p16            +nan     +nan      PULSE   e13 LIN   -> m15
+    mute p17            -9.7     +0.0      OFF     e30 LIN   -> MIX
+    mute p18            +nan     +nan      TAP15   e14 LIN   -> MIX
+    mute p19            -9.7     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            -9.7     +0.0      TAP0    e15 SWING -> m2
+    mute p21            -9.7     +0.0      TAP0    e16 SWING -> m7
+    mute p22            -9.7     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       -9.7     +0.0      the swing/tanh VCAs
+
+CP  baseline -6.6 dB
+    coef_seq=False      -6.6     +0.0      the BD attack window / tom pitch drop
+    mute p0             -6.6     +0.0      PULSE   e0  LIN   -> m8
+    mute p1             -6.6     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2             -6.6     +0.0      PULSE   e2  LIN   -> m9
+    mute p3             -6.6     +0.0      PULSE   e2  LIN   -> m10
+    mute p4             -6.6     +0.0      NOISE   e3  LIN   -> m3
+    mute p5             -6.6     +0.0      PULSE   e4  LIN   -> m11
+    mute p6             -6.6     +0.0      PULSE   e12 LIN   -> m12
+    mute p7             -6.6     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             -6.6     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9             -6.6     +0.0      TAP0    e6  SWING -> m2
+    mute p10            -6.6     +0.0      TAP0    e7  SWING -> m1
+    mute p11            +nan     +nan      NOISE   e31 LIN   -> m4
+    mute p12            +nan     +nan      TAP4    e8  TANH  -> MIX
+    mute p13            -6.6     +0.0      SQ4     e10 SWING -> m5
+    mute p14            -6.6     +0.0      SQ5     e10 SWING -> m5
+    mute p15            -6.6     +0.0      PULSE   e13 LIN   -> m14
+    mute p16            -6.6     +0.0      PULSE   e13 LIN   -> m15
+    mute p17            -6.6     +0.0      TAP14   e14 SWING -> MIX
+    mute p18            -6.6     +0.0      TAP15   e14 SWING -> MIX
+    mute p19            -6.6     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20            -6.6     +0.0      TAP0    e15 SWING -> m2
+    mute p21            -6.6     +0.0      TAP0    e16 SWING -> m7
+    mute p22            -6.6     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN       -9.5     -2.9      the swing/tanh VCAs
+
+MA  baseline +13.2 dB
+    coef_seq=False     +13.2     +0.0      the BD attack window / tom pitch drop
+    mute p0            +13.2     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            +13.2     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            +13.2     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            +13.2     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            +13.2     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            +13.2     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            +13.2     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            +13.2     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            +13.2     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            +13.2     +0.0      TAP0    e6  SWING -> m2
+    mute p10           +13.2     +0.0      TAP0    e7  SWING -> m1
+    mute p11            +nan     +nan      NOISE   e31 LIN   -> m4
+    mute p12            +nan     +nan      TAP4    e8  SWING -> MIX
+    mute p13           +13.2     +0.0      SQ4     e10 SWING -> m5
+    mute p14           +13.2     +0.0      SQ5     e10 SWING -> m5
+    mute p15           +13.2     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           +13.2     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           +13.2     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           +13.2     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           +13.2     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           +13.2     +0.0      TAP0    e15 SWING -> m2
+    mute p21           +13.2     +0.0      TAP0    e16 SWING -> m7
+    mute p22           +13.2     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      -34.0    -47.2  <== the swing/tanh VCAs
+
+CB  baseline -16.9 dB
+    coef_seq=False     -16.9     +0.0      the BD attack window / tom pitch drop
+    mute p0            -16.9     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            -16.9     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            -16.9     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            -16.9     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            -16.9     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            -16.9     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            -16.9     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            -16.9     +0.0      PULSE   e5  LIN   -> m13
+    mute p8            -16.9     +0.0      SQSUM   e31 LIN   -> m0
+    mute p9            -16.9     +0.0      TAP0    e6  SWING -> m2
+    mute p10           -16.9     +0.0      TAP0    e7  SWING -> m1
+    mute p11           -16.9     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           -16.9     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           -16.6     +0.3      SQ4     e10 SWING -> m5
+    mute p14           -21.3     -4.4      SQ5     e10 SWING -> m5
+    mute p15           -16.9     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           -16.9     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           -16.9     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           -16.9     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           -16.9     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           -16.9     +0.0      TAP0    e15 SWING -> m2
+    mute p21           -16.9     +0.0      TAP0    e16 SWING -> m7
+    mute p22           -16.9     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      -39.8    -22.9  <== the swing/tanh VCAs
+
+CY  baseline -12.9 dB
+    coef_seq=False     -12.9     +0.0      the BD attack window / tom pitch drop
+    mute p0            -12.9     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            -12.9     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            -12.9     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            -12.9     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            -12.9     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            -12.9     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            -12.9     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            -12.9     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             -1.3    +11.7      SQSUM   e31 LIN   -> m0
+    mute p9            -12.9     +0.0      TAP0    e6  SWING -> m2
+    mute p10           -12.9     +0.0      TAP0    e7  SWING -> m1
+    mute p11           -12.9     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           -12.9     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           -12.9     +0.0      SQ4     e10 SWING -> m5
+    mute p14           -12.9     +0.0      SQ5     e10 SWING -> m5
+    mute p15           -12.9     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           -12.9     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           -12.9     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           -12.9     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           -41.0    -28.1  <== SQSUM   e31 LIN   -> m6
+    mute p20           -13.0     -0.0      TAP0    e15 SWING -> m2
+    mute p21            -2.1    +10.9      TAP0    e16 SWING -> m7
+    mute p22           -41.0    -28.1  <== TAP6    e17 SWING -> MIX
+    all nl -> LIN      -30.0    -17.1  <== the swing/tanh VCAs
+
+OH  baseline -77.3 dB
+    coef_seq=False     -77.3     +0.0      the BD attack window / tom pitch drop
+    mute p0            -77.3     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            -77.3     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            -77.3     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            -77.3     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            -77.3     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            -77.3     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            -77.3     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            -77.3     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             +nan     +nan      SQSUM   e31 LIN   -> m0
+    mute p9            -77.3     +0.0      TAP0    e6  SWING -> m2
+    mute p10            +nan     +nan      TAP0    e7  SWING -> m1
+    mute p11           -77.3     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           -77.3     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           -77.3     +0.0      SQ4     e10 SWING -> m5
+    mute p14           -77.3     +0.0      SQ5     e10 SWING -> m5
+    mute p15           -77.3     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           -77.3     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           -77.3     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           -77.3     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           -77.3     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           -77.3     +0.0      TAP0    e15 SWING -> m2
+    mute p21           -77.3     +0.0      TAP0    e16 SWING -> m7
+    mute p22           -77.3     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      -74.8     +2.5      the swing/tanh VCAs
+
+CH  baseline -53.3 dB
+    coef_seq=False     -53.3     +0.0      the BD attack window / tom pitch drop
+    mute p0            -53.3     +0.0      PULSE   e0  LIN   -> m8
+    mute p1            -53.3     +0.0      PULSE   e1  LIN   -> MIX
+    mute p2            -53.3     +0.0      PULSE   e2  LIN   -> m9
+    mute p3            -53.3     +0.0      PULSE   e2  LIN   -> m10
+    mute p4            -53.3     +0.0      NOISE   e3  LIN   -> m3
+    mute p5            -53.3     +0.0      PULSE   e4  LIN   -> m11
+    mute p6            -53.3     +0.0      PULSE   e12 LIN   -> m12
+    mute p7            -53.3     +0.0      PULSE   e5  LIN   -> m13
+    mute p8             +nan     +nan      SQSUM   e31 LIN   -> m0
+    mute p9             +nan     +nan      TAP0    e6  SWING -> m2
+    mute p10           -53.3     +0.0      TAP0    e7  SWING -> m1
+    mute p11           -53.3     +0.0      NOISE   e31 LIN   -> m4
+    mute p12           -53.3     +0.0      TAP4    e8  TANH  -> MIX
+    mute p13           -53.3     +0.0      SQ4     e10 SWING -> m5
+    mute p14           -53.3     +0.0      SQ5     e10 SWING -> m5
+    mute p15           -53.3     +0.0      PULSE   e13 LIN   -> m14
+    mute p16           -53.3     +0.0      PULSE   e13 LIN   -> m15
+    mute p17           -53.3     +0.0      TAP14   e14 SWING -> MIX
+    mute p18           -53.3     +0.0      TAP15   e14 SWING -> MIX
+    mute p19           -53.3     +0.0      SQSUM   e31 LIN   -> m6
+    mute p20           -53.3     +0.0      TAP0    e15 SWING -> m2
+    mute p21           -53.3     +0.0      TAP0    e16 SWING -> m7
+    mute p22           -53.3     +0.0      TAP6    e17 SWING -> MIX
+    all nl -> LIN      -42.8    +10.5      the swing/tanh VCAs
+

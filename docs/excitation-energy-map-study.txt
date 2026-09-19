@@ -1,0 +1,159 @@
+commit b4d09a5c08aa  corpus /tmp/tr808-ref 116 files sha256 0731ddfa7bbc6d18  argv --map --study-conditioning --refs /tmp/tr808-ref
+
+band x time map, ours minus machine, 8 x 30 ms, the STUDY's acausal conditioning (F1 ACTIVE -- for comparison only)
+refused: F3 (band holds no analysis bin), F4 (both sides under the 16-bit floor),
+F6 (inside a one-bin cell's own 5.6 dB/sqrt(n) scatter). margin 6 dB.
+`bound` = the other side is at its noise floor, so the difference is a LOWER bound.
+`BIN-WIDE` = removing the named band from the signal barely moves the cell, so the
+cell is reading its whole 33 Hz analysis bin. The difference is real AT THAT BIN;
+it is not attributable to the band the row is named after.
+
+BD  (16 held-out; 10/52 bands refused F3)
+    DEFICIT    302 Hz    0- 30 ms   -22.4 dB (machine  -15.3, ours  -37.7; 16-bit  -96.7, leak   -5.6, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT    479 Hz    0- 30 ms   -20.9 dB (machine  -25.3, ours  -46.2; 16-bit  -93.7, leak  -11.6, bias +0.8, need 6.0)  [BIN-WIDE]
+    DEFICIT    339 Hz    0- 30 ms   -20.8 dB (machine  -20.4, ours  -41.2; 16-bit  -96.7, leak   -9.8, bias -0.7, need 6.0)  [BIN-WIDE]
+    DEFICIT    170 Hz    0- 30 ms   -19.7 dB (machine   +1.5, ours  -18.1; 16-bit  -96.7, leak   +0.1, bias +2.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    604 Hz    0- 30 ms   -19.3 dB (machine  -32.1, ours  -51.4; 16-bit  -93.7, leak  -18.6, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT    678 Hz    0- 30 ms   -18.2 dB (machine  -32.9, ours  -51.1; 16-bit  -93.7, leak  -21.7, bias -0.7, need 6.0)  [BIN-WIDE]
+
+CB  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    EXCESS      67 Hz    0- 30 ms   +35.4 dB (machine  -40.2, ours   -4.8; 16-bit  -88.6, leak   +0.6, bias +6.3, need 11.1)  [BIN-WIDE]
+    EXCESS      95 Hz   30- 60 ms   +28.6 dB (machine  -75.0, ours  -46.4; 16-bit  -88.6, leak   -9.5, bias +4.8, need 11.1)  [BIN-WIDE]
+    EXCESS     479 Hz   30- 60 ms   +27.9 dB (machine  -26.0, ours   +1.8; 16-bit  -85.6, leak   +2.6, bias +0.8, need 6.0)  [BIN-WIDE]
+    EXCESS     479 Hz   60- 90 ms   +27.3 dB (machine  -28.1, ours   -0.8; 16-bit  -85.6, leak   -0.2, bias +0.8, need 6.0)  [BIN-WIDE]
+    EXCESS     479 Hz  120-150 ms   +25.5 dB (machine  -31.7, ours   -6.2; 16-bit  -85.6, leak   -5.3, bias +0.8, need 6.0)  [BIN-WIDE]
+    EXCESS     170 Hz   30- 60 ms   +25.2 dB (machine  -75.0, ours  -49.8; 16-bit  -88.6, leak  -27.0, bias +2.3, need 11.1)  [BIN-WIDE]
+
+CH  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    EXCESS      95 Hz    0- 30 ms   +33.4 dB (machine  -41.5, ours   -8.2; 16-bit  -80.3, leak   +3.7, bias +4.8, need 11.1)  [BIN-WIDE]
+    EXCESS     190 Hz    0- 30 ms   +33.3 dB (machine  -59.8, ours  -26.5; 16-bit  -80.3, leak   -0.6, bias +1.8, need 11.1)  [BIN-WIDE]
+    EXCESS      67 Hz    0- 30 ms   +33.1 dB (machine  -30.4, ours   +2.6; 16-bit  -80.3, leak   +7.8, bias +6.3, need 11.1)  [BIN-WIDE]
+    EXCESS     135 Hz    0- 30 ms   +32.2 dB (machine  -48.0, ours  -15.8; 16-bit  -80.3, leak   +2.2, bias +3.3, need 11.1)  [BIN-WIDE]
+    EXCESS     240 Hz    0- 30 ms   +27.7 dB (machine  -58.3, ours  -30.6; 16-bit  -80.3, leak   -1.5, bias +0.8, need 11.1)  [BIN-WIDE]
+    DEFICIT  15343 Hz  210-240 ms   -26.3 dB (machine  -46.1, ours  -72.4; 16-bit  -63.1, leak  -11.3, bias -0.0, need 6.0)  [bound: ours at floor; BIN-WIDE]
+
+CL  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    EXCESS     190 Hz    0- 30 ms   +42.6 dB (machine  -73.6, ours  -30.9; 16-bit  -86.1, leak   -4.2, bias +1.8, need 11.1)  [BIN-WIDE]
+    EXCESS    2416 Hz   60- 90 ms   +41.2 dB (machine  -60.9, ours  -19.7; 16-bit  -77.1, leak   -4.6, bias -0.2, need 6.0)  [BIN-WIDE]
+    EXCESS     269 Hz    0- 30 ms   +36.4 dB (machine  -75.0, ours  -38.6; 16-bit  -86.1, leak   -5.0, bias +0.3, need 11.1)  [BIN-WIDE]
+    EXCESS     135 Hz    0- 30 ms   +30.7 dB (machine  -50.9, ours  -20.2; 16-bit  -86.1, leak   -1.7, bias +3.3, need 11.1)  [BIN-WIDE]
+    EXCESS      67 Hz    0- 30 ms   +29.9 dB (machine  -31.7, ours   -1.8; 16-bit  -86.1, leak   +3.6, bias +6.3, need 11.1)  [BIN-WIDE]
+    EXCESS      95 Hz    0- 30 ms   +29.7 dB (machine  -42.3, ours  -12.6; 16-bit  -86.1, leak   -0.2, bias +4.8, need 11.1)  [BIN-WIDE]
+
+CP  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    DEFICIT    761 Hz  210-240 ms   -27.5 dB (machine  -15.3, ours  -42.7; 16-bit  -82.9, leak   -4.6, bias +0.6, need 6.0)  [BIN-WIDE]
+    DEFICIT    959 Hz  210-240 ms   -26.4 dB (machine   -9.1, ours  -35.5; 16-bit  -82.9, leak   +0.1, bias -0.4, need 6.0)  [BIN-WIDE]
+    DEFICIT    339 Hz  210-240 ms   -25.6 dB (machine  -26.6, ours  -52.2; 16-bit  -87.7, leak   -4.8, bias -0.7, need 11.1)  [BIN-WIDE]
+    DEFICIT   1076 Hz  210-240 ms   -24.1 dB (machine   -6.7, ours  -30.8; 16-bit  -81.7, leak   +0.5, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    190 Hz  120-150 ms   -23.8 dB (machine  -30.9, ours  -54.7; 16-bit  -87.7, leak  -22.8, bias +1.8, need 11.1)  [BIN-WIDE]
+    EXCESS     170 Hz    0- 30 ms   +22.9 dB (machine  -23.8, ours   -0.9; 16-bit  -87.7, leak   -1.8, bias +2.3, need 11.1)  [BIN-WIDE]
+
+CY  (16 held-out; 10/52 bands refused F3)
+    EXCESS     135 Hz   30- 60 ms   +67.0 dB (machine  -72.9, ours   -5.9; 16-bit  -90.9, leak  -13.5, bias +3.3, need 6.0)
+    EXCESS     135 Hz  150-180 ms   +66.1 dB (machine  -73.1, ours   -7.0; 16-bit  -90.9, leak   -4.7, bias +3.3, need 6.0)  [BIN-WIDE]
+    EXCESS     135 Hz   90-120 ms   +64.3 dB (machine  -72.3, ours   -8.1; 16-bit  -90.9, leak  -10.7, bias +3.3, need 6.0)  [BIN-WIDE]
+    EXCESS     170 Hz  150-180 ms   +63.9 dB (machine  -69.3, ours   -5.4; 16-bit  -90.9, leak  -14.0, bias +2.3, need 6.0)
+    EXCESS      95 Hz  120-150 ms   +63.9 dB (machine  -74.2, ours  -10.3; 16-bit  -90.9, leak   -8.3, bias +4.8, need 6.0)  [BIN-WIDE]
+    EXCESS      95 Hz  210-240 ms   +62.9 dB (machine  -74.2, ours  -11.3; 16-bit  -90.9, leak   -2.8, bias +4.8, need 6.0)  [BIN-WIDE]
+
+HC  (2 held-out; 10/52 bands refused F3)
+    DEFICIT   1709 Hz    0- 30 ms   -30.0 dB (machine  -42.1, ours  -72.2; 16-bit  -85.4, leak  -25.2, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT   1208 Hz    0- 30 ms   -29.7 dB (machine  -34.8, ours  -64.5; 16-bit  -87.1, leak  -19.3, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT   1356 Hz    0- 30 ms   -28.1 dB (machine  -40.4, ours  -68.5; 16-bit  -86.2, leak  -19.7, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT   2153 Hz    0- 30 ms   -27.2 dB (machine  -43.4, ours  -70.6; 16-bit  -84.1, leak  -29.0, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT   3044 Hz    0- 30 ms   -23.3 dB (machine  -46.4, ours  -69.7; 16-bit  -83.2, leak  -38.8, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT   3836 Hz    0- 30 ms   -20.8 dB (machine  -50.2, ours  -71.0; 16-bit  -82.0, leak  -41.3, bias -0.1, need 6.0)  [BIN-WIDE]
+
+HT  (2 held-out; 10/52 bands refused F3)
+    DEFICIT    678 Hz  120-150 ms   -47.4 dB (machine  -27.6, ours  -75.0; 16-bit  -91.5, leak  -27.8, bias -0.7, need 6.0)  [BIN-WIDE]
+    DEFICIT    427 Hz  150-180 ms   -44.3 dB (machine  -27.1, ours  -71.4; 16-bit  -94.5, leak  -22.0, bias -1.7, need 7.9)  [BIN-WIDE]
+    DEFICIT    604 Hz  150-180 ms   -43.9 dB (machine  -31.1, ours  -75.0; 16-bit  -91.5, leak  -25.2, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT    854 Hz   90-120 ms   -43.1 dB (machine  -31.9, ours  -75.0; 16-bit  -89.7, leak  -35.2, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT    479 Hz  180-210 ms   -42.0 dB (machine  -28.7, ours  -70.7; 16-bit  -91.5, leak  -16.2, bias +0.8, need 6.0)  [BIN-WIDE]
+    DEFICIT    381 Hz  180-210 ms   -41.8 dB (machine  -22.7, ours  -64.5; 16-bit  -91.5, leak  -16.7, bias +1.8, need 6.0)  [BIN-WIDE]
+
+LC  (2 held-out; 10/52 bands refused F3)
+    DEFICIT   1709 Hz    0- 30 ms   -28.0 dB (machine  -47.0, ours  -75.0; 16-bit  -88.3, leak  -30.8, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT   1522 Hz    0- 30 ms   -27.6 dB (machine  -45.4, ours  -73.1; 16-bit  -89.1, leak  -30.4, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT   1076 Hz    0- 30 ms   -26.2 dB (machine  -41.4, ours  -67.7; 16-bit  -90.1, leak  -25.4, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    854 Hz    0- 30 ms   -23.9 dB (machine  -37.6, ours  -61.5; 16-bit  -91.3, leak  -22.8, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT   2153 Hz    0- 30 ms   -23.4 dB (machine  -51.6, ours  -75.0; 16-bit  -87.1, leak  -35.3, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT   2712 Hz    0- 30 ms   -19.0 dB (machine  -54.7, ours  -73.7; 16-bit  -86.1, leak  -37.5, bias +0.3, need 6.0)  [BIN-WIDE]
+
+LT  (2 held-out; 10/52 bands refused F3)
+    DEFICIT    538 Hz    0- 30 ms   -47.0 dB (machine  -16.1, ours  -63.2; 16-bit  -93.3, leak  -13.3, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    678 Hz    0- 30 ms   -43.6 dB (machine  -24.2, ours  -67.9; 16-bit  -93.3, leak  -18.4, bias -0.7, need 6.0)  [BIN-WIDE]
+    DEFICIT    479 Hz  180-210 ms   -41.6 dB (machine  -28.0, ours  -69.5; 16-bit  -93.3, leak  -19.9, bias +0.8, need 6.0)  [BIN-WIDE]
+    DEFICIT    538 Hz  150-180 ms   -41.2 dB (machine  -29.3, ours  -70.5; 16-bit  -93.3, leak  -27.4, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    604 Hz   60- 90 ms   -40.8 dB (machine  -24.2, ours  -65.0; 16-bit  -93.3, leak  -28.8, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT    538 Hz  180-210 ms   -40.6 dB (machine  -33.2, ours  -73.8; 16-bit  -93.3, leak  -25.8, bias +0.3, need 6.0)  [BIN-WIDE]
+
+MA  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    EXCESS   12177 Hz   30- 60 ms   +48.3 dB (machine  -52.2, ours   -3.9; 16-bit  -69.7, leak   -9.1, bias +0.1, need 6.0)  [BIN-WIDE]
+    EXCESS    9665 Hz   30- 60 ms   +45.7 dB (machine  -53.6, ours   -8.0; 16-bit  -70.7, leak   -7.8, bias +0.1, need 6.0)  [BIN-WIDE]
+    EXCESS   13669 Hz   30- 60 ms   +45.7 dB (machine  -50.8, ours   -5.1; 16-bit  -69.3, leak  -14.7, bias -0.0, need 6.0)
+    EXCESS      95 Hz   30- 60 ms   +44.6 dB (machine  -70.2, ours  -25.6; 16-bit  -86.0, leak  -11.8, bias +4.8, need 11.1)  [BIN-WIDE]
+    EXCESS    3044 Hz   30- 60 ms   +43.6 dB (machine  -63.7, ours  -20.1; 16-bit  -76.0, leak  -23.7, bias -0.2, need 6.0)  [BIN-WIDE]
+    EXCESS     135 Hz   30- 60 ms   +43.3 dB (machine  -71.4, ours  -28.1; 16-bit  -86.0, leak  -21.2, bias +3.3, need 11.1)  [BIN-WIDE]
+
+MC  (2 held-out; 10/52 bands refused F3)
+    DEFICIT    854 Hz    0- 30 ms   -22.0 dB (machine  -40.3, ours  -62.3; 16-bit  -85.6, leak  -17.4, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT   1208 Hz    0- 30 ms   -16.0 dB (machine  -57.5, ours  -73.5; 16-bit  -84.4, leak  -22.2, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT   1709 Hz    0- 30 ms   -13.8 dB (machine  -59.4, ours  -73.2; 16-bit  -82.6, leak  -24.9, bias +0.1, need 6.0)  [BIN-WIDE]
+    DEFICIT   1356 Hz    0- 30 ms   -13.6 dB (machine  -59.7, ours  -73.3; 16-bit  -83.4, leak  -20.7, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    761 Hz    0- 30 ms   -13.1 dB (machine  -43.7, ours  -56.8; 16-bit  -85.6, leak  -13.4, bias +0.6, need 6.0)  [BIN-WIDE]
+    DEFICIT    604 Hz    0- 30 ms   -11.6 dB (machine  -37.2, ours  -48.7; 16-bit  -87.4, leak  -11.3, bias -0.2, need 6.0)  [BIN-WIDE]
+
+MT  (2 held-out; 10/52 bands refused F3)
+    DEFICIT    538 Hz  120-150 ms   -44.5 dB (machine  -25.5, ours  -70.0; 16-bit  -91.4, leak  -24.1, bias +0.3, need 6.0)  [BIN-WIDE]
+    DEFICIT    604 Hz   60- 90 ms   -44.4 dB (machine  -22.4, ours  -66.8; 16-bit  -91.4, leak  -26.8, bias -0.2, need 6.0)  [BIN-WIDE]
+    DEFICIT    427 Hz  180-210 ms   -41.6 dB (machine  -30.8, ours  -72.4; 16-bit  -94.4, leak  -22.2, bias -1.7, need 7.9)  [BIN-WIDE]
+    DEFICIT    959 Hz   90-120 ms   -41.6 dB (machine  -33.1, ours  -74.7; 16-bit  -89.6, leak  -36.9, bias -0.4, need 6.0)  [BIN-WIDE]
+    DEFICIT    479 Hz  150-180 ms   -41.5 dB (machine  -28.1, ours  -69.7; 16-bit  -91.4, leak  -25.8, bias +0.8, need 6.0)  [BIN-WIDE]
+    DEFICIT   1076 Hz   30- 60 ms   -41.4 dB (machine  -31.5, ours  -72.9; 16-bit  -88.4, leak  -31.8, bias +0.3, need 6.0)  [BIN-WIDE]
+
+OH  (2 held-out; 10/52 bands refused F3)
+    EXCESS     240 Hz    0- 30 ms   +23.0 dB (machine  -63.6, ours  -40.6; 16-bit  -93.4, leak  -11.5, bias +0.8, need 7.9)  [BIN-WIDE]
+    EXCESS      67 Hz   30- 60 ms   +22.0 dB (machine  -62.2, ours  -40.2; 16-bit  -93.4, leak   -9.7, bias +6.3, need 7.9)  [BIN-WIDE]
+    EXCESS     135 Hz    0- 30 ms   +22.0 dB (machine  -47.8, ours  -25.8; 16-bit  -93.4, leak   -7.8, bias +3.3, need 7.9)  [BIN-WIDE]
+    EXCESS      95 Hz   30- 60 ms   +21.7 dB (machine  -72.5, ours  -50.8; 16-bit  -93.4, leak  -12.2, bias +4.8, need 7.9)  [BIN-WIDE]
+    EXCESS     170 Hz    0- 30 ms   +20.4 dB (machine  -52.1, ours  -31.7; 16-bit  -93.4, leak   -9.0, bias +2.3, need 7.9)  [BIN-WIDE]
+    EXCESS    7671 Hz  210-240 ms   +20.0 dB (machine  -17.5, ours   +2.5; 16-bit  -79.2, leak  -10.7, bias -0.1, need 6.0)
+
+RS  (1 setting(s), NOT held out; 10/52 bands refused F3)
+    DEFICIT   3044 Hz    0- 30 ms   -39.7 dB (machine   -1.4, ours  -41.1; 16-bit  -73.4, leak  -10.8, bias -0.2, need 6.0)
+    DEFICIT   2153 Hz    0- 30 ms   -34.8 dB (machine   -0.7, ours  -35.5; 16-bit  -74.3, leak  -10.0, bias +0.3, need 6.0)
+    DEFICIT    678 Hz    0- 30 ms   -29.9 dB (machine   -1.1, ours  -30.9; 16-bit  -80.4, leak   -8.4, bias -0.7, need 6.0)
+    DEFICIT  15343 Hz  210-240 ms   -26.9 dB (machine  -48.1, ours  -75.0; 16-bit  -66.1, leak  -28.7, bias -0.0, need 6.0)  [bound: ours at floor; BIN-WIDE]
+    DEFICIT  15343 Hz  150-180 ms   -26.1 dB (machine  -48.9, ours  -75.0; 16-bit  -66.1, leak  -41.6, bias -0.0, need 6.0)  [bound: ours at floor; BIN-WIDE]
+    DEFICIT  15343 Hz   90-120 ms   -24.9 dB (machine  -50.1, ours  -75.0; 16-bit  -66.1, leak  -42.5, bias -0.0, need 6.0)  [bound: ours at floor; BIN-WIDE]
+
+SD  (16 held-out; 10/52 bands refused F3)
+    EXCESS      95 Hz  210-240 ms   +22.9 dB (machine  -70.4, ours  -47.5; 16-bit  -87.4, leak   -2.3, bias +4.8, need 6.0)  [BIN-WIDE]
+    EXCESS     538 Hz   60- 90 ms   +19.2 dB (machine  -45.1, ours  -25.9; 16-bit  -84.4, leak  -20.0, bias +0.3, need 6.0)  [BIN-WIDE]
+    EXCESS      67 Hz  210-240 ms   +18.7 dB (machine  -66.3, ours  -47.6; 16-bit  -87.4, leak   -6.9, bias +6.3, need 6.0)  [BIN-WIDE]
+    EXCESS     427 Hz   60- 90 ms   +15.0 dB (machine  -49.4, ours  -34.4; 16-bit  -87.4, leak  -16.8, bias -1.7, need 6.0)  [BIN-WIDE]
+    EXCESS     381 Hz   60- 90 ms   +14.5 dB (machine  -42.8, ours  -28.3; 16-bit  -84.4, leak  -10.5, bias +1.8, need 6.0)  [BIN-WIDE]
+    EXCESS     761 Hz   60- 90 ms   +13.1 dB (machine  -36.1, ours  -23.1; 16-bit  -82.6, leak  -25.3, bias +0.6, need 6.0)  [BIN-WIDE]
+
+=== one mechanism or two ===
+  low  = largest EXCESS under 200 Hz in window 0 (the onset pedestal)
+  high = mean signed difference over live cells in 0.7-5 kHz, all windows
+
+    voice    low w0  high 0.7-5k  excess  deficit
+    BD         -1.0         -2.1      13       36
+    CB         35.4          2.1     141       52
+    CH         33.4         -8.7      18      199
+    CL         42.6         -4.4      36      164
+    CP         22.9         -7.0      33      160
+    CY         50.5         12.2     227        8
+    HC         10.9         -5.2       3       32
+    HT          7.2        -21.9       2      201
+    LC          0.8         -8.1       0       33
+    LT          1.6        -19.4       0      206
+    MA         41.8          1.0     108      164
+    MC          5.7         -4.8       2       39
+    MT          6.3        -20.2       1      194
+    OH         22.0         -5.4      45       86
+    RS         23.3        -13.5       8      267
+    SD         -0.0          1.4      95       36

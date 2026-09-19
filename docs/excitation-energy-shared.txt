@@ -1,0 +1,16 @@
+commit fff4b7dbe811  corpus /tmp/tr808-ref 116 files sha256 0731ddfa7bbc6d18  argv --shared --refs /tmp/tr808-ref
+
+0.7-5 kHz share of the 240 ms conditioned window, rectangular-FFT Parseval.
+`before #154` re-renders with the x1.7 sweep and its accent CLAMP reinstated --
+the state `docs/discrimination.md` 5a and `docs/discrimination-trajectory.txt`
+were both measured in.
+
+    voice    machine      HEAD  dB(o/m)  before #154  dB(o/m)  sweep made
+    LT       0.00172   0.00002   -19.66      0.00004   -16.01        3.64
+    LC       0.00127   0.00009   -11.41      0.00035    -5.64        5.76
+    MT       0.00342   0.00006   -17.48      0.00018   -12.84        4.64
+    MC       0.00407   0.00040   -10.11      0.00260    -1.94        8.17
+    HT       0.00376   0.00016   -13.82      0.00060    -7.95        5.87
+    HC       0.00555   0.00137    -6.07      0.25059    16.55       22.62
+
+  `sweep made` = what the x1.7 sweep put into 0.7-5 kHz that HEAD does not.
