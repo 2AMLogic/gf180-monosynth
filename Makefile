@@ -74,8 +74,11 @@ verify-full:
 ## (`tools/refprofile.py --render`, which needs Surge XT and dawdreamer) or
 ## accept that these three are not covered on this host and say so.
 ##
-## THE TWO PROFILE CONTROLS NOW COVER F1B AND F1C, and REF_CORNER_2X DOES NOT,
-## which is the D01A lesson applied rather than restated. `--expect 'no verdict'`
+## THE TWO PROFILE CONTROLS NOW COVER F1B AND F1C. REF_CORNER_2X compares the
+## injected run with a clean run, because all three F1 cases now fail cleanly;
+## state-only `--expect fail` would be the D01A false green. `--expect changed`
+## requires the injected result to change state or measured distance, so it
+## cannot pass when the injection is removed. `--expect 'no verdict'`
 ## still discriminates on F1B and F1C: both produce a verdict when clean (fail,
 ## worst 1.41 and 1.62), so a missing clip or a tampered hash turning them into
 ## `no verdict` is a state CHANGE and the control can come back green only by
@@ -138,7 +141,7 @@ controls:
 	  "$(PY) fpga/verify_fixture.py --wrong burst --expect-fail --outdir build/fx-burst" \
 	  "$(PY) tools/run_case.py --inject REF_F0_20PCT D09A --results build/case-detune --expect fail" \
 	  "$(PY) tools/run_case.py --inject REF_MISSING D09A --results build/case-noref --expect 'no verdict'" \
-	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect fail" \
+	  "$(PY) tools/run_case.py --inject REF_CORNER_2X F1A --results build/case-octave --expect changed" \
 	  "$(PY) tools/run_case.py --inject REF_PROFILE_MISSING F1A F1B F1C --results build/case-noclip --expect 'no verdict'" \
 	  "$(PY) tools/run_case.py --inject REF_PROFILE_TAMPERED F1A F1B F1C --results build/case-badhash --expect 'no verdict'"
 

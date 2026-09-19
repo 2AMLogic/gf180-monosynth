@@ -1335,7 +1335,15 @@ def filt_rolloff(cut_hz: float):
     test_filt_rolloff_sees_a_pole_that_is_not_there."""
     def f(freqs, g):
         rb = _ref_band(freqs, cut_hz)
-        c = am.corner_from_curve(freqs, g, ref_band=rb)
+        # Keep the corner definition identical to filt_corner.  Using the
+        # old moving-median reference here makes the fit band inherit the
+        # frequency-dependent bias that #150/#164 removed from corner.
+        ref = am.dc_plateau_db(freqs, g, rb, scale_hz=(cut_hz or 400.0))
+        if not ref.ok:
+            return am.Estimate(None, False,
+                               "no passband reference to measure a corner against: "
+                               + ref.reason, ref.detail)
+        c = am.corner_from_curve(freqs, g, ref_band=rb, ref_db=ref.value)
         if not c.ok:
             return am.Estimate(None, False,
                                "no measured corner, so no band to fit a slope over: "
@@ -2251,6 +2259,25 @@ def verdict_of(case: dict, res: dict | None) -> tuple:
     return r["state"], r["worst"], r["why"]
 
 
+def control_changed(clean: tuple, injected: tuple) -> bool:
+    """Return whether an injection changed an observable board outcome.
+
+    A state-only control is false green when the clean case already fails.
+    Preserve the useful distance in that situation: a valid injected result
+    must either change state or move the board's worst error.  Missing worst
+    values cannot establish a change, so two refusals never count as a fired
+    control.
+    """
+    clean_state, clean_worst, _ = clean
+    injected_state, injected_worst, _ = injected
+    if clean_state != injected_state:
+        return True
+    if clean_worst is None or injected_worst is None:
+        return False
+    return not math.isclose(float(clean_worst), float(injected_worst),
+                            rel_tol=1e-9, abs_tol=1e-6)
+
+
 def cmd_list(cases: list[dict]) -> int:
     print(f"{'case':<7}{'family':<10}{'batch':<14}{'plan':<11}reason / reference")
     print("-" * 100)
@@ -2295,8 +2322,10 @@ def main(argv=None) -> int:
                     choices=["", "REF_F0_20PCT", "REF_MISSING", "REF_CORNER_2X",
                              "REF_PROFILE_MISSING", "REF_PROFILE_TAMPERED"],
                     help="an injected control; requires --results outside the board")
-    ap.add_argument("--expect", default="", choices=["", "pass", "fail", "no verdict"],
-                    help="exit 1 unless every case lands in this state (for controls)")
+    ap.add_argument("--expect", default="",
+                    choices=["", "pass", "fail", "no verdict", "changed"],
+                    help="exit 1 unless every case lands in this state (for controls); "
+                         "'changed' compares injected results with a clean run")
     ap.add_argument("--no-audio", action="store_true", help="do not write the rendered WAVs")
     ap.add_argument("--allow-stale", action="store_true",
                     help="run even though this tree is behind origin/main, and say so "
@@ -2370,6 +2399,17 @@ def main(argv=None) -> int:
     print("-" * 96)
 
     states, errors, code = {}, 0, 0
+    clean_verdicts = {}
+    if a.expect == "changed":
+        print("CONTROL BASELINE: measuring the same cases without the injection")
+        for c in chosen:
+            if plan_for(c["case_id"]) == "not-run":
+                clean_verdicts[c["case_id"]] = ("not run", None, NOT_RUN[c["case_id"]])
+                continue
+            clean = run_case(c, refdir, "", keep_audio=False)
+            clean_verdicts[c["case_id"]] = verdict_of(c, clean)
+        print("CONTROL BASELINE: complete\n")
+    injected_verdicts = {}
     for c in chosen:
         cid = c["case_id"]
         if plan_for(cid) == "not-run":
@@ -2381,6 +2421,7 @@ def main(argv=None) -> int:
         # Judge BEFORE writing, so the outcome code on the record is the board's
         # verdict and not this runner's opinion of it.
         state, worst, why = verdict_of(c, res)
+        injected_verdicts[cid] = (state, worst, why)
         res.setdefault("provenance", {})["outcome_code"] = OUTCOME_CODE[state]
         if not a.dry_run:
             (outdir / f"{cid}.json").write_text(json.dumps(res, indent=2, sort_keys=False) + "\n")
@@ -2395,6 +2436,18 @@ def main(argv=None) -> int:
     print("-" * 96)
     print("  ".join(f"{k}: {v}" for k, v in sorted(states.items())))
     if a.expect:
+        if a.expect == "changed":
+            unchanged = {
+                cid: clean_verdicts[cid]
+                for cid in injected_verdicts
+                if not control_changed(clean_verdicts[cid], injected_verdicts[cid])
+            }
+            if unchanged:
+                print("CONTROL DID NOT FIRE: injection was indistinguishable from "
+                      f"clean for {sorted(unchanged)}", file=sys.stderr)
+                return 1
+            print("control fired: every injected case changed state or measured distance")
+            return 0
         # Control semantics, not verifier semantics: the question is whether
         # the injected defect turned the board the colour it must.
         bad = {k: v for k, v in states.items() if k != a.expect}
