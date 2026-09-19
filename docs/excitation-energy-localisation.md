@@ -503,3 +503,40 @@ Recorded because `CLAUDE.md` asks for the rate where the numbers are read.
 
 Five, all caught by controls rather than by inspection. The first four are in
 the instrument, not in the result.
+
+---
+
+## 9. Provenance
+
+Branch `measure-excitation-energy` off `main` at `80b3756`. Corpus
+`/tmp/tr808-ref` — the Michael Fischer TR-808 sample set, 116 WAV files,
+16-bit 44.1 kHz mono, sha256 of the concatenated names and bytes
+`0731ddfa7bbc6d18…`. Every report below prints its own commit, dirty flag and
+that hash in its first line; some were produced while the probe was being
+extended and say `DIRTY`, which is recorded rather than hidden.
+
+```
+.venv/bin/python -m pytest tools/probes/excitation_energy.py -q     # 19 passed
+.venv/bin/python tools/probes/excitation_energy.py --floors      --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --map         --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --map --study-conditioning \
+                                                                 --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --reconcile   --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --attribute   --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --dc          --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --bands       --refs /tmp/tr808-ref
+.venv/bin/python tools/probes/excitation_energy.py --shared      --refs /tmp/tr808-ref
+```
+
+| report | what it is |
+|---|---|
+| [`excitation-energy-floors.txt`](excitation-energy-floors.txt) | F1–F4, measured |
+| [`excitation-energy-map.txt`](excitation-energy-map.txt) | the band × time map, causal conditioning |
+| [`excitation-energy-map-study.txt`](excitation-energy-map-study.txt) | the same map with `sosfiltfilt` |
+| [`excitation-energy-reconcile.txt`](excitation-energy-reconcile.txt) | #152's fourteen rows, one at a time |
+| [`excitation-energy-attribution.txt`](excitation-energy-attribution.txt) | the per-path mute sweep, all sixteen voices |
+| [`excitation-energy-dc.txt`](excitation-energy-dc.txt) | excitation mean × mode DC gain |
+| [`excitation-energy-bands.txt`](excitation-energy-bands.txt) | the three-band split, all sixteen |
+| [`excitation-energy-shared.txt`](excitation-energy-shared.txt) | tom/conga 0.7–5 kHz, HEAD and before #154 |
+
+`model/drums_fx.py` is byte-identical to `main`.
