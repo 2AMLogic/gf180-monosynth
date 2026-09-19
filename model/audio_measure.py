@@ -134,6 +134,37 @@ def is_silent(x, floor: float = 1e-9) -> bool:
     return peak(x) <= floor
 
 
+#: Below this fraction of a record's OWN peak, a trailing sample is not
+#: record. It is `is_silent`'s floor read as a ratio -- -180 dBFS on a
+#: full-scale record -- which is two orders of magnitude under a 24-bit LSB
+#: and nine under a 16-bit one, so nothing a converter or a renderer produces
+#: can fall inside it. The measured margin on the Fischer TR-808 corpus, whose
+#: quietest sounding tail sits at -89.9 dBFS, is 90 dB.
+SOUNDING_FLOOR = 1e-9
+
+
+def sounding_extent(x, floor: float = SOUNDING_FLOOR) -> int:
+    """Index one past the last sample of `x` that is above `floor * peak(x)`.
+
+    **Trailing digital silence is not part of a record and carries no
+    information about it** -- that is the whole content of #139. Anything that
+    reads a record's LENGTH as evidence has to read this length, or a
+    `np.zeros` call changes the answer."""
+    a = np.abs(_as_float(x))
+    pk = float(a.max()) if a.size else 0.0
+    if pk <= 0.0:
+        return 0
+    live = np.nonzero(a > floor * pk)[0]
+    return int(live[-1]) + 1 if live.size else 0
+
+
+def strip_trailing_silence(x, floor: float = SOUNDING_FLOOR) -> np.ndarray:
+    """`x` with its trailing digital silence removed. Leaves a record with no
+    trailing silence exactly as it was."""
+    x = _as_float(x)
+    return x[:sounding_extent(x, floor)]
+
+
 def clipped_fraction(x, full_scale: float) -> float:
     """Fraction of samples at or beyond `full_scale`. A clipped signal has a
     flattened envelope and a spread spectrum; every estimator here reports it
@@ -1194,6 +1225,39 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     `tail_db` is still reported, because it is the right diagnostic for the
     noise-floor failure -- it is just not a truncation test.
 
+    AND A LENGTH IS THE SOUNDING LENGTH, NOT THE ARRAY'S (#139)
+    ----------------------------------------------------------
+    **Silence satisfies length.** Cutting this 2.0 s record of a tau 200 ms
+    decay to 0.30 s is refused, correctly; cutting it to 0.30 s and appending
+    1.7 s of `np.zeros` was ACCEPTED, at -48 %, with the length criterion
+    satisfied seven times over. Appending zeros adds no information and cannot
+    change what the decay was, so it converted a correct refusal into an
+    accepted wrong answer -- the third time in this repository that a guard has
+    been satisfiable by the pathology it guards against.
+
+    The repair is that the whole estimate is read off the record's SOUNDING
+    extent (`sounding_extent`, everything up to the last sample above -180 dB
+    of the record's own peak). Appending silence is then an EXACT invariance of
+    this function rather than a threshold that might hold: the padded array and
+    the cut array are the same array once the pad is gone, so they get the same
+    verdict by construction. That is the same property
+    `test_schroeder_t20_is_unchanged_by_leading_silence` already pinned at the
+    front of the record, which is why it was never in doubt there.
+
+    **What this does NOT do, stated because the number looks like a ruler.**
+    It removes DIGITAL silence. A record cut and then padded with LOW-LEVEL
+    NOISE is still accepted, because that pad is signal by every measure this
+    function has: at -60 dB the padded record's tail residual is -24.8 dB
+    against -25.3 dB for `cl8/CL.WAV`, which is a genuine untruncated
+    reference, so the two populations OVERLAP and no threshold separates them.
+    The residual is reported as `tail_residual_db` so a caller can see it; it
+    is deliberately not a refusal. `tools/probes/estimator_defects.py` section
+    5 is that measurement.
+
+    A genuine quiet tail is not affected in either direction: 16-bit
+    quantisation puts a real decay's tail 90 dB above this floor, and the
+    corpus's quietest sounding tail is -89.9 dBFS.
+
     **`min_tail_t20=0.0` disables the guard, and is for one situation only:** a
     caller that has bounded this record's truncation bias BY ITS OWN
     MEASUREMENT -- re-reading the T20 off a shorter cut of the same record and
@@ -1207,10 +1271,18 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     Ground truth: test_schroeder_t20_equals_ln10_tau_on_a_damped_sinusoid,
     test_schroeder_t20_refuses_a_recording_that_was_cut_before_it_decayed,
     test_schroeder_t20_refuses_a_mild_truncation_a_level_guard_cannot_see,
-    test_schroeder_t20_is_unchanged_by_leading_silence."""
+    test_schroeder_t20_is_unchanged_by_leading_silence,
+    test_appending_silence_cannot_rescue_a_refused_decay,
+    test_appending_silence_cannot_change_an_accepted_decay_either,
+    test_a_genuinely_quiet_tail_is_not_refused_for_being_quiet."""
     x = _as_float(x)
     if is_silent(x):
         return _fail("silent", peak=peak(x))
+    n_given = len(x)
+    x = strip_trailing_silence(x)                       # #139: silence is not record
+    n_silent = n_given - len(x)
+    if len(x) < 2:
+        return _fail("nothing but silence after the first sample", n_given=n_given)
     e = np.cumsum((x ** 2)[::-1])[::-1]
     if e[0] <= 0:
         return _fail("no energy")
@@ -1230,18 +1302,28 @@ def schroeder_t20(x, sr: int = SR_DEFAULT, *, lo_db: float = -5.0,
     t20 = -20.0 / float(slope)
     resid = L[i_lo:i_hi] - (slope * t + icept)
     after_s = (len(x) - i_hi) / float(sr)
+    # How far the energy curve falls BELOW the line fitted to it, continued
+    # into the required tail. Reported, never refused on: see the docstring.
+    n_want = min(i_hi + int(round(min_tail_t20 * t20 * sr)), len(L))
+    tail_resid = (float((L[i_hi:n_want] - (slope * (np.arange(i_hi, n_want) / sr) + icept)).min())
+                  if n_want > i_hi else 0.0)
     detail = dict(tail_db=tail_db, slope_db_s=float(slope),
                   residual_db=float(np.abs(resid).max()), n=int(i_hi - i_lo),
                   t20_ms=t20 * 1e3, after_hi_ms=after_s * 1e3,
                   needed_after_hi_ms=min_tail_t20 * t20 * 1e3,
                   tail_in_t20s=(after_s / t20 if t20 > 0 else 0.0),
-                  min_tail_t20=min_tail_t20)
+                  min_tail_t20=min_tail_t20, tail_residual_db=tail_resid,
+                  trailing_silence_ms=n_silent / float(sr) * 1e3,
+                  sounding_samples=int(len(x)), given_samples=int(n_given))
     if after_s < min_tail_t20 * t20:
+        pad = ("" if not n_silent else
+               f" ({n_silent/float(sr)*1e3:.1f} ms of trailing SILENCE was stripped "
+               f"first: #139, a pad is not record)")
         return _fail(
             f"the record ends before the decay does: only {after_s*1e3:.1f} ms follow "
             f"the {hi_db:.0f} dB point and a T20 of {t20*1e3:.1f} ms needs "
             f"{min_tail_t20*t20*1e3:.1f} ms after it, so the backward integral is "
-            f"reporting the cut and not the decay", **detail)
+            f"reporting the cut and not the decay" + pad, **detail)
     return Estimate(t20, True, "", detail)
 
 
@@ -1335,7 +1417,95 @@ def plateau_db(freqs, gain_db, band) -> float:
     return float(np.median(g[sel]))
 
 
-def corner_from_curve(freqs, gain_db, *, ref_band=None, kind: str = "lowpass") -> Estimate:
+#: How far a DC extrapolation may land from the highest point it was fitted
+#: to, and how far the fit may miss any point it was fitted to, before the
+#: band is not a passband at all and the answer would be an extrapolation
+#: dressed as a measurement. Measured, not chosen: over the 56 real response
+#: curves in `docs/reference-compare-results.json` (ours, Surge RK and Huov,
+#: Diva and Mini V3, seven cutoffs each) the worst extrapolation is 2.250 dB
+#: and the worst fit residual 2.196 dB, both `diva`. Six dB is 2.7x the worse
+#: of them.
+MAX_PLATEAU_EXTRAPOLATION_DB = 6.0
+
+
+def dc_plateau_db(freqs, gain_db, band, *, scale_hz: float) -> Estimate:
+    """The passband level a corner is measured against, EXTRAPOLATED TO DC
+    rather than read as the median of a band.
+
+    WHY A MEDIAN OF A MOVING BAND IS NOT A PASSBAND LEVEL (#150)
+    ------------------------------------------------------------
+    `plateau_db` takes the median of the curve over a band that moves with the
+    commanded cutoff. That band is **not flat**: an ideal 4-pole is already
+    -2.58 dB down at 0.4 of its cutoff. And because the band's bottom is pinned
+    to the grid's first frequency while its top scales with the cutoff, the
+    amount of droop the median catches is DIFFERENT AT EVERY CUTOFF -- on this
+    project's 40 Hz-12 kHz grid, -0.904 dB at a commanded 250 Hz against
+    -0.040 dB at 4 kHz. The corner is read at 3 dB below that reference, so a
+    reference that is 0.9 dB low puts the corner 15 % high, and one that is
+    0.04 dB low puts it 0.02 % high. **The estimator manufactured 15 points of
+    droop across the range on a response whose true ratio is constant**, and
+    #146 read part of that as the filter's cutoff mapping.
+
+    THE CONSTRUCTION, AND WHY IT IS SHAPE-AGNOSTIC
+    ----------------------------------------------
+    `|H(f)|^2` of any real, rational filter is an even function of `f`, so
+    `gain_db` is analytic in `f^2` at DC: `g(f) = g(0) + a*f^2 + O(f^4)`
+    whatever the pole count or topology. Regressing `gain_db` on `(f/scale)^2`
+    over the band and reading the intercept therefore recovers the DC level
+    without assuming the filter's order -- measured on ideal 2-, 4- and 6-pole
+    responses, the corner/cutoff ratio's spread across 250 Hz-4 kHz falls from
+    8.9 / 15.1 / 20.9 % to 0.34 / 0.58 / 0.75 %.
+
+    Degree 1, not 2, deliberately. Degree 2 reaches 0.10 % on noiseless curves
+    and is unusable on real ones: extrapolating a quadratic from the five grid
+    points a 250 Hz band holds has an sd of 6.1 in the corner ratio under
+    0.2 dB of noise, against 0.036 for degree 1. What is left at degree 1 is
+    the 20.2 %-spaced grid's own interpolation error, which is the systematic
+    `filt_rolloff` already documents.
+
+    REFUSES when the band holds fewer than three points, when the extrapolation
+    lands more than `MAX_PLATEAU_EXTRAPOLATION_DB` from the highest point it
+    was fitted to, or when the fit misses any point it was fitted to by more
+    than that -- each of which means the measured band is not in the filter's
+    passband and there is no plateau for anything to be relative to. Both
+    thresholds are needed and neither is redundant: a band two octaves down a
+    6-pole skirt gives a 19.3 dB residual with the extrapolation pointing the
+    WRONG WAY (16.3 dB below the band, which a low-pass's DC gain cannot be).
+
+    Ground truth: test_dc_plateau_db_recovers_the_dc_gain_of_an_ideal_filter,
+    test_run_case.py::test_filt_corner_ratio_is_constant_across_the_range."""
+    f, g = _as_float(freqs), _as_float(gain_db)
+    sel = (f >= band[0]) & (f <= band[1]) & np.isfinite(g)
+    n = int(sel.sum())
+    if n < 3:
+        return _fail("dc_plateau_db: fewer than three measured points in the reference "
+                     f"band {band[0]:.1f}-{band[1]:.1f} Hz, so there is nothing to "
+                     "extrapolate from", band_hz=[float(b) for b in band], n=n)
+    u = (f[sel] / float(scale_hz)) ** 2
+    a, b = np.polyfit(u, g[sel], 1)
+    top = float(g[sel].max())
+    detail = dict(band_hz=[round(float(x), 2) for x in band], n=n,
+                  band_median_db=float(np.median(g[sel])),
+                  fit_residual_db=float(np.abs(g[sel] - (a * u + b)).max()),
+                  extrapolation_db=float(b - top),
+                  slope_db_per_u=float(a), scale_hz=float(scale_hz))
+    if abs(b - top) > MAX_PLATEAU_EXTRAPOLATION_DB:
+        return _fail(
+            f"dc_plateau_db: the DC level extrapolates to {b - top:+.2f} dB relative "
+            f"to the highest point in the band, more than the "
+            f"{MAX_PLATEAU_EXTRAPOLATION_DB:.0f} dB this is a passband within, so "
+            f"this band is not the passband and a level relative to it would be an "
+            f"extrapolation, not a measurement", **detail)
+    if detail["fit_residual_db"] > MAX_PLATEAU_EXTRAPOLATION_DB:
+        return _fail(
+            f"dc_plateau_db: gain is not flat-plus-f^2 over this band -- the fit "
+            f"misses a measured point by {detail['fit_residual_db']:.2f} dB -- so "
+            f"this band is not the passband", **detail)
+    return Estimate(float(b), True, "", detail)
+
+
+def corner_from_curve(freqs, gain_db, *, ref_band=None, kind: str = "lowpass",
+                      ref_db: float | None = None) -> Estimate:
     """-3 dB corner of a MEASURED low-pass response, against its own passband
     plateau, by linear interpolation between the two measured points that
     straddle it.
@@ -1343,13 +1513,22 @@ def corner_from_curve(freqs, gain_db, *, ref_band=None, kind: str = "lowpass") -
     For a resonant filter this is NOT the resonant peak, and it is not the
     argmax of anything; `peak_from_curve` answers that separately. Refuses
     when the curve never crosses -3 dB inside the measured range, rather than
-    returning its last point."""
+    returning its last point.
+
+    `ref_db` supplies the passband reference directly instead of taking the
+    median over `ref_band`. That is what #150 needs and why it exists: the
+    median of a band that MOVES WITH THE COMMANDED CUTOFF carries a different
+    amount of the filter's own droop at each cutoff, so the corner it produces
+    is biased by a different amount at each cutoff -- 15 % at 250 Hz against
+    0 % at 4 kHz on this project's grid, read as the filter's. `ref_band` is
+    still used for `detail` and is unchanged for every existing caller."""
     f, g = _as_float(freqs), _as_float(gain_db)
     o = np.argsort(f)
     f, g = f[o], g[o]
     if kind != "lowpass":
         raise ValueError("only 'lowpass' is implemented")
-    ref = plateau_db(f, g, ref_band or (f[0], f[0] * 2.0))
+    band_ref = plateau_db(f, g, ref_band or (f[0], f[0] * 2.0))
+    ref = band_ref if ref_db is None else float(ref_db)
     tgt = ref - 3.0
     below = np.where(g < tgt)[0]
     below = below[below > 0]
@@ -1362,7 +1541,7 @@ def corner_from_curve(freqs, gain_db, *, ref_band=None, kind: str = "lowpass") -
         return _fail("the passband reference band is already below -3 dB", plateau_db=ref)
     t = (g0 - tgt) / (g0 - g1)
     hz = float(2.0 ** (math.log2(f[i - 1]) + t * (math.log2(f[i]) - math.log2(f[i - 1]))))
-    return Estimate(hz, True, "", dict(plateau_db=ref))
+    return Estimate(hz, True, "", dict(plateau_db=ref, band_median_db=band_ref))
 
 
 def peak_from_curve(freqs, gain_db, *, ref_band=None, min_peak_db: float = 0.5) -> Estimate:

@@ -1106,9 +1106,18 @@ def test_appending_silence_cannot_rescue_a_refused_decay():
         "1.7 s of np.zeros turned a refusal into an accepted answer of "
         f"{(e.value or 0)*1e3:.1f} ms against an exact {exact*1e3:.1f} ms "
         f"({100*((e.value or 0)/exact - 1):+.1f} %)")
-    assert e.detail["tail_in_t20s"] >= am.MIN_TAIL_T20, (
-        "the LENGTH criterion is comfortably satisfied by the pad -- which is "
-        "why the criterion has to be about signal, not about record")
+    # And the point of the test, stated the way #118's test states its own:
+    # the criterion the pad DEFEATED is still comfortably satisfied by it. If
+    # anyone reinstates the array's length as the truncation test, this record
+    # goes green again and this assertion goes red.
+    d = e.detail
+    array_tail_t20s = (len(padded) - d["sounding_samples"] + d["after_hi_ms"] * 1e-3 * SR) \
+        / (d["t20_ms"] * 1e-3 * SR)
+    assert array_tail_t20s >= am.MIN_TAIL_T20, \
+        f"the ARRAY holds {array_tail_t20s:.2f} T20s after the -25 dB point"
+    assert d["tail_in_t20s"] < am.MIN_TAIL_T20, \
+        f"the SOUNDING record holds only {d['tail_in_t20s']:.3f}"
+    assert d["trailing_silence_ms"] == pytest.approx(1700.0, abs=1.0), d
 
 
 @pytest.mark.parametrize("pad_s", [0.2, 1.7, 5.0])
@@ -1243,3 +1252,80 @@ def test_inharmonic_fraction_db_is_unchanged_by_scaling():
     a = am.inharmonic_fraction_db(x, 441.0, SR).require()
     b = am.inharmonic_fraction_db(x * 1e-3, 441.0, SR).require()
     assert abs(a - b) < 1e-9, f"{a:.6f} vs {b:.6f} dB"
+
+
+# ---------------------------------------------------------------------------
+# #150 -- the passband reference a corner is measured against
+#
+# `plateau_db` takes the median of a band that MOVES WITH THE COMMANDED
+# CUTOFF, so it catches a different amount of the filter's own droop at each
+# cutoff and biases the corner by a different amount at each cutoff.
+# `dc_plateau_db` extrapolates to DC instead, which is shape-agnostic for any
+# real filter because |H(f)|^2 is even in f.
+# ---------------------------------------------------------------------------
+def _allpole_db(freqs, fc, poles):
+    return -(10.0 * poles) * np.log10(1.0 + (np.asarray(freqs, float) / fc) ** 2)
+
+
+@pytest.mark.parametrize("poles", [2, 4, 6])
+@pytest.mark.parametrize("fc", [250.0, 1000.0, 4000.0])
+def test_dc_plateau_db_recovers_the_dc_gain_of_an_ideal_filter(poles, fc):
+    """The closed form: every one of these curves is 0 dB at DC by
+    construction, at every cutoff and every pole count. The median of the same
+    band is not, and by a different amount each time -- which is the defect."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    band = (f[0], max(f[0] * 2.5, fc * 0.25))
+    g = _allpole_db(f, fc, poles)
+    e = am.dc_plateau_db(f, g, band, scale_hz=fc)
+    assert e.ok, e.reason
+    assert abs(e.value) < 0.05, f"DC level read {e.value:+.3f} dB, closed form 0.000"
+    assert abs(e.detail["band_median_db"]) >= abs(e.value), \
+        "the median must be the more biased of the two, or this repair is pointless"
+
+
+def test_dc_plateau_db_is_offset_equivariant():
+    """A gain applied to the whole curve must move the reference by exactly
+    that gain and nothing else -- it is a LEVEL, and a level estimator that is
+    not equivariant under a level change is not measuring one."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 1000.0, 4)
+    a = am.dc_plateau_db(f, g, (40.0, 250.0), scale_hz=1000.0).require()
+    b = am.dc_plateau_db(f, g - 7.5, (40.0, 250.0), scale_hz=1000.0).require()
+    assert abs((a - b) - 7.5) < 1e-9, f"{a:.9f} vs {b:.9f}"
+
+
+def test_dc_plateau_db_refuses_a_band_that_is_not_a_passband():
+    """The precondition, asserted at the point of use. Ask for the DC level of
+    a curve whose measured band is already far down its own skirt and there is
+    nothing to extrapolate FROM: the answer would be an extrapolation dressed
+    as a measurement, so it REFUSES."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 8.0, 6)              # corner two octaves below the grid
+    e = am.dc_plateau_db(f, g, (40.0, 250.0), scale_hz=8.0)
+    assert not e.ok
+    assert "not the passband" in e.reason
+    # Both halves of the guard fire here, and the extrapolation points the
+    # WRONG WAY -- 16 dB BELOW the band, which a low-pass's DC gain cannot be.
+    assert e.detail["extrapolation_db"] < -am.MAX_PLATEAU_EXTRAPOLATION_DB
+    assert e.detail["fit_residual_db"] > am.MAX_PLATEAU_EXTRAPOLATION_DB
+
+
+def test_dc_plateau_db_refuses_a_band_with_too_few_points():
+    f = np.asarray([40.0, 48.1, 57.8, 69.5])
+    e = am.dc_plateau_db(f, _allpole_db(f, 1000.0, 4), (40.0, 45.0), scale_hz=1000.0)
+    assert not e.ok and "three measured points" in e.reason
+
+
+def test_corner_from_curve_ref_db_overrides_the_band_median():
+    """The kwarg #150 needs, and the guarantee every existing caller relies on:
+    without `ref_db` nothing about this function moves."""
+    f = np.geomspace(40.0, 12000.0, 32)
+    g = _allpole_db(f, 250.0, 4)
+    band = (40.0, 100.0)
+    base = am.corner_from_curve(f, g, ref_band=band)
+    assert base.ok and base.value == pytest.approx(124.96, rel=0.005)
+    assert base.detail["plateau_db"] == base.detail["band_median_db"]
+    fixed = am.corner_from_curve(f, g, ref_band=band, ref_db=0.0)
+    assert fixed.value == pytest.approx(107.80, rel=0.005)
+    assert abs(fixed.value / (250.0 * math.sqrt(10 ** 0.075 - 1)) - 1) < 0.01
+    assert fixed.detail["band_median_db"] == pytest.approx(-0.904, abs=0.01)
