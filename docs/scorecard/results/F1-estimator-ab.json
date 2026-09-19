@@ -2,6 +2,7 @@
  "what": "F1A/F1B/F1C corner read by #146's estimator and #164's, on one set of curves, on both sides",
  "control": "the OLD estimator's reading against the committed #146 record",
  "curves_unmoved": true,
+ "superseded_records_at": "01e01e1",
  "rows": [
   {
    "case": "F1A",
@@ -68,6 +69,71 @@
    "ratio_ours_new": 0.3584,
    "ratio_reference_new": 0.4296,
    "error_pct_new": -16.59
+  }
+ ],
+ "property_vectors": [
+  {
+   "case": "F1A",
+   "old": {
+    "state": "pass",
+    "worst": 0.7959075330434308,
+    "properties": {
+     "Corner frequency": 0.7959075330434308,
+     "low-band gain": 0.12426666666666668,
+     "rolloff": 0.09886666666666666
+    }
+   },
+   "new": {
+    "state": "fail",
+    "worst": 1.6815546525664347,
+    "properties": {
+     "Corner frequency": 1.6815546525664347,
+     "low-band gain": 0.12426666666666668,
+     "rolloff": 0.09886666666666666
+    }
+   }
+  },
+  {
+   "case": "F1B",
+   "old": {
+    "state": "fail",
+    "worst": 1.4071527637573409,
+    "properties": {
+     "Corner frequency": 1.4071527637573409,
+     "low-band gain": 0.007933333333333334,
+     "rolloff": 1.284
+    }
+   },
+   "new": {
+    "state": "fail",
+    "worst": 1.6465369521983095,
+    "properties": {
+     "Corner frequency": 1.6465369521983095,
+     "low-band gain": 0.007933333333333334,
+     "rolloff": 1.284
+    }
+   }
+  },
+  {
+   "case": "F1C",
+   "old": {
+    "state": "fail",
+    "worst": 1.6186403969147616,
+    "properties": {
+     "Corner frequency": 1.6186403969147616,
+     "low-band gain": 0.024666666666666667,
+     "rolloff": 0.7244666666666667
+    }
+   },
+   "new": {
+    "state": "fail",
+    "worst": 1.6588159855508366,
+    "properties": {
+     "Corner frequency": 1.6588159855508366,
+     "low-band gain": 0.024666666666666667,
+     "rolloff": 0.7244666666666667
+    }
+   }
   }
  ]
 }

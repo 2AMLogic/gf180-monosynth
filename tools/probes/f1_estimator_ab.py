@@ -63,6 +63,11 @@ import audio_measure as am           # noqa: E402
 import refprofile as rp              # noqa: E402
 import run_case as rc                # noqa: E402
 
+#: The commit whose `docs/scorecard/results/F1*.json` are #146's records, read
+#: out of git rather than copied, so the superseded evidence is preserved where
+#: it already lives and this probe cannot quietly disagree with it.
+SUPERSEDED_AT = "01e01e1"
+
 #: The committed F1 records as #146 measured them, both sides, so the control
 #: is in the file rather than in a reader's memory. ours, reference, in Hz.
 COMMITTED_146 = {
@@ -111,6 +116,44 @@ def one_case(cid: str) -> dict:
         row[f"ratio_reference_{tag}"] = round(r / cut, 4) if r else None
         row[f"error_pct_{tag}"] = round(100.0 * (o / r - 1.0), 2) if o and r else None
     return row
+
+
+def _scorecard():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scorecard", ROOT / "tools" / "scorecard.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def property_vectors() -> list[dict]:
+    """The per-property vector old and new, because `worst` is an aggregate and
+    DR 0015 judges on the vector (#159).
+
+    The superseded records are read out of git at `SUPERSEDED_AT`, not copied
+    into this file: they are historical evidence, and evidence that has been
+    transcribed is a claim about evidence.
+    """
+    import subprocess
+    sc = _scorecard()
+    cases = {c["case_id"]: c for c in sc.load_cases()}
+    rows = []
+    for cid in ("F1A", "F1B", "F1C"):
+        r = subprocess.run(["git", "show", f"{SUPERSEDED_AT}:docs/scorecard/results/{cid}.json"],
+                           cwd=str(ROOT), capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"REFUSED  cannot read the superseded {cid} at {SUPERSEDED_AT}: "
+                  f"{r.stderr.strip()[:120]}")
+            return []
+        old = sc.evaluate(cases[cid], json.loads(r.stdout))
+        new = sc.evaluate(cases[cid], json.loads(
+            (ROOT / "docs" / "scorecard" / "results" / f"{cid}.json").read_text()))
+        rows.append({"case": cid,
+                     "old": {"state": old["state"], "worst": old["worst"],
+                             "properties": old.get("properties") or {}},
+                     "new": {"state": new["state"], "worst": new["worst"],
+                             "properties": new.get("properties") or {}}})
+    return rows
 
 
 def main(argv=None) -> int:
@@ -174,13 +217,31 @@ def main(argv=None) -> int:
         print("\nEvery curve is byte-for-byte the one #146 measured, so the whole of "
               "the difference above is the estimator.")
 
+    pv = property_vectors()
+    if pv:
+        print(f"\n--- the property vector, superseded ({SUPERSEDED_AT}) -> now "
+              f"(worst is an aggregate; DR 0015 judges the vector) ---")
+        names = list(pv[0]["new"]["properties"])
+        print(f"{'case':5s} {'state':>16s}  " + "  ".join(f"{n[:16]:>16s}" for n in names))
+        for r in pv:
+            st = f"{r['old']['state']} -> {r['new']['state']}"
+            cells = []
+            for n in names:
+                o = r["old"]["properties"].get(n)
+                c = r["new"]["properties"].get(n)
+                cells.append(f"{o:6.3f} ->{c:6.3f}" if o is not None and c is not None
+                             else f"{'--':>16s}")
+            print(f"{r['case']:5s} {st:>16s}  " + "  ".join(f"{c:>16s}" for c in cells))
+
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(
             {"what": "F1A/F1B/F1C corner read by #146's estimator and #164's, on one "
                      "set of curves, on both sides",
              "control": "the OLD estimator's reading against the committed #146 record",
              "curves_unmoved": not bad,
-             "rows": rows}, indent=1) + "\n", encoding="utf-8")
+             "superseded_records_at": SUPERSEDED_AT,
+             "rows": rows,
+             "property_vectors": pv}, indent=1) + "\n", encoding="utf-8")
         print(f"\nwrote {a.json}")
     return 1 if (a.check and bad) else 0
 
