@@ -246,12 +246,22 @@ class Cell:
         self.a, self.b, self.diff, self.floor, self.why = float(a), float(b), float(b - a), float(floor), why
 
 
-def voice_map(voice, refs, laws, refdir, arm="ours", n_win=N_WIN, leakage=True,
+def voice_map(voice, refs, laws, refdir, arm="ours", n_win=N_WIN,
               study_conditioning=False):
     """The 52 x 8 map for one voice, ours minus machine, with a floor per cell.
 
     Uses the HELD-OUT settings when the voice has a knob, exactly as
-    `discrimination_trajectory.compare` does, so the two are comparable."""
+    `discrimination_trajectory.compare` does, so the two are comparable.
+
+    THE FLOOR IS THREE THINGS AND LEAKAGE IS NOT ONE OF THEM. A cell is
+    refused when (F3) its band holds no analysis bin, when (F4) the machine's
+    reading is at its 16-bit quantisation floor -- then the difference is a
+    lower BOUND, which is still a claim -- or when (F6) the cell rests on a
+    single FFT bin and the disagreement is inside that bin's own chi-square
+    scatter. Leakage is measured too, but it says a difference cannot be
+    ATTRIBUTED to that band, not that there is no difference: both sides read
+    the same 33 Hz bin, so the difference of the readings is real whatever
+    else is in it. It is reported per row, never folded into the floor."""
     use = [c for c in refs if c.voice == voice and c.is_test]
     held_out = bool(use)
     if not use:
@@ -259,7 +269,7 @@ def voice_map(voice, refs, laws, refdir, arm="ours", n_win=N_WIN, leakage=True,
     if not use:
         return None
     cond = (lambda x, sr: (td.condition(x, sr, True), 0)) if study_conditioning else condition_causal
-    A, B, FA, FB, Q, pads = [], [], [], [], [], 0
+    A, B, Q, pads, segs = [], [], [], 0, []
     for c in use:
         xr, sr = td.read_wav(c.path)
         sa, pa = cond(xr, sr)
@@ -270,49 +280,67 @@ def voice_map(voice, refs, laws, refdir, arm="ours", n_win=N_WIN, leakage=True,
         M, cent, ms = dtj.trajectory(sb, so, n_win)
         B.append(M)
         Q.append(quantisation_floor_db(xr, sr, n_win))
-        if leakage:
-            FA.append(leakage_floor_db(sa, sr, n_win))
-            FB.append(leakage_floor_db(sb, so, n_win))
-    A, B = np.mean(A, axis=0), np.mean(B, axis=0)
-    Q = np.mean(Q, axis=0)
+        segs.append((sa, sr, sb, so))
+    n = len(use)
+    A, B, Q = np.mean(A, axis=0), np.mean(B, axis=0), np.mean(Q, axis=0)
     counts, bw, binbw = bin_support(sr, int(round(td.WINDOW_S * sr)), n_win)
-    lk = np.maximum(np.mean(FA, axis=0), np.mean(FB, axis=0)) if leakage else \
-        np.full_like(A, FLOOR_DB)
-    # the floor a cell must clear: whichever of the three is highest
-    floor = np.maximum(np.maximum(Q, lk), FLOOR_DB + 3.0)
-    floor[counts == 0] = np.inf                              # F3: no reading exists
-    return dict(voice=voice, n=len(use), held_out=held_out, real=A, ours=B, diff=B - A,
-                centres=cent, ms=ms, floor=floor, counts=counts,
-                bias=attribution_bias_db(counts, bw, binbw), pads=pads)
+    # F6: one FFT bin is chi-square with 2 dof -- 5.57 dB standard deviation --
+    # and averaging n settings divides the variance by n.
+    scatter = np.where(counts <= 1, ONE_BIN_SCATTER_DB / np.sqrt(n), 0.0)
+    return dict(voice=voice, n=n, held_out=held_out, real=A, ours=B, diff=B - A,
+                centres=cent, ms=ms, quant=Q, counts=counts, scatter=scatter,
+                bias=attribution_bias_db(counts, bw, binbw), pads=pads, segs=segs)
+
+
+ONE_BIN_SCATTER_DB = 5.57          # sqrt(var of 10*log10(chi2_2/2)) in dB
+
+
+def _leak(r, k, w):
+    """Leakage floor for ONE cell, measured on both sides and taken as the
+    larger. Lazy: 52 notched re-renders per clip is the expensive part of the
+    probe and only reported rows need it."""
+    e = dfx.cqt_edges()
+    per_side = [[], []]
+    for sa, sra, sb, srb in r["segs"]:
+        for i, (seg, sr) in enumerate(((sa, sra), (sb, srb))):
+            X = np.fft.rfft(seg)
+            f = np.fft.rfftfreq(len(seg), 1.0 / sr)
+            X[(f >= e[k]) & (f < e[k + 1])] = 0.0
+            per_side[i].append(dtj.trajectory(np.fft.irfft(X, n=len(seg)), sr, N_WIN)[0][k, w])
+    # mean per side, to match how `real` and `ours` are averaged, then the
+    # larger of the two: the floor has to cover whichever side is dirtier.
+    return float(max(np.mean(per_side[0]), np.mean(per_side[1])))
 
 
 def rows(r, top=8, margin=MARGIN_DB):
-    """Reportable cells, largest |difference| first. A cell is reportable when
-    BOTH sides clear the floor (a level error) or when OURS clears it and the
-    machine's reading is at or under it (an excess we can only bound below)."""
+    """Reportable cells, largest |difference| first, each with its verdict."""
     out = []
-    D, A, B, F = r["diff"], r["real"], r["ours"], r["floor"]
+    D, A, B, Q, S = r["diff"], r["real"], r["ours"], r["quant"], r["scatter"]
     for k in range(D.shape[0]):
+        if r["counts"][k] == 0:
+            continue                                     # F3
+        need = max(margin, 2.0 * S[k])                   # F6
         for w in range(D.shape[1]):
-            if not np.isfinite(F[k, w]):
+            if abs(D[k, w]) < need:
                 continue
-            ours_live = B[k, w] > F[k, w] + margin
-            mach_live = A[k, w] > F[k, w] + margin
-            if not ours_live and not mach_live:
+            if max(A[k, w], B[k, w]) <= FLOOR_DB + 3.0:
                 continue
-            if abs(D[k, w]) < margin:
+            mach_bound = A[k, w] <= Q[k, w] + margin     # F4
+            ours_bound = B[k, w] <= Q[k, w] + margin
+            if mach_bound and ours_bound:
                 continue
-            kind = ("level" if (ours_live and mach_live) else
-                    "EXCESS" if ours_live else "DEFICIT")
-            bound = "" if (ours_live and mach_live) else " (bound: other side at floor)"
-            out.append((abs(D[k, w]), kind, k, w, bound))
+            kind = "EXCESS" if D[k, w] > 0 else "DEFICIT"
+            out.append((abs(D[k, w]), kind, k, w, mach_bound, ours_bound, need))
     out.sort(reverse=True, key=lambda t: t[0])
     seen, keep = set(), []
-    for _, kind, k, w, bound in out:
+    for _, kind, k, w, mb, ob, need in out:
         if (k // 2, w // 2) in seen:
             continue
         seen.add((k // 2, w // 2))
-        keep.append((kind, k, w, bound))
+        leak = _leak(r, k, w)
+        attributable = max(A[k, w], B[k, w]) > leak + margin
+        keep.append(dict(kind=kind, k=k, w=w, mach_bound=mb, ours_bound=ob,
+                         need=need, leak=leak, attributable=attributable))
         if len(keep) >= top:
             break
     return keep
@@ -440,7 +468,7 @@ def report_floors(refdir):
         one = [k for k in range(len(counts)) if counts[k] == 1]
         b = attribution_bias_db(counts, bw, binbw)
         print(f"    {len(one)} bands hold exactly ONE bin; their band-width attribution bias is "
-              f"+{np.nanmin(b[one]):.1f} to +{np.nanmax(b[one]):.1f} dB "
+              f"{np.nanmin(b[one]):+.1f} to {np.nanmax(b[one]):+.1f} dB "
               f"({', '.join(f'{cent[k]:.0f}' for k in one)} Hz)")
 
     print("\n=== F2  the two sides do not enter the conditioning the same way ===")
@@ -479,34 +507,49 @@ def report_floors(refdir):
     return 0
 
 
-def report_map(refdir, sounds="16", top=6, leakage=True, study=False):
+def report_map(refdir, sounds="16", top=6, study=False, voices=None):
     print(provenance(refdir))
     all16 = sounds == "16"
     refs = td.ref_clips(refdir, include_unmodelled=all16)
     laws = td.fit_laws(refdir, all_sounds=all16)
-    which = "the STUDY's acausal conditioning (F1 ACTIVE)" if study else \
-        "a causal 20 Hz high-pass, both sides pre-trimmed (F1/F2 removed)"
+    which = "the STUDY's acausal conditioning (F1 ACTIVE -- for comparison only)" if study else \
+        "a causal 20 Hz high-pass, both sides pre-trimmed (F1 and F2 removed)"
     print(f"\nband x time map, ours minus machine, {N_WIN} x 30 ms, {which}")
-    print(f"floors: F3 structural, F4 16-bit quantisation, F5 measured leakage; "
-          f"margin {MARGIN_DB:.0f} dB\n")
+    print("refused: F3 (band holds no analysis bin), F4 (both sides under the 16-bit floor),")
+    print(f"F6 (inside a one-bin cell's own {ONE_BIN_SCATTER_DB:.1f} dB/sqrt(n) scatter). "
+          f"margin {MARGIN_DB:.0f} dB.")
+    print("`bound` = the other side is at its noise floor, so the difference is a LOWER bound.")
+    print("`BIN-WIDE` = removing the named band from the signal barely moves the cell, so the")
+    print("cell is reading its whole 33 Hz analysis bin. The difference is real AT THAT BIN;")
+    print("it is not attributable to the band the row is named after.\n")
     summary = {}
-    for v in sorted({c.voice for c in refs}):
-        r = voice_map(v, refs, laws, refdir, leakage=leakage, study_conditioning=study)
+    for v in (voices or sorted({c.voice for c in refs})):
+        r = voice_map(v, refs, laws, refdir, study_conditioning=study)
         if r is None:
             continue
         tag = f"{r['n']} held-out" if r["held_out"] else f"{r['n']} setting(s), NOT held out"
-        dead = int((~np.isfinite(r["floor"][:, 0])).sum())
-        print(f"{v}  ({tag}; {dead} of {len(r['counts'])} bands refused structurally"
+        dead = int((r["counts"] == 0).sum())
+        print(f"{v}  ({tag}; {dead}/{len(r['counts'])} bands refused F3"
               f"{'; ZERO-PADDED' if r['pads'] else ''})")
         got = rows(r, top)
         if not got:
             print("    no cell clears its floor by the margin")
-        for kind, k, w, bound in got:
-            step = r["ms"][1] - r["ms"][0]
-            print(f"    {kind:7s} {r['centres'][k]:6.0f} Hz  {r['ms'][w] - step / 2:3.0f}-"
+        step = r["ms"][1] - r["ms"][0]
+        for g in got:
+            k, w = g["k"], g["w"]
+            tags = []
+            if g["mach_bound"]:
+                tags.append("bound: machine at floor")
+            if g["ours_bound"]:
+                tags.append("bound: ours at floor")
+            if not g["attributable"]:
+                tags.append("BIN-WIDE")
+            print(f"    {g['kind']:7s} {r['centres'][k]:6.0f} Hz  {r['ms'][w] - step / 2:3.0f}-"
                   f"{r['ms'][w] + step / 2:3.0f} ms  {r['diff'][k, w]:+6.1f} dB "
-                  f"(machine {r['real'][k, w]:+6.1f}, ours {r['ours'][k, w]:+6.1f}, "
-                  f"floor {r['floor'][k, w]:+6.1f}, bias +{r['bias'][k]:.1f}){bound}")
+                  f"(machine {r['real'][k, w]:+6.1f}, ours {r['ours'][k, w]:+6.1f}; "
+                  f"16-bit {r['quant'][k, w]:+6.1f}, leak {g['leak']:+6.1f}, "
+                  f"bias {r['bias'][k]:+.1f}, need {g['need']:.1f})"
+                  + ("  [" + "; ".join(tags) + "]" if tags else ""))
         summary[v] = (r, got)
         print()
     _verdict(summary)
@@ -517,20 +560,22 @@ LOW_HZ, HIGH_LO, HIGH_HI = 200.0, 700.0, 5000.0
 
 
 def _verdict(summary):
+    """The number the one-mechanism-or-two question turns on, per voice."""
     print("=== one mechanism or two ===")
-    print(f"    {'voice':6s} {'excess<200Hz w0':>16s} {'net 0.7-5k':>11s} {'excess cells':>13s} "
-          f"{'deficit cells':>14s}")
+    print("  low  = largest EXCESS under 200 Hz in window 0 (the onset pedestal)")
+    print("  high = mean signed difference over live cells in 0.7-5 kHz, all windows\n")
+    print(f"    {'voice':6s} {'low w0':>8s} {'high 0.7-5k':>12s} {'excess':>7s} {'deficit':>8s}")
     for v, (r, _) in sorted(summary.items()):
-        cent, F, D, A, B = r["centres"], r["floor"], r["diff"], r["real"], r["ours"]
-        lowmask = (cent < LOW_HZ) & np.isfinite(F[:, 0])
-        lo = float(np.nanmax(D[lowmask, 0])) if lowmask.any() else float("nan")
-        hi = (cent >= HIGH_LO) & (cent <= HIGH_HI)
-        live = np.isfinite(F) & ((A > F + MARGIN_DB) | (B > F + MARGIN_DB))
-        hm = live & hi[:, None]
+        cent, D, A, B, Q = r["centres"], r["diff"], r["real"], r["ours"], r["quant"]
+        ok = (r["counts"] > 0)[:, None] & (np.maximum(A, B) > Q + MARGIN_DB) & \
+             (np.maximum(A, B) > FLOOR_DB + 3.0)
+        lowm = (cent < LOW_HZ)[:, None] & ok
+        lowm[:, 1:] = False
+        lo = float(D[lowm].max()) if lowm.any() else float("nan")
+        hm = ((cent >= HIGH_LO) & (cent <= HIGH_HI))[:, None] & ok
         net = float(D[hm].mean()) if hm.any() else float("nan")
-        exc = int(((D > MARGIN_DB) & live).sum())
-        dfc = int(((D < -MARGIN_DB) & live).sum())
-        print(f"    {v:6s} {lo:16.1f} {net:11.1f} {exc:13d} {dfc:14d}")
+        print(f"    {v:6s} {lo:8.1f} {net:12.1f} {int(((D > MARGIN_DB) & ok).sum()):7d} "
+              f"{int(((D < -MARGIN_DB) & ok).sum()):8d}")
 
 
 def main(argv=None):
@@ -541,19 +586,21 @@ def main(argv=None):
     ap.add_argument("--floors", action="store_true", help="the instrument's limits, measured")
     ap.add_argument("--map", action="store_true", help="the band x time map with floors")
     ap.add_argument("--attribute", action="store_true", help="per-path mute sweep")
+    ap.add_argument("--bands", action="store_true",
+                    help="the 0.7-5 kHz split the shared-circuit constraint is stated in")
     ap.add_argument("--study-conditioning", action="store_true",
                     help="re-run the map with the acausal filter, to show what it added")
-    ap.add_argument("--no-leakage", action="store_true", help="skip the F5 notch sweep (fast)")
     ap.add_argument("--voices", default="")
     ap.add_argument("--top", type=int, default=6)
     a = ap.parse_args(argv)
-    if not (a.floors or a.map or a.attribute):
+    if not (a.floors or a.map or a.attribute or a.bands):
         a.floors = a.map = True
     rc = 0
     if a.floors:
         rc |= report_floors(a.refs)
     if a.map:
-        rc |= report_map(a.refs, a.sounds, a.top, not a.no_leakage, a.study_conditioning)
+        rc |= report_map(a.refs, a.sounds, a.top, a.study_conditioning,
+                         a.voices.split(",") if a.voices else None)
     if a.attribute:
         print(provenance(a.refs))
         laws = td.fit_laws(a.refs, all_sounds=True)
@@ -567,6 +614,8 @@ def main(argv=None):
                 mark = "  <== " if (np.isfinite(d) and d <= -6.0) else "      "
                 print(f"    {name:16s} {val:+7.1f}  {d:+7.1f}{mark}{what}")
             print()
+    if a.bands:
+        rc |= report_bands(a.refs, a.voices.split(",") if a.voices else None)
     return rc
 
 
@@ -772,3 +821,124 @@ def test_a_gain_does_not_move_the_map():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ===========================================================================
+# The 0.7-5 kHz split the shared-circuit constraint is stated in
+# ===========================================================================
+# `docs/discrimination.md` 5a states the tom/conga puzzle in three bands, and
+# `model/audio_measure.band_energy` -- the filter bank that produced it -- says
+# in its own docstring that `sosfiltfilt` "manufactures an edge worth up to
+# 10 dB in a sparsely-occupied band" unless the segment arrives with a TRUE
+# pre-onset lead. The Fischer files begin AT their onset: there is no lead to
+# give it, on the machine's side, for any of the sixteen. So this uses the
+# other instrument that docstring names -- a RECTANGULAR-window FFT, where
+# Parseval is exact and prepended silence is worth 0.44 dB -- which needs no
+# lead and cannot have that artefact.
+SPLIT_EDGES = ((20.0, 700.0), (700.0, 5000.0), (5000.0, 20000.0))
+
+
+def parseval_shares(x, sr, edges=SPLIT_EDGES):
+    """Fraction of total energy per band, rectangular window, exact."""
+    x = np.asarray(x, float)
+    X = np.fft.rfft(x)
+    p = (np.abs(X) ** 2)
+    p[1:-1] *= 2.0 if len(x) % 2 == 0 else 2.0
+    f = np.fft.rfftfreq(len(x), 1.0 / sr)
+    tot = float(p.sum())
+    return np.array([float(p[(f >= lo) & (f < hi)].sum()) / (tot + 1e-30) for lo, hi in edges])
+
+
+def parseval_leakage_floor(x, sr, edges=SPLIT_EDGES):
+    """The share each band still reports when that band has been removed from
+    the signal. A share at or under this is the instrument's skirt."""
+    x = np.asarray(x, float)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1.0 / sr)
+    out = []
+    for i, (lo, hi) in enumerate(edges):
+        Y = X.copy()
+        Y[(f >= lo) & (f < hi)] = 0.0
+        out.append(parseval_shares(np.fft.irfft(Y, n=len(x)), sr, edges)[i])
+    return np.array(out)
+
+
+def report_bands(refdir, voices=None):
+    """Ours against the machine in the three bands of `docs/discrimination.md`
+    5a, at HEAD -- which is AFTER #154 removed the x1.7 tom sweep that the
+    table was measured with."""
+    print(provenance(refdir))
+    refs = td.ref_clips(refdir, include_unmodelled=True)
+    laws = td.fit_laws(refdir, all_sounds=True)
+    vs = voices or sorted({c.voice for c in refs})
+    print("\nenergy share of the 240 ms conditioned window, rectangular-FFT Parseval\n"
+          "(the filter bank of `discrimination.md` 5a cannot be used: it needs a true\n"
+          " pre-onset lead and the Fischer files begin at their onset)\n")
+    hdr = ("voice", "<0.7k m", "<0.7k o", "0.7-5k m", "0.7-5k o", "dB(o/m)",
+           ">5k m", ">5k o", "dB(o/m)", "no-coef 0.7-5k", "dB")
+    print("    " + " ".join(f"{h:>10s}" for h in hdr))
+    for v in vs:
+        use = [c for c in refs if c.voice == v and c.is_test] or [c for c in refs if c.voice == v]
+        A, B, C, floors = [], [], [], []
+        for c in use:
+            xr, sr = td.read_wav(c.path)
+            A.append(parseval_shares(condition_causal(xr, sr)[0], sr))
+            xo, so = td.render(v, c.knobs, laws, "ours")
+            B.append(parseval_shares(condition_causal(xo, so)[0], so))
+            floors.append(parseval_leakage_floor(condition_causal(xo, so)[0], so))
+            kit = td.kit_at(v, c.knobs, laws, "ours")
+            n = int(td.RENDER_S * dx.SR)
+            d = dx.DrumsFx()
+            dm, bd = d.play(dx.hit_writes([(10, dx.SOUND_STOP[v], 1.0)], kit, coef_seq=False), n)
+            g = dx.accent_reg(td.RENDER_GAIN)
+            o = dx.output_fx(np.zeros(n), 0, dm, g, bd, g).astype(np.float64) / 32768.0
+            C.append(parseval_shares(condition_causal(o[td.onset(o):], dx.SR)[0], dx.SR))
+        A, B, C, F = (np.mean(x, axis=0) for x in (A, B, C, floors))
+        d = lambda o, m: 10 * np.log10((o + 1e-30) / (m + 1e-30))       # noqa: E731
+        flag = "  FLOOR" if B[1] < 3 * F[1] else ""
+        print(f"    {v:>10s} " + " ".join(
+            f"{x:10.5f}" if isinstance(x, float) else f"{x:>10s}" for x in
+            (float(A[0]), float(B[0]), float(A[1]), float(B[1]), float(d(B[1], A[1])),
+             float(A[2]), float(B[2]), float(d(B[2], A[2])), float(C[1]),
+             float(d(C[1], A[1])))) + flag)
+    print("\n  FLOOR = our own 0.7-5 kHz share is within 5 dB of this estimator's leakage floor,")
+    print("  so the row is a bound and not a reading.")
+    return 0
+
+
+def test_parseval_shares_split_a_two_tone_signal():
+    """Ground truth for the band split: two tones of known power, one each
+    side of the 700 Hz edge. This is `band_energy`'s own ground-truth test,
+    run against the rectangular instrument."""
+    sr = 48000
+    n = sr
+    t = np.arange(n) / sr
+    x = 1.0 * np.sin(2 * np.pi * 200.0 * t) + 0.5 * np.sin(2 * np.pi * 2000.0 * t)
+    s = parseval_shares(x, sr)
+    want = np.array([1.0, 0.25, 0.0]) / 1.25
+    assert np.allclose(s, want, atol=1e-4), (s, want)
+
+
+def test_parseval_shares_are_invariant_to_prepended_silence():
+    """The property the filter bank does not have, and the reason this is the
+    instrument used where no pre-onset lead exists."""
+    sr = 48000
+    n = int(sr * 0.24)
+    t = np.arange(n) / sr
+    x = np.sin(2 * np.pi * 180.0 * t) * np.exp(-t / 0.05)
+    a = parseval_shares(x, sr)
+    b = parseval_shares(np.concatenate([np.zeros(1000), x]), sr)
+    assert np.abs(10 * np.log10((b + 1e-30) / (a + 1e-30)))[:2].max() < 0.5, (a, b)
+
+
+def test_a_decaying_resonators_own_skirt_is_above_the_leakage_floor():
+    """The floor that decides whether a tom's 0.7-5 kHz reading is a reading.
+    A 90 Hz two-pole ring at Q 25 has a real Lorentzian skirt up there; the
+    estimator's own leakage must be well under it, or the row is a bound."""
+    sr = 48000
+    n = int(sr * 0.24)
+    t = np.arange(n) / sr
+    x = np.sin(2 * np.pi * 90.0 * t) * np.exp(-t * np.pi * 90.0 / 25.0)
+    s = parseval_shares(x, sr)
+    f = parseval_leakage_floor(x, sr)
+    assert s[1] > 10 * f[1], (s[1], f[1])
