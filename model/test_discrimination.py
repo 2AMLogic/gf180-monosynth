@@ -279,6 +279,39 @@ def onset(x: np.ndarray, frac: float = 0.02) -> int:
     return int(np.argmax(np.abs(x) > frac * pk))
 
 
+def preparation_state(x: np.ndarray, sr: int) -> dict:
+    """What two sides of a paired comparison have to agree about before a
+    shared function can be called fair (#163).
+
+    A comparison is fair when both sides are in the same STATE when the shared
+    function runs, not when they call the same function. The state is
+    established upstream -- `_render_raw` for ours, `read_wav` for the
+    machine's -- so the call site, which reads `f(ours)` and `f(theirs)`,
+    cannot see it. This makes it visible and cheap to assert."""
+    x = np.asarray(x, dtype=float)
+    if len(x) == 0:
+        return dict(n=0, sr=int(sr), lead_ms=0.0, first=0.0, peak=0.0, dur_ms=0.0)
+    return dict(n=int(len(x)), sr=int(sr), lead_ms=1000.0 * onset(x) / sr,
+                first=float(x[0]), peak=float(np.abs(x).max()),
+                dur_ms=1000.0 * len(x) / sr)
+
+
+def assert_same_preparation(a: dict, b: dict, lead_tol_ms: float = 0.1) -> bool:
+    """Raise, naming every field that differs. `lead_ms` is the one #101,
+    #132 and #160's F2 all turned on."""
+    bad = []
+    if abs(a["lead_ms"] - b["lead_ms"]) > lead_tol_ms:
+        bad.append(f"lead_ms {a['lead_ms']:.3f} vs {b['lead_ms']:.3f}")
+    if a["sr"] != b["sr"]:
+        bad.append(f"sr {a['sr']} vs {b['sr']}")
+    if abs(a["dur_ms"] - b["dur_ms"]) > 1.0:
+        bad.append(f"dur_ms {a['dur_ms']:.1f} vs {b['dur_ms']:.1f}")
+    if bad:
+        raise AssertionError("inputs are not in the same preparation state: "
+                             + "; ".join(bad))
+    return True
+
+
 def condition(x: np.ndarray, sr: int, level_match: bool = True) -> np.ndarray:
     """Remove DC, high-pass, onset-align, cut to WINDOW_S, optionally peak
     normalise. Everything here is applied identically to a real clip and to
@@ -1719,6 +1752,83 @@ def test_conditioning_removes_length_and_dc():
     # must come through with its attack intact
     t = condition(_tone(200, sr, tau=10.0), sr, level_match=False)
     assert abs(np.abs(t[:200]).max() / np.abs(t[-200:]).max() - 1.0) < 0.25
+
+
+def test_conditioning_does_not_answer_an_impulse_with_a_pedestal():
+    """CONTROL for #161, and the signal that found it.
+
+    `sosfiltfilt` pads 6 samples. The 20 Hz high-pass has a pole at 0.99715
+    (44.1 k) / 0.99739 (48 k) -- about 2,400 samples to settle to 1e-3. Six
+    samples against that is not a boundary condition, it is an initial
+    condition chosen at random, and on a unit impulse at index 0 the acausal
+    filter answers with a FULL-SCALE NEGATIVE PEDESTAL: y[1] = -0.997 and the
+    first 30 ms integrating to -342 (44.1 k) / -373 (48 k), against a causal
+    filter's +0.02.
+
+    The pedestal lands on the attack, which is where the discrimination lives,
+    and `condition()` feeds every one of the 320 feature columns."""
+    for sr in (44100, 48000):
+        x = np.zeros(int(0.30 * sr))
+        x[0] = 1.0
+        y = condition(x, sr, level_match=False)
+        n30 = int(0.030 * sr)
+        assert abs(y[1]) < 0.05, f"sr={sr}: second sample {y[1]:.3f} is a pedestal"
+        assert abs(float(y[:n30].sum())) < 1.0, \
+            f"sr={sr}: first 30 ms integrates to {float(y[:n30].sum()):.1f}, not ~0"
+        # and the impulse itself must survive: a high-pass keeps an impulse
+        assert y[0] > 0.9, f"sr={sr}: the impulse itself was eaten ({y[0]:.3f})"
+
+
+def test_a_measurement_does_not_depend_on_where_the_record_begins():
+    """#103's invariance, the one that catches this class without knowing the
+    mechanism: prepend silence and the answer must not move.
+
+    This is the asymmetry #160's F2 named -- `_render_raw` pre-trims OUR clip
+    at its onset and `read_wav` does not trim the machine's -- expressed as a
+    property of the measurement instead of a rule about the callers. Once
+    `condition()` cuts at the onset BEFORE it filters, nothing ahead of the
+    onset can reach the answer, so the two sides may arrive differently
+    prepared and still be compared fairly."""
+    sr = 44100
+    hit = _tone(200, sr, 0.40, 0.05)
+    for lead_ms in (1.0, 10.0, 50.0):
+        lead = np.concatenate([np.zeros(int(lead_ms * 1e-3 * sr)), hit])
+        a = features(condition(hit, sr), sr)[0]
+        b = features(condition(lead, sr), sr)[0]
+        assert np.abs(a - b).max() < 1e-9, \
+            f"{lead_ms} ms of silence moved the features by {np.abs(a - b).max():.3g}"
+    # and the machine's lead is not silence: it carries about 1 LSB of
+    # converter DC and a -76 dBFS floor, which must not reach the answer either
+    rng = np.random.default_rng(11)
+    n = int(0.010 * sr)
+    dirty = np.concatenate([3e-5 + 1.6e-4 * rng.standard_normal(n), hit])
+    c = features(condition(dirty, sr), sr)[0]
+    a = features(condition(hit, sr), sr)[0]
+    assert np.abs(a - c).max() < 1e-9, \
+        f"a converter's lead moved the features by {np.abs(a - c).max():.3g}"
+
+
+def test_the_two_sides_arrive_differently_prepared_and_it_is_recorded():
+    """#163 rule 1: a paired comparison asserts its inputs are in the same
+    preparation state, or records that they are not.
+
+    Ours and the machine's genuinely are NOT in the same state -- our render
+    has no lead to give, so the asymmetry cannot be removed by equalising it.
+    What can be done is to record it and to prove it no longer reaches the
+    measurement, which is what the two assertions below are."""
+    sr = 44100
+    hit = _tone(200, sr, 0.40, 0.05)
+    trimmed = hit[onset(hit):]
+    untrimmed = np.concatenate([np.zeros(int(0.010 * sr)), hit])
+    a, b = preparation_state(trimmed, sr), preparation_state(untrimmed, sr)
+    assert a["lead_ms"] != b["lead_ms"], "the fixture no longer poses the problem"
+    try:
+        assert_same_preparation(a, b)
+    except AssertionError as e:
+        assert "lead_ms" in str(e), str(e)
+    else:
+        raise AssertionError("differing lead was not reported")
+    assert np.abs(condition(trimmed, sr) - condition(untrimmed, sr)).max() < 1e-12
 
 
 def test_floor_clamp_hides_a_noise_floor_difference():
